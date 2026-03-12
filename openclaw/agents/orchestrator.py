@@ -743,20 +743,18 @@ class CLUEOrchestrator:
         return score >= 0.60 and anchors_ok
 
     def _enforce_title_summary_consistency(self, processed_scan: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        """제목-요약 하드코딩 정합성 게이트 비활성화.
+
+        정책상 제목/요약은 동일 URL 본문 기반 + LLM 본문 근거 판정을 우선하므로,
+        이 단계에서는 비어있는 항목만 최소 필터링한다.
+        """
         out = {}
-        speculative = ["가능성이", "전망", "해석", "시사", "추정"]
         for c, items in (processed_scan or {}).items():
             kept = []
             for it in items:
-                title = it.get("title_ko") or it.get("title") or ""
-                desc = it.get("description") or ""
-                score = self._title_summary_consistency_score(title, desc)
-                spec_hits = sum(1 for w in speculative if w in desc)
-                # strict: full alignment required
-                if not self._is_title_summary_fully_aligned(title, desc):
-                    continue
-                # over-completion guard
-                if score < 0.55 and spec_hits >= 1:
+                title = (it.get("title_ko") or it.get("title") or "").strip()
+                desc = (it.get("description") or "").strip()
+                if not title or not desc:
                     continue
                 kept.append(it)
             out[c] = kept
