@@ -1,31 +1,25 @@
 categories:
-  AI_TECH:
+  WORLD_POLITICS:
     rss:
-      - "https://feeds.reuters.com/Reuters/worldNews"
-      - "https://feeds.reuters.com/reuters/businessNews"
-      - "https://feeds.reuters.com/reuters/technologyNews"
-      - "https://apnews.com/hub/apf-world-news/rss.xml"
       - "http://feeds.bbci.co.uk/news/world/rss.xml"
       - "https://www.aljazeera.com/xml/rss/all.xml"
+    google_news_queries: []
+    keywords: [지정학, 전쟁, 외교, 제재, 중동, 국제정세]
+
+  BUSINESS_ECONOMY_ENERGY:
+    rss:
       - "https://www.cnbc.com/id/100003114/device/rss/rss.html"
-      - "https://www.eia.gov/todayinenergy/rss.php"
       - "https://oilprice.com/rss/main"
+      - "https://www.freightwaves.com/news/feed"
+      - "https://www.supplychaindive.com/feeds/news/"
+    google_news_queries: []
+    keywords: [경제, 금융, 에너지, 원자재, 물류, 공급망]
+
+  AI_TECH:
+    rss:
       - "https://www.theverge.com/rss/index.xml"
       - "http://feeds.arstechnica.com/arstechnica/index"
       - "https://www.technologyreview.com/feed/"
-      - "https://www.semiconductor-digest.com/feed/"
-      - "https://www.tomshardware.com/feeds/all"
-      - "https://www.anandtech.com/rss/"
-      - "https://www.datacenterdynamics.com/en/rss/"
-      - "https://www.theregister.com/data_centre/headlines.atom"
-      - "https://aws.amazon.com/blogs/aws/feed/"
-      - "https://cloud.google.com/blog/rss/"
-      - "https://azure.microsoft.com/en-us/blog/feed/"
-      - "https://www.cisa.gov/news.xml"
-      - "https://feeds.feedburner.com/TheHackersNews"
-      - "https://www.bleepingcomputer.com/feed/"
-      - "https://www.freightwaves.com/news/feed"
-      - "https://www.supplychaindive.com/feeds/news/"
     google_news_queries:
       - "Iran war impact on AI semiconductor supply chain 2026"
       - "Middle East conflict impact on data center cloud infrastructure 2026"
@@ -33,6 +27,54 @@ categories:
       - "Jensen Huang NVIDIA GPU roadmap data center 2026"
       - "HBM supply Samsung Electronics SK hynix Micron trend 2026"
     keywords: [AI, model, GPU, semiconductor, data center, cloud, NVIDIA, OpenAI, Iran, Middle East, HBM]
+
+  SEMICONDUCTOR_CLOUD_INFRA:
+    rss:
+      - "https://www.semiconductor-digest.com/feed/"
+      - "https://www.tomshardware.com/feeds/all"
+      - "https://www.theregister.com/data_centre/headlines.atom"
+      - "https://www.theregister.com/enterprise/headlines.atom"
+      - "https://aws.amazon.com/blogs/aws/feed/"
+      - "https://azure.microsoft.com/en-us/blog/feed/"
+      - "https://electrek.co/feed/"
+    google_news_queries: []
+    keywords: [반도체, 데이터센터, 클라우드, 인프라, 전력, 아키텍처]
+
+  SECURITY_RISK:
+    rss:
+      - "https://feeds.feedburner.com/TheHackersNews"
+    google_news_queries: []
+    keywords: [보안, 해킹, 침해, 리스크, 취약점]
+
+  SCIENCE_SOCIETY:
+    rss:
+      - "https://www.sciencedaily.com/rss/all.xml"
+      - "https://www.pewresearch.org/feed/"
+    google_news_queries: []
+    keywords: [과학, 연구, 사회, 인구, 노동]
+
+  REAL_ESTATE:
+    rss:
+      - "https://www.housingwire.com/feed/"
+    google_news_queries: []
+    keywords: [부동산, 주거, 주택, 모기지]
+
+  CULTURE_LIFESTYLE:
+    rss:
+      - "https://variety.com/feed/"
+      - "https://www.rollingstone.com/feed/"
+      - "https://www.eater.com/rss/index.xml"
+      - "https://www.cntraveler.com/feed/rss"
+    google_news_queries: []
+    keywords: [문화, 엔터테인먼트, 여행, 음식, 라이프스타일]
+
+  SPORTS:
+    rss:
+      - "http://feeds.bbci.co.uk/sport/rss.xml"
+      - "https://www.espn.com/espn/rss/news"
+    google_news_queries: []
+    keywords: [스포츠, 경기, 리그, 선수]
+
 research:
   target_mix:
     academic: 0
