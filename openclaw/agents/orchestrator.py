@@ -178,6 +178,7 @@ class CLUEOrchestrator:
             c: self.processor.process_news_batch(items, lang="ko")[:max_per_country]
             for c, items in scan_by_country.items()
         }
+        processed_scan = self._enforce_title_summary_consistency(processed_scan)
         max_research = research_cfg.get("max_items", 0)
         processed_research = []
         if research_enabled and max_research > 0 and filtered_research:
@@ -706,6 +707,35 @@ class CLUEOrchestrator:
             x.pop("_dedupe_clause", None)
         return out
 
+    def _title_summary_consistency_score(self, title: str, summary: str) -> float:
+        t = re.sub(r"\s+", " ", re.sub(r"[^\w가-힣 ]", " ", (title or "").lower())).strip()
+        s = re.sub(r"\s+", " ", re.sub(r"[^\w가-힣 ]", " ", (summary or "").lower())).strip()
+        if not t or not s:
+            return 0.0
+        t_toks = {x for x in t.split() if len(x) >= 2}
+        s_toks = {x for x in s.split() if len(x) >= 2}
+        if not t_toks or not s_toks:
+            return 0.0
+        overlap = len(t_toks & s_toks) / max(1, len(t_toks))
+        return overlap
+
+    def _enforce_title_summary_consistency(self, processed_scan: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        out = {}
+        speculative = ["가능성이", "전망", "해석", "시사", "추정"]
+        for c, items in (processed_scan or {}).items():
+            kept = []
+            for it in items:
+                title = it.get("title_ko") or it.get("title") or ""
+                desc = it.get("description") or ""
+                score = self._title_summary_consistency_score(title, desc)
+                # 과보완 방지: 제목-요약 정합이 약하고 추정형이 많은 경우 제거
+                spec_hits = sum(1 for w in speculative if w in desc)
+                if score < 0.18 and spec_hits >= 1:
+                    continue
+                kept.append(it)
+            out[c] = kept
+        return out
+
     def _dedupe_semantic(self, items: list[dict]) -> list[dict]:
         """Policy-linked semantic dedup execution.
         Keep one representative per near-duplicate event cluster.
@@ -747,11 +777,14 @@ class CLUEOrchestrator:
                 out.append(it)
                 continue
 
-            # representative selection priority: evidence_grounding > info density > recency > source quality(heuristic)
             kept = out[duplicate_idx]
-            new_score = len((summary or "").split()) + len((title or "").split()) * 2
-            old_score = len((kept.get("summary") or "").split()) + len((kept.get("title") or "").split()) * 2
-            if new_score > old_score:
+            new_cons = self._title_summary_consistency_score(title, summary)
+            old_cons = self._title_summary_consistency_score(kept.get("title", ""), kept.get("summary", ""))
+            new_info = len((summary or "").split()) + len((title or "").split()) * 2
+            old_info = len((kept.get("summary") or "").split()) + len((kept.get("title") or "").split()) * 2
+
+            # representative priority: title-summary consistency > info density
+            if (new_cons > old_cons + 0.03) or (abs(new_cons - old_cons) <= 0.03 and new_info > old_info):
                 out[duplicate_idx] = it
 
         return out

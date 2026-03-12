@@ -254,11 +254,13 @@
         "mode": "semantic",
         "keepOnePerDuplicateCluster": true,
         "selectionPriority": [
+          "title_summary_consistency",
           "evidence_grounding",
           "information_density",
           "recency",
           "source_quality"
-        ]
+        ],
+        "recheckConsistencyAfterReplacement": true
       },
       "summaryJudge": {
         "required": true,
