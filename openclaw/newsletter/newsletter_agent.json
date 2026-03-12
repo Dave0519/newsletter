@@ -202,7 +202,9 @@
       "minPassRate": 0.8,
       "softMinPassRate": 0.7,
       "forbidDomains": [
-        "news.google.com"
+        "news.google.com",
+        "www.digitimes.com",
+        "digitimes.com"
       ],
       "requireDistinctPerArticle": true,
       "allowRetryResolution": true,

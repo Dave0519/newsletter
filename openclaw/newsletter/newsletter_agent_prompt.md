@@ -79,14 +79,14 @@ Summary만 읽어도 상황을 빠르게 파악하고 Global Scan 본문을 더 
 - Global Research Insight 섹션이 최종 메일에 존재하지 않는지
 - 기사마다 '실무 시사점' 블록이 포함되었는지
 - 기사 링크의 80% 이상이 실제 원문 도메인으로 연결되는지
-- news.google.com 링크는 최종 발송본에서 제외되었는지
+- news.google.com, digitimes.com 링크는 최종 발송본에서 제외되었는지
 - 기사 제목은 100% 한국어 정리본인지
 - 기사 요약은 4~5문장 범위를 지키는지
 - Summary가 기사 본문 사실 기반으로 간결하게 작성되었는지(기사별 2문장 중심)
 
 ## 발송 전 게이트 (Tiered)
 ### Hard Gate (실패 시 발송 금지)
-1) 금지 도메인 0건 (`news.google.com`)
+1) 금지 도메인 0건 (`news.google.com`, `digitimes.com`)
 2) 한국어 제목/요약 규칙 충족
 3) Summary-Global Scan 일치
 4) 실무 시사점 블록 누락 없음
