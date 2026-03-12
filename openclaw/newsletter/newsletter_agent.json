@@ -72,6 +72,7 @@
       "build_summary_from_global_scan",
       "render_template_strict",
       "validate_quality_gates_tiered",
+      "final_relevance_review_and_refine",
       "send"
     ],
     "articleCountShortageCauses": [
@@ -194,6 +195,20 @@
       "allowRetryResolution": true,
       "maxResolutionAttempts": 3,
       "onFail": "drop_article_or_refetch"
+    },
+    "finalRelevanceReview": {
+      "enabled": true,
+      "runAt": "pre_send_last_step",
+      "keepExistingFlow": true,
+      "requireDirectNeedMatch": true,
+      "dropIfLowRelevance": true,
+      "dropExamples": [
+        "generic_real_estate",
+        "general_lifestyle"
+      ],
+      "regenerateIfBelowHardMin": true,
+      "hardMinArticles": 6,
+      "publishOnlyReviewedMatches": true
     }
   },
   "issueNumber": {
