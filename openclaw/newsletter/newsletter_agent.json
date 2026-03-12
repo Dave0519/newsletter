@@ -28,6 +28,18 @@
       "INDUSTRY",
       "SEMICONDUCTOR"
     ],
+    "needsGrouping": {
+      "enabled": true,
+      "searchPerGroup": true,
+      "minGroupsInFinal": 2,
+      "maxSingleGroupShare": 0.5,
+      "targetMix": {
+        "primary": "0.40-0.50",
+        "secondary": "0.20-0.35",
+        "tertiary": "0.15-0.25"
+      },
+      "rebalanceBeforeSend": true
+    },
     "minArticlesPerNewsletter": 6,
     "softMinArticlesPerNewsletter": 8,
     "targetArticlesPerNewsletter": 10,
