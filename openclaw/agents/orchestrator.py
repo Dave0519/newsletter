@@ -719,6 +719,11 @@ class CLUEOrchestrator:
         overlap = len(t_toks & s_toks) / max(1, len(t_toks))
         return overlap
 
+    def _is_title_summary_fully_aligned(self, title: str, summary: str) -> bool:
+        score = self._title_summary_consistency_score(title, summary)
+        # strict gate: require high token overlap for subject/action/object consistency
+        return score >= 0.55
+
     def _enforce_title_summary_consistency(self, processed_scan: dict[str, list[dict]]) -> dict[str, list[dict]]:
         out = {}
         speculative = ["가능성이", "전망", "해석", "시사", "추정"]
@@ -728,9 +733,12 @@ class CLUEOrchestrator:
                 title = it.get("title_ko") or it.get("title") or ""
                 desc = it.get("description") or ""
                 score = self._title_summary_consistency_score(title, desc)
-                # 과보완 방지: 제목-요약 정합이 약하고 추정형이 많은 경우 제거
                 spec_hits = sum(1 for w in speculative if w in desc)
-                if score < 0.18 and spec_hits >= 1:
+                # strict: full alignment required
+                if not self._is_title_summary_fully_aligned(title, desc):
+                    continue
+                # over-completion guard
+                if score < 0.55 and spec_hits >= 1:
                     continue
                 kept.append(it)
             out[c] = kept
