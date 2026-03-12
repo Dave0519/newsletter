@@ -78,7 +78,7 @@ class CLUEOrchestrator:
             return result
 
         # PHASE 1: RSS 기반 1차 공통 수집
-        article_pool = self.news_collector.collect_all(per_category_limit=50)
+        article_pool = self.news_collector.collect_all(per_category_limit=100)
         custom_queries = self._build_customer_queries(customer)
 
         research_cfg = self.config["news"].get("research_insight", {})
