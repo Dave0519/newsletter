@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "updatedAt": "2026-03-12T13:42:56+09:00",
+  "updatedAt": "2026-03-12T14:03:03+09:00",
   "serialPolicy": {
     "format": "YYNNNNN",
     "startNumber": 1,
@@ -314,22 +314,35 @@
       "needsProfile": {
         "topics": [
           "AI_EDUCATION",
-          "AI_TECH",
+          "AI_TREND",
           "AI_AGENT",
           "VIBE_CODING",
-          "TRAVEL",
+          "DOMESTIC_TRAVEL",
+          "CAMPING",
           "CULTURE",
           "FOOD"
         ],
         "keywords": [
           "AI 교육",
+          "AI 러닝",
+          "AI 활용 교육",
           "AI 동향",
+          "생성형 AI 트렌드",
           "AI Agent",
+          "에이전트 도구",
           "바이브코딩",
+          "노코드 AI",
           "국내 여행지",
+          "주말 여행",
           "추천 캠핑지",
+          "오토캠핑",
+          "차박",
           "문화생활",
-          "전국 맛집"
+          "전시",
+          "공연",
+          "뮤지컬",
+          "전국 맛집",
+          "로컬 맛집"
         ],
         "excludes": [],
         "summaryStyle": "ko_context_3to4_lines",
@@ -339,18 +352,20 @@
           "트렌드",
           "추천",
           "행사",
-          "지역이슈"
+          "지역이슈",
+          "실사용팁"
         ],
         "lookbackHours": 48,
         "searchQueries": [
-          "AI education trend 2026",
-          "AI agent product update 2026",
-          "vibe coding trend 2026",
-          "국내 여행지 추천 2026",
-          "국내 캠핑장 추천 2026",
-          "전국 맛집 트렌드 2026",
-          "한국 문화생활 전시 공연 추천 2026"
-        ]
+          "AI education trend 2026 practical learning tools",
+          "AI agent beginner workflow tools 2026",
+          "vibe coding no-code AI development trend 2026",
+          "Korea domestic travel destination recommendation this week",
+          "Korea camping site recommendation family beginner",
+          "Korea culture exhibition performance musical schedule",
+          "Korea local restaurant trend and recommendations"
+        ],
+        "intentNotes": "키워드형 요청을 교육/기술/여가 3개 클러스터로 확장 해석해 매칭"
       },
       "delivery": {
         "time": "06:00",
@@ -369,30 +384,39 @@
         "topics": [
           "AI_INFRA",
           "SEMICONDUCTOR",
-          "AI_TECH",
-          "GEOPOLITICS",
+          "GPU_ARCHITECTURE",
+          "DATA_CENTER",
           "CLOUD",
-          "DATA_CENTER"
+          "AI_PLATFORM",
+          "GEOPOLITICS",
+          "CHINA_TECH"
         ],
         "keywords": [
           "Palantir",
-          "젠슨황",
-          "엔비디아",
+          "젠슨 황",
           "NVIDIA",
+          "엔비디아",
           "HBM",
-          "Computer Architecture",
           "GPU",
-          "이란 미국 전쟁",
-          "Data center",
-          "AI center",
-          "삼성",
-          "OpenAI",
+          "Computer Architecture",
+          "컴퓨터 아키텍처",
+          "데이터센터",
+          "AI 센터",
           "AI 인프라",
           "클라우드",
+          "OpenAI",
+          "삼성",
           "중국 AI 동향",
-          "중국 반도체 동향"
+          "중국 반도체 동향",
+          "미국-이란 전쟁",
+          "지정학 리스크",
+          "AI 공급망"
         ],
-        "excludes": [],
+        "excludes": [
+          "일반 부동산",
+          "생활 일반",
+          "연예"
+        ],
         "summaryStyle": "ko_context_3to4_lines",
         "tone": "balanced",
         "prioritySignals": [
@@ -400,19 +424,23 @@
           "투자",
           "증설",
           "정책",
+          "규제",
+          "제재",
           "공급망"
         ],
         "lookbackHours": 48,
         "searchQueries": [
-          "NVIDIA Jensen Huang data center GPU roadmap 2026",
-          "HBM market Samsung SK hynix trend 2026",
-          "AI infrastructure cloud data center investment 2026",
-          "OpenAI infrastructure partnership 2026",
-          "China AI trend 2026",
-          "China semiconductor industry trend 2026",
-          "Iran US conflict impact on semiconductor supply chain 2026",
-          "computer architecture GPU innovation 2026"
-        ]
+          "Palantir AI platform enterprise and government update 2026",
+          "Jensen Huang NVIDIA GPU roadmap data center 2026",
+          "HBM supply Samsung SK hynix Micron trend 2026",
+          "AI infrastructure cloud capex hyperscaler 2026",
+          "OpenAI infrastructure partnership data center 2026",
+          "China AI policy and model ecosystem trend 2026",
+          "China semiconductor memory foundry trend 2026",
+          "US Iran conflict impact on chips and cloud supply chain 2026",
+          "GPU computer architecture innovation inference efficiency 2026"
+        ],
+        "intentNotes": "키워드형 요청을 인프라/반도체/지정학 리스크 클러스터로 확장 해석해 매칭"
       },
       "delivery": {
         "time": "06:00",
