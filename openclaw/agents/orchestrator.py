@@ -78,7 +78,7 @@ class CLUEOrchestrator:
             return result
 
         # PHASE 1: collect once + customer-focused query expansion
-        article_pool = self.news_collector.collect_all(per_category_limit=30)
+        article_pool = self.news_collector.collect_all(per_category_limit=50)
         custom_queries = self._build_customer_queries(customer)
         if custom_queries:
             article_pool.extend(self.news_collector.collect_custom_queries(custom_queries, category="AI_TECH", limit=50))
