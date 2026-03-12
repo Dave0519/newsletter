@@ -30,6 +30,8 @@
       "searchPerGroup": true,
       "minGroupsInFinal": 3,
       "fallbackMinGroupsInFinal": 2,
+      "minLongTailGroupsInFinal": 1,
+      "enforceMinorNeedsCoverage": true,
       "maxSingleGroupShare": 0.45,
       "targetMix": {
         "primary": "0.35-0.45",
@@ -245,6 +247,7 @@
           "group_balance",
           "noise_articles",
           "missing_need_coverage",
+          "minor_needs_coverage",
           "semantic_duplicate_articles"
         ],
         "canRequestRebalance": true
