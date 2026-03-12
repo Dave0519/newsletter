@@ -178,6 +178,55 @@ class NewsCollector:
         text = f"{item.get('title','')} {item.get('summary','')}".lower()
         return sum(text.count(k.lower()) for k in keywords)
 
+    def _domain_of(self, url: str) -> str:
+        try:
+            d = (urlparse((url or '').strip()).netloc or '').lower()
+            return self._normalize_domain(d)
+        except Exception:
+            return ''
+
+    def _domain_trust_weight(self, domain: str) -> int:
+        pf = self.sources_cfg.get("pre_filters", {}) if isinstance(self.sources_cfg, dict) else {}
+        weights = pf.get("domainTrustWeights", {}) if isinstance(pf, dict) else {}
+        if not isinstance(weights, dict):
+            return 0
+        d = self._normalize_domain(domain)
+        for k, v in weights.items():
+            kd = self._normalize_domain(str(k))
+            try:
+                iv = int(v)
+            except Exception:
+                iv = 0
+            if d == kd or d.endswith(f".{kd}"):
+                return iv
+        return 0
+
+    def _extractability_penalty(self, domain: str) -> int:
+        pf = self.sources_cfg.get("pre_filters", {}) if isinstance(self.sources_cfg, dict) else {}
+        arr = pf.get("lowExtractabilityPenaltyDomains", []) if isinstance(pf, dict) else []
+        try:
+            pen = int(pf.get("lowExtractabilityPenalty", 2))
+        except Exception:
+            pen = 2
+        d = self._normalize_domain(domain)
+        for x in arr or []:
+            xd = self._normalize_domain(str(x))
+            if d == xd or d.endswith(f".{xd}"):
+                return pen
+        return 0
+
+    def _domain_max_share(self) -> float:
+        pf = self.sources_cfg.get("pre_filters", {}) if isinstance(self.sources_cfg, dict) else {}
+        try:
+            v = float(pf.get("domainMaxShare", 0.30))
+        except Exception:
+            v = 0.30
+        if v <= 0:
+            return 0.30
+        if v > 1:
+            return 1.0
+        return v
+
     def _rank_and_limit(self, articles: list[dict], keywords: list[str], limit: int) -> list[dict]:
         seen = set()
         uniq = []
@@ -186,13 +235,41 @@ class NewsCollector:
             if not u or u in seen:
                 continue
             seen.add(u)
+
+            domain = self._domain_of(u)
             base = self._score(a, keywords)
             if a.get("source") == "google_news":
                 base -= 2
+
+            # 원문 읽기 전 프리필터 가중치: 도메인 신뢰도(+), 추출난이도(-)
+            base += self._domain_trust_weight(domain)
+            base -= self._extractability_penalty(domain)
+
             a["_score"] = base
+            a["_domain"] = domain
             uniq.append(a)
+
         uniq.sort(key=lambda x: (x.get("_score", 0), x.get("published_at", "")), reverse=True)
-        return uniq[:limit]
+
+        # 편중 방지: 단일 도메인 상한
+        max_share = self._domain_max_share()
+        max_per_domain = max(1, int(limit * max_share))
+        out = []
+        counts = {}
+        for a in uniq:
+            d = a.get("_domain", "")
+            if d:
+                if counts.get(d, 0) >= max_per_domain:
+                    continue
+                counts[d] = counts.get(d, 0) + 1
+            out.append(a)
+            if len(out) >= limit:
+                break
+
+        # cleanup internal fields
+        for a in out:
+            a.pop("_domain", None)
+        return out
 
     @staticmethod
     def _dedup_pool(pool: list[dict]) -> list[dict]:

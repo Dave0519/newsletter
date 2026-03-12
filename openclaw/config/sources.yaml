@@ -75,3 +75,19 @@ categories:
     google_news_queries: []
     keywords: [스포츠, 경기, 리그, 선수]
 
+pre_filters:
+  domainMaxShare: 0.30
+  domainTrustWeights:
+    bbc.com: 2
+    aljazeera.com: 1
+    cnbc.com: 1
+    technologyreview.com: 1
+    theregister.com: 1
+    aws.amazon.com: 1
+    azure.microsoft.com: 1
+    pewresearch.org: 1
+  lowExtractabilityPenaltyDomains:
+    - feeds.feedburner.com
+    - espn.com
+  lowExtractabilityPenalty: 2
+

@@ -1,7 +1,7 @@
 news:
   country_order: [KR, US, CN, TW, GLOBAL]
   global_scan:
-    freshness_hours: 72
+    freshness_hours: 24
     target_per_newsletter: 10
     max_per_country: 8
   research_insight:
