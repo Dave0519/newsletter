@@ -168,7 +168,9 @@
         "평가합니다",
         "로 볼 수 있습니다"
       ]
-    }
+    },
+    "officialTemplatePath": "templates/clue/CLUE_TEMPLATE_OFFICIAL.html",
+    "fallbackTemplateAllowed": false
   },
   "mailSubjectPolicy": {
     "fixedPrefix": "[CLUE]",

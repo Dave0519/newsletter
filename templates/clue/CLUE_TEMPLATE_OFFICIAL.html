@@ -1,20 +1,204 @@
-<!doctype html><html><head><meta charset="utf-8"><title>CLUE</title></head><body>
-<div>CLUE 데일리 브리핑 · 2026.03.12 ·</div>
-<h1>AI BRIEFING</h1>
-<p>{{ISSUE_DATE}} / No. {{ISSUE_NUMBER}}</p>
-<p>{{NEEDS_HASHTAGS}}</p>
-<h2>Summary</h2>
-<p>{{CORE_DESCRIPTION}}</p>
-<h2>Global Scan</h2>
-<p>{{GLOBAL_SCAN_INTRO}}</p>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+<title>CLUE — AI Intelligence Briefing</title>
+<!--[if mso]>
+<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
+<![endif]-->
+<style type="text/css">
+ body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
+ table,td{mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse}
+ img{-ms-interpolation-mode:bicubic;border:0;outline:none;text-decoration:none;display:block}
+ body{margin:0!important;padding:0!important;width:100%!important;background-color:#F0EFED}
+ a{color:#F47725;text-decoration:none}
+ a:hover{text-decoration:underline}
+ @media only screen and (max-width:640px){
+ .wrap{width:100%!important}
+ .pad{padding-left:24px!important;padding-right:24px!important}
+ .h1{font-size:26px!important}
+ .h2{font-size:18px!important}
+ .h3{font-size:15px!important}
+ }
+</style>
+</head>
+
+<body style="margin:0;padding:0;background-color:#F0EFED;">
+
+<!-- PREHEADER -->
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;overflow:hidden;mso-hide:all;">
+ CLUE 데일리 브리핑 · 2026.03.08 (업데이트본) ·&#8203;&#8203;&#8203;&#8203;&#8203;&#8203;&#8203;
+</div>
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#F0EFED">
+<tr><td align="center" style="padding:40px 16px">
+
+<table class="wrap" role="presentation" cellspacing="0" cellpadding="0" border="0" width="750" style="background-color:#FFFFFF">
+
+
+ <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ HEADER
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+ <tr>
+ <td bgcolor="#0C0C0E" style="background-color:#0C0C0E;padding:0">
+ <!-- 오렌지 상단 바 -->
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+ <tr><td bgcolor="#F47725" style="background-color:#F47725;height:5px;font-size:1px;line-height:1px">&nbsp;</td></tr>
+ </table>
+ <!-- 로고 + 날짜 -->
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+ <tr>
+ <td class="pad" style="padding:44px 56px 38px 56px">
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+ <tr>
+ <td valign="bottom">
+ <p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#F47725;letter-spacing:0.6px;line-height:1.2">{{BRAND_MARK}}</p>
+ <p style="margin:0;font-family:'Arial Black',Arial,Helvetica,sans-serif;font-size:42px;font-weight:900;color:#FFFFFF;letter-spacing:18px;line-height:1;text-transform:uppercase;mso-line-height-rule:exactly">CLUE</p>
+ <p style="margin:8px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;color:#FFFFFF;letter-spacing:3.2px;text-transform:uppercase;line-height:1.2">AI BRIEFING</p>
+ <p style="margin:14px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#F8F8F8;line-height:1.4;letter-spacing:0.3px">{{NEEDS_HASHTAGS}}</p>
+ </td>
+ <td valign="bottom" align="right" style="width:120px">
+ <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;color:#FFFFFF;text-align:right;line-height:1.9;letter-spacing:0.3px">
+ {{ISSUE_DATE}}<br>
+ <span style="color:#FFFFFF;font-weight:bold">No. {{ISSUE_NUMBER}}</span>
+ </p>
+ </td>
+ </tr>
+ </table>
+ </td>
+ </tr>
+ </table>
+ </td>
+ </tr>
+
+
+ <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 01 — SUMMARY (동적)
+ - 섹션별 핵심 제목 리스트 요약
+ - 변수: SUMMARY_TITLE, SUMMARY_BODY
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+ <tr>
+ <td bgcolor="#FFFFFF" style="background-color:#FFFFFF;padding:0">
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+
+ <tr>
+ <td class="pad" style="padding:52px 56px 0 56px">
+ <p style="margin:0 0 20px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#F47725;letter-spacing:1.8px;text-transform:uppercase;line-height:1;font-weight:bold">Summary</p>
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+ <tr><td style="border-top:1px solid #E8E8E5;font-size:1px;line-height:1px">&nbsp;</td></tr>
+ </table>
+ </td>
+ </tr>
+
+ <tr>
+ <td class="pad" style="padding:22px 56px 0 56px">
+ <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#2A2A2A;line-height:1.85">{{CORE_DESCRIPTION}}</p>
+ </td>
+ </tr>
+
+ <tr><td class="pad" style="padding:0 56px 48px 56px"></td></tr>
+
+ </table>
+ </td>
+ </tr>
+
+ <!-- 섹션 구분선 -->
+ <tr><td style="padding:0 56px"><table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr><td style="border-top:1px solid #E8E8E5;font-size:1px;line-height:1px">&nbsp;</td></tr></table></td></tr>
+
+
+ <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SECTION 02 — GLOBAL SCAN (동적 조립 구조)
+ 핵심 원칙
+ - 국가 목록은 고정하지 않습니다. (해당일 이슈가 있는 국가만 노출)
+ - 국가별 기사 수는 고정하지 않습니다. (중요 기사 다건 허용)
+ - 공통 30% + 개인화 70% 비율 유지
+
+ 템플릿 변수 예시
+ {{GLOBAL_SCAN_INTRO}}
+ 
+     · 
+   
+     
+     
+     
+     
+   
+ 
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+ <tr>
+ <td bgcolor="#FFFFFF" style="background-color:#FFFFFF;padding:0">
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+
+ <!-- 섹션 레이블 -->
+ <tr>
+ <td class="pad" style="padding:44px 56px 0 56px">
+ <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#F47725;letter-spacing:1.8px;text-transform:uppercase;line-height:1;font-weight:bold">Global Scan</p>
+ <p style="margin:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#BBBBBB;line-height:1.5">{{GLOBAL_SCAN_INTRO}}</p>
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+ <tr><td style="border-top:2px solid #F47725;font-size:1px;line-height:1px">&nbsp;</td></tr>
+ </table>
+ </td>
+ </tr>
+
+ <!-- [DYNAMIC] COUNTRY BLOCK START: 반복 렌더링 -->
 {{#COUNTRIES}}
-<h3>{{COUNTRY_NAME}}</h3>
-{{#ARTICLES}}
-<h4>{{ARTICLE_TITLE}}</h4>
-<p>{{ARTICLE_SUMMARY}}</p>
-<p><b>실무 시사점</b> {{ARTICLE_PRACTICAL_IMPLICATION}}</p>
-<p><a href="{{ARTICLE_LINK}}">View Report</a></p>
-{{/ARTICLES}}
+<tr><td class="pad" style="padding:32px 56px 0 56px">
+ <p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;color:#888888;letter-spacing:2px;text-transform:uppercase;line-height:1">{{COUNTRY_NAME}}</p>
+ {{#ARTICLES}}
+ <h3 class="h3" style="margin:0 0 10px 0;font-family:'Trebuchet MS',Tahoma,Arial,sans-serif;font-size:17px;font-weight:bold;color:#0C0C0E;line-height:1.45;letter-spacing:-0.1px">{{ARTICLE_TITLE}}</h3>
+ <p style="margin:0 0 14px 0;font-family:Arial,Helvetica,sans-serif;font-size:13.5px;color:#3A3A3A;line-height:1.9;text-align:justify;text-justify:inter-word;">{{ARTICLE_SUMMARY}}</p>
+ <p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#666666;font-weight:bold;">실무 시사점</p>
+ <p style="margin:0 0 14px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#3A3A3A;line-height:1.85;text-align:justify;text-justify:inter-word;">{{ARTICLE_PRACTICAL_IMPLICATION}}</p>
+ <p style="margin:0 0 18px 0"><a href="{{ARTICLE_LINK}}" style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#CCCCCC;text-decoration:none;letter-spacing:0.3px">View Report →</a></p>
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 16px 0"><tr><td style="border-top:1px solid #F2F2EF;font-size:1px;line-height:1px">&nbsp;</td></tr></table>
+ {{/ARTICLES}}
+</td></tr>
 {{/COUNTRIES}}
-<footer>{{SERIAL_NUMBER}}</footer>
-</body></html>
+<!-- [DYNAMIC] COUNTRY BLOCK END -->
+
+ </table>
+ </td>
+ </tr>
+
+ <!-- 섹션 구분선 -->
+ <tr><td style="padding:0 56px"><table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr><td style="border-top:1px solid #E8E8E5;font-size:1px;line-height:1px">&nbsp;</td></tr></table></td></tr>
+
+
+ <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ FOOTER
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+ <tr>
+ <td bgcolor="#0C0C0E" style="background-color:#0C0C0E;padding:36px 56px 32px 56px">
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+ <tr>
+ <td valign="top" width="70%">
+ <p style="margin:0 0 4px 0;font-family:'Arial Black',Arial,sans-serif;font-size:13px;font-weight:900;color:#FFFFFF;letter-spacing:6px;text-transform:uppercase">CLUE</p>
+ <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:normal;color:#FFFFFF;letter-spacing:2px;text-transform:uppercase">AI BRIEFING</p>
+ </td>
+ <td valign="bottom" align="right" width="30%">
+ <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:normal;color:#0C0C0E;letter-spacing:0.6px">{{SERIAL_NUMBER}}</p>
+ </td>
+ </tr>
+ </table>
+ <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top:20px">
+ <tr><td style="border-top:1px solid #222224;font-size:1px;line-height:1px">&nbsp;</td></tr>
+ </table>
+ <p style="margin:24px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;color:#FFFFFF;line-height:1.8">
+ AI 큐레이션 &amp; 에디토리얼 검토 병행 · 본 콘텐츠는 AI가 원문을 기반으로 큐레이션한 것입니다.
+ </p>
+ </td>
+ </tr>
+ <!-- 오렌지 하단 바 -->
+ <tr>
+ <td bgcolor="#F47725" style="background-color:#F47725;height:5px;font-size:1px;line-height:1px">&nbsp;</td>
+ </tr>
+
+</table>
+
+</td></tr>
+</table>
+
+</body>
+</html>
