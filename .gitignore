@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# OpenClaw local state
+.openclaw/
+memory/
+
+# secrets
+openclaw/.env
+
+# runtime outputs / local db
+openclaw/data/
+newsletter_runs.jsonl
+newsletter_audit.jsonl
+
+# optional local docs/persona files
+AGENTS.md
+SOUL.md
+USER.md
+TOOLS.md
+IDENTITY.md
+HEARTBEAT.md
