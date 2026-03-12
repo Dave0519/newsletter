@@ -719,10 +719,28 @@ class CLUEOrchestrator:
         overlap = len(t_toks & s_toks) / max(1, len(t_toks))
         return overlap
 
+    def _extract_title_anchors(self, title: str) -> list[str]:
+        t = re.sub(r"\s+", " ", re.sub(r"[^\w가-힣 ]", " ", (title or "").lower())).strip()
+        toks = [x for x in t.split() if len(x) >= 2]
+        stop = {"관련", "통해", "대한", "위한", "대한", "및", "에서", "으로", "까지", "발표", "출시"}
+        anchors = []
+        for tok in toks:
+            if tok in stop:
+                continue
+            anchors.append(tok)
+            if len(anchors) >= 6:
+                break
+        return anchors
+
     def _is_title_summary_fully_aligned(self, title: str, summary: str) -> bool:
         score = self._title_summary_consistency_score(title, summary)
-        # strict gate: require high token overlap for subject/action/object consistency
-        return score >= 0.55
+        s = re.sub(r"\s+", " ", re.sub(r"[^\w가-힣 ]", " ", (summary or "").lower())).strip()
+        anchors = self._extract_title_anchors(title)
+        if not anchors:
+            return False
+        # strict gate: high overlap + all core anchors present in summary text
+        anchors_ok = all(a in s for a in anchors[:4])
+        return score >= 0.60 and anchors_ok
 
     def _enforce_title_summary_consistency(self, processed_scan: dict[str, list[dict]]) -> dict[str, list[dict]]:
         out = {}
