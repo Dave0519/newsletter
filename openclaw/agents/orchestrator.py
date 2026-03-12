@@ -77,12 +77,9 @@ class CLUEOrchestrator:
             self._append_audit_log(customer_id, result)
             return result
 
-        # PHASE 1: collect once + customer-focused query expansion
+        # PHASE 1: RSS 기반 1차 공통 수집
         article_pool = self.news_collector.collect_all(per_category_limit=50)
         custom_queries = self._build_customer_queries(customer)
-        if custom_queries:
-            article_pool.extend(self.news_collector.collect_custom_queries(custom_queries, category="AI_TECH", limit=50))
-            article_pool = self.news_collector._dedup_pool(article_pool)
 
         research_cfg = self.config["news"].get("research_insight", {})
         research_enabled = bool(research_cfg.get("enabled", True))
