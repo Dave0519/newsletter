@@ -23,11 +23,8 @@
     "mode": "per_recipient_isolated_first",
     "sharedPoolReuseMaxRatio": 0.4,
     "lookbackHours": 48,
-    "priorityCategories": [
-      "AI_TECH",
-      "INDUSTRY",
-      "SEMICONDUCTOR"
-    ],
+    "dynamicCategoryFromNeedsOnly": true,
+    "priorityCategories": [],
     "needsGrouping": {
       "enabled": true,
       "searchPerGroup": true,
