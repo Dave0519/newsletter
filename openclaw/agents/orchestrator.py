@@ -109,26 +109,26 @@ class CLUEOrchestrator:
         if len(selected) < target_scan:
             boost_queries = custom_queries[:]
             boost_queries.extend([
-                "China AI policy technology development 2026",
-                "Chinese LLM startup DeepSeek Moonshot 2026",
-                "Reuters AI enterprise deployment 2026",
-                "Nikkei Asia AI semiconductor strategy 2026",
-                "Korea JoongAng Daily AI industry 2026",
-                "MIT Technology Review AI enterprise 2026",
-                "The Verge AI model update 2026",
-                "Bloomberg AI enterprise rollout 2026",
-                "Financial Times AI regulation enterprise 2026",
-                "WSJ AI chip supply chain 2026",
-                "OpenAI Anthropic Google enterprise agent deployment 2026",
-                "NVIDIA AMD Intel AI data center roadmap 2026",
-                "Samsung SK hynix HBM AI server demand 2026",
-                "TSMC advanced packaging CoWoS AI demand 2026",
-                "robotics physical AI manufacturing deployment 2026",
-                "industrial AI agent workflow automation case study 2026",
-                "Korea semiconductor AI policy 2026",
-                "Taiwan AI semiconductor ecosystem 2026",
-                "US China semiconductor export control AI 2026",
-                "generative AI enterprise security governance 2026",
+                "China AI policy technology development",
+                "Chinese LLM startup DeepSeek Moonshot",
+                "Reuters AI enterprise deployment",
+                "Nikkei Asia AI semiconductor strategy",
+                "Korea JoongAng Daily AI industry",
+                "MIT Technology Review AI enterprise",
+                "The Verge AI model update",
+                "Bloomberg AI enterprise rollout",
+                "Financial Times AI regulation enterprise",
+                "WSJ AI chip supply chain",
+                "OpenAI Anthropic Google enterprise agent deployment",
+                "NVIDIA AMD Intel AI data center roadmap",
+                "Samsung SK hynix HBM AI server demand",
+                "TSMC advanced packaging CoWoS AI demand",
+                "robotics physical AI manufacturing deployment",
+                "industrial AI agent workflow automation case study",
+                "Korea semiconductor AI policy",
+                "Taiwan AI semiconductor ecosystem",
+                "US China semiconductor export control AI",
+                "generative AI enterprise security governance",
             ])
             # 중복 제거
             dedup_q = []
@@ -911,14 +911,14 @@ class CLUEOrchestrator:
 
         # 모든 고객 공통 보강 (국가/산업 균형 확보)
         queries.extend([
-            "China AI policy technology development 2026",
-            "Chinese LLM startup DeepSeek Moonshot 2026",
-            "US enterprise AI agent adoption 2026",
-            "Korea AI semiconductor industry trend 2026",
-            "Taiwan AI supply chain TSMC 2026",
-            "global physical AI robotics enterprise deployment 2026",
-            "AI data center investment hyperscaler 2026",
-            "AI governance compliance enterprise 2026",
+            "China AI policy technology development",
+            "Chinese LLM startup DeepSeek Moonshot",
+            "US enterprise AI agent adoption",
+            "Korea AI semiconductor industry trend",
+            "Taiwan AI supply chain TSMC",
+            "global physical AI robotics enterprise deployment",
+            "AI data center investment hyperscaler",
+            "AI governance compliance enterprise",
         ])
 
         uniq = []
