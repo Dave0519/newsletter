@@ -1,0 +1,307 @@
+{
+  "version": 3,
+  "updatedAt": "2026-03-11T18:20:00+09:00",
+  "serialPolicy": {
+    "format": "YYNNNNN",
+    "startNumber": 1,
+    "globalSequence": true,
+    "nextRegistrationNumber": 6,
+    "example": [
+      "2600001",
+      "2600002",
+      "2700003"
+    ]
+  },
+  "customers": [
+    {
+      "customerId": "cbk",
+      "serialNumber": "2600001",
+      "registeredYear": 2026,
+      "name": "최봉규",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "INDUSTRY",
+          "AI_TECH",
+          "SEMICONDUCTOR"
+        ],
+        "keywords": [
+          "제조 AI",
+          "manufacturing AI",
+          "physical AI",
+          "온톨로지",
+          "ontology",
+          "OpenClaw",
+          "openclaw",
+          "global top companies",
+          "enterprise rollout"
+        ],
+        "excludes": [],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "출시",
+          "파트너십",
+          "투자",
+          "도입사례",
+          "규제"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "hcs",
+      "serialNumber": "2600002",
+      "registeredYear": 2026,
+      "name": "황청석",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_TECH",
+          "MULTIMODAL",
+          "OPEN_SOURCE_MODEL",
+          "PHYSICAL_AI",
+          "AI_ECOSYSTEM"
+        ],
+        "keywords": [
+          "OpenAI",
+          "Claude",
+          "Anthropic",
+          "Google",
+          "Gemini",
+          "model update",
+          "benchmark",
+          "benchmark performance",
+          "Chinese open source model",
+          "open source LLM",
+          "Image Generation",
+          "video generation",
+          "Bytedance Seedance",
+          "desktop inference",
+          "local run",
+          "physical AI",
+          "robotics paper",
+          "Big Tech data center investment"
+        ],
+        "excludes": [],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "벤치마크",
+          "투자",
+          "데이터센터",
+          "오픈소스 추격"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "OpenAI GPT model update release 2026",
+          "Anthropic Claude model benchmark 2026",
+          "Google Gemini new feature launch 2026",
+          "Chinese open source LLM DeepSeek Qwen 2026",
+          "AI video generation image generation model 2026",
+          "physical AI robotics research paper 2026",
+          "big tech data center AI investment 2026",
+          "AI model benchmark performance comparison 2026",
+          "오픈소스 LLM 중국 경쟁 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "jgi",
+      "serialNumber": "2600003",
+      "registeredYear": 2026,
+      "name": "조국일",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "ONTOLOGY",
+          "AI_AGENT",
+          "DIGITAL_TWIN",
+          "PHYSICAL_AI",
+          "AI_TECH"
+        ],
+        "keywords": [
+          "Ontology",
+          "OpenClaw",
+          "Vibe Coding",
+          "Digital Twin",
+          "Physical AI",
+          "Claude",
+          "OpenAI",
+          "Palantir ontology",
+          "삼성전자",
+          "미국",
+          "중국"
+        ],
+        "excludes": [
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "출시",
+          "모델업데이트",
+          "플랫폼",
+          "도입사례",
+          "경쟁사동향"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "Palantir ontology AI enterprise platform 2026",
+          "AI agent digital twin enterprise deployment 2026",
+          "vibe coding AI development productivity 2026",
+          "physical AI robotic foundation model deployment 2026",
+          "Samsung AI strategy enterprise 2026",
+          "US China AI platform competition 2026",
+          "enterprise AI knowledge graph ontology adoption 2026",
+          "온톨로지 AI 에이전트 도입 사례 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "nrh",
+      "serialNumber": "2600004",
+      "registeredYear": 2026,
+      "name": "노재헌",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AIX",
+          "AI_AGENT",
+          "AI_ECOSYSTEM",
+          "OPEN_SOURCE_MODEL",
+          "PROCESS_INNOVATION"
+        ],
+        "keywords": [
+          "OpenClaw",
+          "바이브코딩",
+          "AIX",
+          "클로드코드",
+          "Claude Code",
+          "AI Native workflow",
+          "Process Innovation",
+          "비개발자 AIX",
+          "중국 경쟁사"
+        ],
+        "excludes": [
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "적용사례",
+          "워크플로",
+          "확산전략"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "Claude Code AI coding assistant update 2026",
+          "vibe coding non-developer productivity tool 2026",
+          "AI native workflow enterprise process innovation 2026",
+          "AIX AI transformation case study enterprise 2026",
+          "process innovation AI agent deployment 2026",
+          "AI no-code low-code workflow tool 2026",
+          "Chinese AI competitor workflow strategy 2026",
+          "비개발자 AI 워크플로 혁신 사례 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "ygy",
+      "serialNumber": "2600005",
+      "registeredYear": 2026,
+      "name": "윤가영",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AIX",
+          "AI_TECH",
+          "PHYSICAL_AI",
+          "SEMICONDUCTOR",
+          "AI_ECOSYSTEM"
+        ],
+        "keywords": [
+          "OpenClaw",
+          "AI의 미래",
+          "삼성 HBM",
+          "NVIDIA",
+          "Physical AI",
+          "미국",
+          "중국",
+          "한국",
+          "대만"
+        ],
+        "excludes": [
+          "세일즈",
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "반도체동향",
+          "투자",
+          "도입사례"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "Samsung HBM4 NVIDIA supply shipment 2026",
+          "NVIDIA GTC 2026 AI chip GPU announcement",
+          "physical AI robotics future outlook 2026",
+          "US China AI semiconductor export control 2026",
+          "Korea Taiwan semiconductor AI trend 2026",
+          "AI industry investment forecast 2026",
+          "삼성 SK하이닉스 HBM 반도체 경쟁 2026",
+          "한국 대만 반도체 AI 공급망 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    }
+  ]
+}
