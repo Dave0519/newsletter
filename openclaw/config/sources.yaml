@@ -1,0 +1,21 @@
+categories:
+  AI_TECH:
+    rss:
+      - "https://feeds.reuters.com/reuters/technologyNews"
+      - "https://feeds.reuters.com/reuters/businessNews"
+      - "https://www.theverge.com/rss/index.xml"
+      - "https://www.ft.com/technology?format=rss"
+      - "https://www.scmp.com/rss/91/feed"
+      - "https://www.semiconductor-digest.com/feed/"
+    google_news_queries:
+      - "Iran war impact on AI semiconductor supply chain 2026"
+      - "Middle East conflict impact on data center cloud infrastructure 2026"
+      - "US Iran conflict chips cloud supply chain 2026"
+      - "Jensen Huang NVIDIA GPU roadmap data center 2026"
+      - "HBM supply Samsung Electronics SK hynix Micron trend 2026"
+    keywords: [AI, model, GPU, semiconductor, data center, cloud, NVIDIA, OpenAI, Iran, Middle East, HBM]
+research:
+  target_mix:
+    academic: 0
+    consulting: 0
+    institute: 0

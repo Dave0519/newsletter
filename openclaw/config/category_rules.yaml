@@ -1,0 +1,4 @@
+AI_TECH:
+  include_keywords: ["ai", "gpu", "llm", "model", "semiconductor", "cloud", "data center", "openai", "nvidia", "hbm", "iran", "middle east", "hormuz"]
+  exclude_keywords: ["celebrity", "entertainment", "gossip"]
+  hard_exclude_keywords: ["coupon", "gambling"]

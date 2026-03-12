@@ -1,0 +1,15 @@
+news:
+  country_order: [KR, US, CN, TW, GLOBAL]
+  global_scan:
+    freshness_hours: 72
+    target_per_newsletter: 10
+    max_per_country: 8
+  research_insight:
+    enabled: false
+    freshness_days: 14
+    target_per_newsletter: 0
+    max_items: 0
+email:
+  recipient: ""
+telegram: {}
+llm: {}
