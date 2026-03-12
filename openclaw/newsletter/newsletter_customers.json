@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "updatedAt": "2026-03-12T14:17:45+09:00",
+  "updatedAt": "2026-03-12T14:32:24+09:00",
   "serialPolicy": {
     "format": "YYNNNNN",
     "startNumber": 1,
@@ -314,7 +314,6 @@
       "needsProfile": {
         "topics": [
           "AI_EDUCATION",
-          "AI_TREND",
           "AI_AGENT",
           "VIBE_CODING",
           "DOMESTIC_TRAVEL",
@@ -326,7 +325,6 @@
           "AI 교육",
           "AI 러닝",
           "AI 활용 교육",
-          "AI 동향",
           "생성형 AI 트렌드",
           "AI Agent",
           "에이전트 도구",
@@ -365,7 +363,7 @@
           "Korea culture exhibition performance musical schedule",
           "Korea local restaurant trend and recommendations"
         ],
-        "intentNotes": "키워드형 요청을 교육/기술/여가 3개 클러스터로 확장 해석해 매칭"
+        "intentNotes": "키워드형 요청을 교육/기술/여가 3개 클러스터로 확장 해석해 매칭 (AI 동향 키워드 제외 적용)"
       },
       "delivery": {
         "time": "06:00",
