@@ -18,10 +18,13 @@ class ContentProcessor:
     def process_news_batch(self, items: List[Dict], lang: str = "ko") -> List[Dict]:
         out: List[Dict] = []
         for it in items or []:
-            title = self._clean(it.get("title", ""))
-            body, status = self._extract_article_body(it.get("url", ""))
+            rss_title = self._clean(it.get("title", ""))
+            source_title, body, status = self._extract_article_content(it.get("url", ""))
             if status != "success" or len(body) < 400:
                 continue
+
+            # 제목은 반드시 원문 URL 페이지에서 추출한 값을 우선 사용
+            title = self._clean(source_title or rss_title)
 
             summary = self._llm_summary_from_body(title=title, body=body)
             if not summary:
@@ -55,14 +58,28 @@ class ContentProcessor:
     def process_research_batch(self, items: List[Dict], lang: str = "ko") -> List[Dict]:
         return items or []
 
-    def _extract_article_body(self, url: str) -> Tuple[str, str]:
+    def _extract_article_content(self, url: str) -> Tuple[str, str, str]:
         if not url:
-            return "", "fail"
+            return "", "", "fail"
         try:
             r = requests.get(url, timeout=20, allow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code != 200:
-                return "", "fail"
+                return "", "", "fail"
             soup = BeautifulSoup(r.text, "html.parser")
+
+            source_title = ""
+            og = soup.find("meta", property="og:title")
+            tw = soup.find("meta", attrs={"name": "twitter:title"})
+            h1 = soup.find("h1")
+            if og and og.get("content"):
+                source_title = self._clean(og.get("content", ""))
+            elif tw and tw.get("content"):
+                source_title = self._clean(tw.get("content", ""))
+            elif h1:
+                source_title = self._clean(h1.get_text(" ", strip=True))
+            elif soup.title:
+                source_title = self._clean(soup.title.get_text(" ", strip=True))
+
             for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside", "form"]):
                 tag.decompose()
 
@@ -82,13 +99,13 @@ class ContentProcessor:
                     candidates.append((score, joined))
 
             if not candidates:
-                return "", "fail"
+                return source_title, "", "fail"
 
             candidates.sort(key=lambda x: x[0], reverse=True)
             body = self._clean(candidates[0][1])
-            return body, "success"
+            return source_title, body, "success"
         except Exception:
-            return "", "fail"
+            return "", "", "fail"
 
     def _llm_summary_from_body(self, title: str, body: str, regenerate_hint: str = "") -> str:
         api_key = os.getenv("OPENAI_API_KEY", "")
