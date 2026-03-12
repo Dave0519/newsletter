@@ -22,7 +22,7 @@
   "collection": {
     "mode": "per_recipient_isolated_first",
     "sharedPoolReuseMaxRatio": 0.4,
-    "lookbackHours": 48,
+    "lookbackHours": 24,
     "dynamicCategoryFromNeedsOnly": true,
     "priorityCategories": [],
     "needsGrouping": {
