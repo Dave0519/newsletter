@@ -47,7 +47,7 @@ class ContentProcessor:
                 practical = "해당 이슈는 관련 기술/공급망/투자 우선순위를 점검할 때 참고할 만한 신호입니다."
 
             row = dict(it)
-            row["title_ko"] = self._llm_translate_title(title)
+            row["title_ko"] = self._llm_generate_title_from_body(url_title=title, body=body)
             row["description"] = summary
             row["practical_implication"] = practical
             row["extraction_status"] = "success"
@@ -213,15 +213,22 @@ class ContentProcessor:
         except Exception:
             return ""
 
-    def _llm_translate_title(self, title: str) -> str:
-        if not title:
-            return ""
-        if any("가" <= ch <= "힣" for ch in title):
-            return title
+    def _llm_generate_title_from_body(self, url_title: str, body: str) -> str:
+        base_title = self._clean(url_title)
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
-            return title
-        prompt = f"다음 뉴스 제목을 자연스러운 한국어로 번역하라. 제목만 출력: {title}"
+            return base_title
+
+        prompt = (
+            "너는 한국어 뉴스레터 에디터다. 기사 본문과 URL 원제목을 바탕으로 한국어 기사 제목을 1줄로 작성하라.\n"
+            "규칙:\n"
+            "1) 본문 근거 기반\n"
+            "2) 과장/추측 금지\n"
+            "3) 주체/행동/결과가 드러나게\n"
+            "4) 출력은 제목만\n\n"
+            f"[URL 원제목]\n{base_title}\n\n"
+            f"[기사 본문]\n{body[:5000]}"
+        )
         try:
             r = requests.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -229,17 +236,17 @@ class ContentProcessor:
                 json={
                     "model": "gpt-4o-mini",
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0,
+                    "temperature": 0.1,
                     "max_tokens": 120,
                 },
                 timeout=20,
             )
             if r.status_code != 200:
-                return title
+                return base_title
             txt = (r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip()
-            return self._clean(txt) or title
+            return self._clean(txt) or base_title
         except Exception:
-            return title
+            return base_title
 
     @staticmethod
     def _clean(text: str) -> str:

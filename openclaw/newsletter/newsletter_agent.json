@@ -170,7 +170,14 @@
       ]
     },
     "officialTemplatePath": "templates/clue/CLUE_TEMPLATE_OFFICIAL.html",
-    "fallbackTemplateAllowed": false
+    "fallbackTemplateAllowed": false,
+    "titleGenerationPolicy": {
+      "source": "url_page_content",
+      "engine": "llm",
+      "requireBodyGrounding": true,
+      "allowRssTitleFallback": false,
+      "description": "제목은 URL 원문 페이지 정보와 본문을 바탕으로 LLM이 한국어로 작성"
+    }
   },
   "mailSubjectPolicy": {
     "fixedPrefix": "[CLUE]",
@@ -340,7 +347,8 @@
     "titleSummaryHardRule": {
       "enabled": false,
       "description": "하드코딩 앵커/토큰 규칙 대신 LLM 정합성 판정만 사용"
-    }
+    },
+    "requireTitleGeneratedFromUrlBody": true
   },
   "issueNumber": {
     "next": 1,
