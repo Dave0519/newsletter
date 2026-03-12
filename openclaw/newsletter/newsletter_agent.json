@@ -244,9 +244,21 @@
         "checks": [
           "group_balance",
           "noise_articles",
-          "missing_need_coverage"
+          "missing_need_coverage",
+          "semantic_duplicate_articles"
         ],
         "canRequestRebalance": true
+      },
+      "dedupJudge": {
+        "required": true,
+        "mode": "semantic",
+        "keepOnePerDuplicateCluster": true,
+        "selectionPriority": [
+          "evidence_grounding",
+          "information_density",
+          "recency",
+          "source_quality"
+        ]
       },
       "summaryJudge": {
         "required": true,
