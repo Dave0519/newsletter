@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "updatedAt": "2026-03-11T18:20:00+09:00",
+  "updatedAt": "2026-03-12T13:26:22+09:00",
   "serialPolicy": {
     "format": "YYNNNNN",
     "startNumber": 1,
     "globalSequence": true,
-    "nextRegistrationNumber": 6,
+    "nextRegistrationNumber": 7,
     "example": [
       "2600001",
       "2600002",
@@ -296,6 +296,60 @@
           "한국 대만 반도체 AI 공급망 2026",
           "China AI policy technology development 2026",
           "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "ljs",
+      "serialNumber": "2600006",
+      "registeredYear": 2026,
+      "name": "이지수",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_EDUCATION",
+          "AI_TECH",
+          "AI_AGENT",
+          "VIBE_CODING",
+          "TRAVEL",
+          "CULTURE",
+          "FOOD"
+        ],
+        "keywords": [
+          "AI 교육",
+          "AI 동향",
+          "AI Agent",
+          "바이브코딩",
+          "국내 여행지",
+          "추천 캠핑지",
+          "문화생활",
+          "전국 맛집"
+        ],
+        "excludes": [],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "트렌드",
+          "추천",
+          "행사",
+          "지역이슈"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "AI education trend 2026",
+          "AI agent product update 2026",
+          "vibe coding trend 2026",
+          "국내 여행지 추천 2026",
+          "국내 캠핑장 추천 2026",
+          "전국 맛집 트렌드 2026",
+          "한국 문화생활 전시 공연 추천 2026"
         ]
       },
       "delivery": {
