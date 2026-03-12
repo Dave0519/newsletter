@@ -4,7 +4,6 @@ categories:
       - "https://feeds.reuters.com/reuters/technologyNews"
       - "https://feeds.reuters.com/reuters/businessNews"
       - "https://www.theverge.com/rss/index.xml"
-      - "https://www.ft.com/technology?format=rss"
       - "https://www.scmp.com/rss/91/feed"
       - "https://www.semiconductor-digest.com/feed/"
     google_news_queries:
