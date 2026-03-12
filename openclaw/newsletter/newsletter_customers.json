@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "updatedAt": "2026-03-12T16:15:45+09:00",
+  "updatedAt": "2026-03-12T16:23:26+09:00",
   "serialPolicy": {
     "format": "YYNNNNN",
     "startNumber": 1,
@@ -380,16 +380,22 @@
       "enabled": true,
       "needsProfile": {
         "topics": [
+          "GEOPOLITICS",
           "AI_INFRA",
           "SEMICONDUCTOR",
           "GPU_ARCHITECTURE",
           "DATA_CENTER",
           "CLOUD",
           "AI_PLATFORM",
-          "GEOPOLITICS",
           "CHINA_TECH"
         ],
         "keywords": [
+          "이란 전쟁",
+          "이스라엘-이란 긴장",
+          "중동 분쟁",
+          "호르무즈 해협 리스크",
+          "미국-이란 전쟁",
+          "지정학 리스크",
           "Palantir",
           "젠슨 황",
           "NVIDIA",
@@ -406,13 +412,8 @@
           "삼성전자",
           "중국 AI 동향",
           "중국 반도체 동향",
-          "미국-이란 전쟁",
-          "지정학 리스크",
           "AI 공급망",
-          "Samsung Electronics",
-          "이란 전쟁",
-          "이스라엘-이란 긴장",
-          "중동 분쟁"
+          "Samsung Electronics"
         ],
         "excludes": [
           "일반 부동산",
@@ -422,19 +423,25 @@
         "summaryStyle": "ko_context_3to4_lines",
         "tone": "balanced",
         "prioritySignals": [
+          "이란 전쟁",
+          "중동 지정학 리스크",
+          "전쟁 리스크",
+          "공급망 충격",
           "출시",
           "투자",
           "증설",
           "정책",
           "규제",
           "제재",
-          "공급망",
-          "이란 전쟁",
-          "중동 지정학 리스크",
-          "전쟁 리스크"
+          "공급망"
         ],
         "lookbackHours": 48,
         "searchQueries": [
+          "Iran war impact on AI semiconductor supply chain 2026",
+          "Middle East conflict impact on data center cloud infrastructure 2026",
+          "US Iran conflict impact on chips and cloud supply chain 2026",
+          "이스라엘 이란 전쟁 반도체 공급망 영향 2026",
+          "호르무즈 해협 리스크 반도체 물류 영향 2026",
           "Palantir AI platform enterprise and government update 2026",
           "Jensen Huang NVIDIA GPU roadmap data center 2026",
           "HBM supply Samsung Electronics SK hynix Micron trend 2026",
@@ -442,14 +449,10 @@
           "OpenAI infrastructure partnership data center 2026",
           "China AI policy and model ecosystem trend 2026",
           "China semiconductor memory foundry trend 2026",
-          "US Iran conflict impact on chips and cloud supply chain 2026",
           "GPU computer architecture innovation inference efficiency 2026",
-          "삼성전자 AI 반도체 HBM 전략 2026",
-          "Iran war impact on AI semiconductor supply chain 2026",
-          "Middle East conflict impact on data center cloud infrastructure 2026",
-          "이스라엘 이란 전쟁 반도체 공급망 영향 2026"
+          "삼성전자 AI 반도체 HBM 전략 2026"
         ],
-        "intentNotes": "키워드형 요청을 인프라/반도체/지정학 리스크 클러스터로 확장 해석해 매칭 (삼성은 삼성전자로 한정)"
+        "intentNotes": "이란 전쟁/중동 지정학 리스크를 최우선으로, AI 인프라·반도체 영향 중심 매칭"
       },
       "delivery": {
         "time": "06:00",
