@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "ec4a75c5-89a7-4b9a-ab92-236d940afc1a",
+      "agentId": "main",
+      "sessionKey": "agent:main:main",
+      "name": "뉴스레터 06:00 본실행",
+      "enabled": true,
+      "createdAtMs": 1773190046614,
+      "updatedAtMs": 1773262895357,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6 * * *",
+        "tz": "Asia/Seoul"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "newsletter_agent.json, newsletter_agent_prompt.md, newsletter_customers.json을 읽어 발행한다. 단, newsletter_agent.json의 publishSwitch.enabled가 false이면 오늘 발행을 건너뛰고 종료한다. true이면 enabled=true 고객 각각에게 니즈 맞춤 뉴스레터를 생성/발송하라. 실행 결과를 newsletter_agent_state.json(최신)과 newsletter_runs.jsonl(append)에 기록."
+      },
+      "delivery": {
+        "mode": "announce"
+      },
+      "state": {
+        "nextRunAtMs": 1773349200000,
+        "lastRunAtMs": 1773262800008,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 95349,
+        "lastError": "Delivering to Telegram requires target <chatId>",
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 1
+      }
+    },
+    {
+      "id": "144af411-c3b7-44d0-83f2-a728db5df880",
+      "agentId": "main",
+      "sessionKey": "agent:main:main",
+      "name": "뉴스레터 06:10 재시도",
+      "enabled": true,
+      "createdAtMs": 1773190055357,
+      "updatedAtMs": 1773263681350,
+      "schedule": {
+        "kind": "cron",
+        "expr": "10 6 * * *",
+        "tz": "Asia/Seoul"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "now",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "newsletter_agent.json의 publishSwitch.enabled를 먼저 확인하라. false면 재시도도 수행하지 않고 종료. true이면 newsletter_agent_state.json을 확인해 오늘 06:00 실행이 실패/미발행일 때만 1회 재실행하고 결과를 newsletter_runs.jsonl에 append하라."
+      },
+      "delivery": {
+        "mode": "announce"
+      },
+      "state": {
+        "nextRunAtMs": 1773349800000,
+        "lastRunAtMs": 1773263400005,
+        "lastRunStatus": "error",
+        "lastStatus": "error",
+        "lastDurationMs": 281345,
+        "lastError": "Delivering to Telegram requires target <chatId>",
+        "lastDeliveryStatus": "unknown",
+        "consecutiveErrors": 1
+      }
+    }
+  ]
+}
