@@ -39,7 +39,17 @@
         "tertiary": "0.20-0.30"
       },
       "rebalanceBeforeSend": true,
-      "avoidSingleKeywordDominance": true
+      "avoidSingleKeywordDominance": true,
+      "requirePerNeedSearch": true,
+      "perNeedMinQueries": 1,
+      "hybridSearchMode": "group_plus_individual",
+      "perNeedFallbackRefetch": true,
+      "perNeedMinArticles": {
+        "critical": 2,
+        "normal": 1
+      },
+      "blockSendIfCriticalNeedMissing": true,
+      "coverageReportEnabled": true
     },
     "minArticlesPerNewsletter": 6,
     "softMinArticlesPerNewsletter": 8,
@@ -88,6 +98,8 @@
       "validate_quality_gates_tiered",
       "llm_judge_set_balance_and_approval",
       "final_relevance_review_and_refine",
+      "collect_per_need_individual",
+      "needs_coverage_check",
       "send"
     ],
     "articleCountShortageCauses": [
@@ -289,6 +301,22 @@
         "why",
         "risk_flags"
       ]
+    },
+    "requirePerNeedCoverage": true,
+    "minCoveredNeedsRatio": 1.0,
+    "blockSendOnNeedCoverageFailure": true,
+    "criticalNeedsMustBeCovered": true,
+    "needsCoverage": {
+      "enabled": true,
+      "checkAt": "pre_send_last_step",
+      "mode": "group_plus_individual",
+      "perNeedMinArticles": {
+        "critical": 2,
+        "normal": 1
+      },
+      "regenerateOnMissingNeeds": true,
+      "blockSendWhenMissingCriticalNeed": true,
+      "reportMissingNeeds": true
     }
   },
   "issueNumber": {
@@ -308,7 +336,19 @@
       "openclaw/cron/jobs.json"
     ],
     "requireCustomerInfoInCommitMessageOnAdd": true,
-    "requirePostPushVerification": true
+    "requirePostPushVerification": true,
+    "autoCommitOnAnyChange": true,
+    "autoPushOnAnyChange": true,
+    "watchPaths": [
+      "openclaw/newsletter/newsletter_agent.json",
+      "openclaw/newsletter/newsletter_agent_prompt.md",
+      "openclaw/newsletter/newsletter_customers.json",
+      "openclaw/newsletter/newsletter_runs.jsonl",
+      "openclaw/cron/jobs.json",
+      "openclaw/agents/orchestrator.py",
+      "openclaw/agents/news_collector.py"
+    ],
+    "description": "모든 정책/운영 변경 발생 시 자동 커밋 후 자동 푸시 수행"
   },
   "model": {
     "provider": "openai",
