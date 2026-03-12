@@ -216,6 +216,20 @@
     "format": "3-digit"
   },
   "notes": "customers.json 이중관리 금지. newsletter_customers.json 단일 원천 사용",
+  "gitOpsPolicy": {
+    "autoCommitOnOperationalChange": true,
+    "autoPushOnCommit": true,
+    "repo": "https://github.com/Dave0519/newsletter.git",
+    "requiredSnapshotFiles": [
+      "openclaw/newsletter/newsletter_agent_prompt.md",
+      "openclaw/newsletter/newsletter_agent.json",
+      "openclaw/newsletter/newsletter_customers.json",
+      "openclaw/newsletter/newsletter_runs.jsonl",
+      "openclaw/cron/jobs.json"
+    ],
+    "requireCustomerInfoInCommitMessageOnAdd": true,
+    "requirePostPushVerification": true
+  },
   "model": {
     "provider": "openai",
     "name": "gpt-4o",
