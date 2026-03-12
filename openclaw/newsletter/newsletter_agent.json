@@ -79,11 +79,13 @@
       "collect_per_recipient_isolated",
       "resolve_original_links",
       "extract_article_body",
+      "llm_judge_article_relevance",
       "ai_generate_korean_title_summary",
       "ai_generate_practical_implication",
       "build_summary_from_global_scan",
       "render_template_strict",
       "validate_quality_gates_tiered",
+      "llm_judge_set_balance_and_approval",
       "final_relevance_review_and_refine",
       "send"
     ],
@@ -221,6 +223,42 @@
       "regenerateIfBelowHardMin": true,
       "hardMinArticles": 6,
       "publishOnlyReviewedMatches": true
+    },
+    "llmJudge": {
+      "enabled": true,
+      "useKeywordsAsRecallOnly": true,
+      "articleJudge": {
+        "required": true,
+        "scores": [
+          "direct_relevance",
+          "domain_fit",
+          "evidence_grounding"
+        ],
+        "scoreScale": "0-5",
+        "passThresholdTotal": 10,
+        "passThresholdDomainFit": 3
+      },
+      "setJudge": {
+        "required": true,
+        "checks": [
+          "group_balance",
+          "noise_articles",
+          "missing_need_coverage"
+        ],
+        "canRequestRebalance": true
+      },
+      "finalApproval": {
+        "required": true,
+        "decision": "yes_no",
+        "blockSendWhenNo": true
+      },
+      "outputSchema": [
+        "decision",
+        "scores",
+        "matched_needs",
+        "why",
+        "risk_flags"
+      ]
     }
   },
   "issueNumber": {
