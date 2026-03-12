@@ -302,7 +302,24 @@
         "matched_needs",
         "why",
         "risk_flags"
-      ]
+      ],
+      "titleSummaryAlignmentJudge": {
+        "enabled": true,
+        "mode": "llm_only",
+        "allowNotationVariants": true,
+        "forbidAutoRewriteOnMismatch": true,
+        "actionOnMismatch": "drop_article",
+        "requiredChecks": [
+          "same_event",
+          "subject_action_outcome_alignment",
+          "allow_ko_en_abbreviation_variants"
+        ],
+        "decisionSchema": [
+          "pass",
+          "reason",
+          "risk_flags"
+        ]
+      }
     },
     "requirePerNeedCoverage": true,
     "minCoveredNeedsRatio": 1.0,
@@ -319,6 +336,10 @@
       "regenerateOnMissingNeeds": true,
       "blockSendWhenMissingCriticalNeed": true,
       "reportMissingNeeds": true
+    },
+    "titleSummaryHardRule": {
+      "enabled": false,
+      "description": "하드코딩 앵커/토큰 규칙 대신 LLM 정합성 판정만 사용"
     }
   },
   "issueNumber": {
