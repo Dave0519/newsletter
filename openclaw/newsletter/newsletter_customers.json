@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "updatedAt": "2026-03-12T13:26:22+09:00",
+  "updatedAt": "2026-03-12T13:42:56+09:00",
   "serialPolicy": {
     "format": "YYNNNNN",
     "startNumber": 1,
     "globalSequence": true,
-    "nextRegistrationNumber": 7,
+    "nextRegistrationNumber": 8,
     "example": [
       "2600001",
       "2600002",
@@ -350,6 +350,68 @@
           "국내 캠핑장 추천 2026",
           "전국 맛집 트렌드 2026",
           "한국 문화생활 전시 공연 추천 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "lcs",
+      "serialNumber": "2600007",
+      "registeredYear": 2026,
+      "name": "이창수",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_INFRA",
+          "SEMICONDUCTOR",
+          "AI_TECH",
+          "GEOPOLITICS",
+          "CLOUD",
+          "DATA_CENTER"
+        ],
+        "keywords": [
+          "Palantir",
+          "젠슨황",
+          "엔비디아",
+          "NVIDIA",
+          "HBM",
+          "Computer Architecture",
+          "GPU",
+          "이란 미국 전쟁",
+          "Data center",
+          "AI center",
+          "삼성",
+          "OpenAI",
+          "AI 인프라",
+          "클라우드",
+          "중국 AI 동향",
+          "중국 반도체 동향"
+        ],
+        "excludes": [],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "출시",
+          "투자",
+          "증설",
+          "정책",
+          "공급망"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "NVIDIA Jensen Huang data center GPU roadmap 2026",
+          "HBM market Samsung SK hynix trend 2026",
+          "AI infrastructure cloud data center investment 2026",
+          "OpenAI infrastructure partnership 2026",
+          "China AI trend 2026",
+          "China semiconductor industry trend 2026",
+          "Iran US conflict impact on semiconductor supply chain 2026",
+          "computer architecture GPU innovation 2026"
         ]
       },
       "delivery": {
