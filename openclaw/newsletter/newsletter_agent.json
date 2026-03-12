@@ -247,6 +247,18 @@
         ],
         "canRequestRebalance": true
       },
+      "summaryJudge": {
+        "required": true,
+        "keepListFormat": true,
+        "groupSimilarEntities": true,
+        "forbidOverMerge": true
+      },
+      "practicalImplicationJudge": {
+        "required": true,
+        "forbidOverInterpretation": true,
+        "preferRealisticActionableSuggestion": true,
+        "fallbackToInsightWhenLowRelevance": true
+      },
       "finalApproval": {
         "required": true,
         "decision": "yes_no",
