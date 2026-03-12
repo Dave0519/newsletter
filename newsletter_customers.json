@@ -1,0 +1,463 @@
+{
+  "version": 3,
+  "updatedAt": "2026-03-12T16:37:56+09:00",
+  "serialPolicy": {
+    "format": "YYNNNNN",
+    "startNumber": 1,
+    "globalSequence": true,
+    "nextRegistrationNumber": 8,
+    "example": [
+      "2600001",
+      "2600002",
+      "2700003"
+    ]
+  },
+  "customers": [
+    {
+      "customerId": "cbk",
+      "serialNumber": "2600001",
+      "registeredYear": 2026,
+      "name": "최봉규",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "INDUSTRY",
+          "AI_TECH",
+          "SEMICONDUCTOR"
+        ],
+        "keywords": [
+          "제조 AI",
+          "manufacturing AI",
+          "physical AI",
+          "온톨로지",
+          "ontology",
+          "OpenClaw",
+          "openclaw",
+          "global top companies",
+          "enterprise rollout"
+        ],
+        "excludes": [],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "출시",
+          "파트너십",
+          "투자",
+          "도입사례",
+          "규제"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "hcs",
+      "serialNumber": "2600002",
+      "registeredYear": 2026,
+      "name": "황청석",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_TECH",
+          "MULTIMODAL",
+          "OPEN_SOURCE_MODEL",
+          "PHYSICAL_AI",
+          "AI_ECOSYSTEM"
+        ],
+        "keywords": [
+          "OpenAI",
+          "Claude",
+          "Anthropic",
+          "Google",
+          "Gemini",
+          "model update",
+          "benchmark",
+          "benchmark performance",
+          "Chinese open source model",
+          "open source LLM",
+          "Image Generation",
+          "video generation",
+          "Bytedance Seedance",
+          "desktop inference",
+          "local run",
+          "physical AI",
+          "robotics paper",
+          "Big Tech data center investment"
+        ],
+        "excludes": [],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "벤치마크",
+          "투자",
+          "데이터센터",
+          "오픈소스 추격"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "OpenAI GPT model update release 2026",
+          "Anthropic Claude model benchmark 2026",
+          "Google Gemini new feature launch 2026",
+          "Chinese open source LLM DeepSeek Qwen 2026",
+          "AI video generation image generation model 2026",
+          "physical AI robotics research paper 2026",
+          "big tech data center AI investment 2026",
+          "AI model benchmark performance comparison 2026",
+          "오픈소스 LLM 중국 경쟁 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "jgi",
+      "serialNumber": "2600003",
+      "registeredYear": 2026,
+      "name": "조국일",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "ONTOLOGY",
+          "AI_AGENT",
+          "DIGITAL_TWIN",
+          "PHYSICAL_AI",
+          "AI_TECH"
+        ],
+        "keywords": [
+          "Ontology",
+          "OpenClaw",
+          "Vibe Coding",
+          "Digital Twin",
+          "Physical AI",
+          "Claude",
+          "OpenAI",
+          "Palantir ontology",
+          "삼성전자",
+          "미국",
+          "중국"
+        ],
+        "excludes": [
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "출시",
+          "모델업데이트",
+          "플랫폼",
+          "도입사례",
+          "경쟁사동향"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "Palantir ontology AI enterprise platform 2026",
+          "AI agent digital twin enterprise deployment 2026",
+          "vibe coding AI development productivity 2026",
+          "physical AI robotic foundation model deployment 2026",
+          "Samsung AI strategy enterprise 2026",
+          "US China AI platform competition 2026",
+          "enterprise AI knowledge graph ontology adoption 2026",
+          "온톨로지 AI 에이전트 도입 사례 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "nrh",
+      "serialNumber": "2600004",
+      "registeredYear": 2026,
+      "name": "노재헌",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AIX",
+          "AI_AGENT",
+          "AI_ECOSYSTEM",
+          "OPEN_SOURCE_MODEL",
+          "PROCESS_INNOVATION"
+        ],
+        "keywords": [
+          "OpenClaw",
+          "바이브코딩",
+          "AIX",
+          "클로드코드",
+          "Claude Code",
+          "AI Native workflow",
+          "Process Innovation",
+          "비개발자 AIX",
+          "중국 경쟁사"
+        ],
+        "excludes": [
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "적용사례",
+          "워크플로",
+          "확산전략"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "Claude Code AI coding assistant update 2026",
+          "vibe coding non-developer productivity tool 2026",
+          "AI native workflow enterprise process innovation 2026",
+          "AIX AI transformation case study enterprise 2026",
+          "process innovation AI agent deployment 2026",
+          "AI no-code low-code workflow tool 2026",
+          "Chinese AI competitor workflow strategy 2026",
+          "비개발자 AI 워크플로 혁신 사례 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "ygy",
+      "serialNumber": "2600005",
+      "registeredYear": 2026,
+      "name": "윤가영",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AIX",
+          "AI_TECH",
+          "PHYSICAL_AI",
+          "SEMICONDUCTOR",
+          "AI_ECOSYSTEM"
+        ],
+        "keywords": [
+          "OpenClaw",
+          "AI의 미래",
+          "삼성 HBM",
+          "NVIDIA",
+          "Physical AI",
+          "미국",
+          "중국",
+          "한국",
+          "대만"
+        ],
+        "excludes": [
+          "세일즈",
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "반도체동향",
+          "투자",
+          "도입사례"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "Samsung HBM4 NVIDIA supply shipment 2026",
+          "NVIDIA GTC 2026 AI chip GPU announcement",
+          "physical AI robotics future outlook 2026",
+          "US China AI semiconductor export control 2026",
+          "Korea Taiwan semiconductor AI trend 2026",
+          "AI industry investment forecast 2026",
+          "삼성 SK하이닉스 HBM 반도체 경쟁 2026",
+          "한국 대만 반도체 AI 공급망 2026",
+          "China AI policy technology development 2026",
+          "Chinese LLM startup DeepSeek Moonshot 2026"
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "ljs",
+      "serialNumber": "2600006",
+      "registeredYear": 2026,
+      "name": "이지수",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_EDUCATION",
+          "AI_AGENT",
+          "VIBE_CODING",
+          "DOMESTIC_TRAVEL",
+          "CAMPING",
+          "CULTURE",
+          "FOOD"
+        ],
+        "keywords": [
+          "AI 교육",
+          "AI 러닝",
+          "AI 활용 교육",
+          "생성형 AI 트렌드",
+          "AI Agent",
+          "에이전트 도구",
+          "바이브코딩",
+          "노코드 AI",
+          "국내 여행지",
+          "주말 여행",
+          "추천 캠핑지",
+          "오토캠핑",
+          "차박",
+          "문화생활",
+          "전시",
+          "공연",
+          "뮤지컬",
+          "전국 맛집",
+          "로컬 맛집"
+        ],
+        "excludes": [],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "트렌드",
+          "추천",
+          "행사",
+          "지역이슈",
+          "실사용팁"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "AI education trend 2026 practical learning tools",
+          "AI agent beginner workflow tools 2026",
+          "vibe coding no-code AI development trend 2026",
+          "Korea domestic travel destination recommendation this week",
+          "Korea camping site recommendation family beginner",
+          "Korea culture exhibition performance musical schedule",
+          "Korea local restaurant trend and recommendations"
+        ],
+        "intentNotes": "키워드형 요청을 교육/기술/여가 3개 클러스터로 확장 해석해 매칭 (AI 동향 키워드 제외 적용)"
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "lcs",
+      "serialNumber": "2600007",
+      "registeredYear": 2026,
+      "name": "이창수",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "GEOPOLITICS",
+          "AI_INFRA",
+          "SEMICONDUCTOR",
+          "GPU_ARCHITECTURE",
+          "DATA_CENTER",
+          "CLOUD",
+          "AI_PLATFORM",
+          "CHINA_TECH"
+        ],
+        "keywords": [
+          "Palantir",
+          "NVIDIA",
+          "HBM",
+          "GPU",
+          "AI 인프라",
+          "데이터센터",
+          "클라우드",
+          "OpenAI",
+          "삼성전자",
+          "중국 AI 동향",
+          "중국 반도체 동향",
+          "이란 전쟁",
+          "중동 지정학 리스크",
+          "미국-이란 전쟁",
+          "지정학 리스크",
+          "이스라엘-이란 긴장",
+          "중동 분쟁",
+          "호르무즈 해협 리스크",
+          "젠슨 황",
+          "엔비디아",
+          "Computer Architecture",
+          "컴퓨터 아키텍처",
+          "AI 센터",
+          "AI 공급망",
+          "Samsung Electronics"
+        ],
+        "excludes": [
+          "일반 부동산",
+          "생활 일반",
+          "연예"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "출시",
+          "투자",
+          "정책",
+          "공급망",
+          "이란 전쟁",
+          "중동 지정학 리스크",
+          "전쟁 리스크",
+          "증설",
+          "규제",
+          "제재"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "Jensen Huang NVIDIA GPU roadmap data center 2026",
+          "HBM supply Samsung Electronics SK hynix Micron trend 2026",
+          "AI infrastructure cloud capex hyperscaler 2026",
+          "OpenAI infrastructure partnership data center 2026",
+          "China AI policy and model ecosystem trend 2026",
+          "China semiconductor memory foundry trend 2026",
+          "Iran war impact on AI semiconductor supply chain 2026",
+          "Middle East conflict impact on data center cloud infrastructure 2026",
+          "이스라엘 이란 전쟁 반도체 공급망 영향 2026",
+          "US Iran conflict impact on chips and cloud supply chain 2026",
+          "호르무즈 해협 리스크 반도체 물류 영향 2026",
+          "Palantir AI platform enterprise and government update 2026",
+          "GPU computer architecture innovation inference efficiency 2026",
+          "삼성전자 AI 반도체 HBM 전략 2026"
+        ],
+        "intentNotes": "이란 전쟁/중동 지정학 리스크를 AI 인프라·반도체 관심과 동등한 우선순위로 반영"
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    }
+  ]
+}
