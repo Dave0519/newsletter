@@ -1522,16 +1522,8 @@ class CLUEOrchestrator:
                 return re.search(rf"\b{re.escape(t)}\b", text) is not None
             return t in text
 
-        # 고객 키워드 또는 클러스터 기반 키워드 매칭은 통과,
-        # keywords가 비어도 앵커 최소 기준을 둬 라이프클러스터 유입은 제한
-        if any(has_term(k) for k in keywords):
-            return True
-
-        anchor_terms = [
-            "ai", "agent", "llm", "rag", "smart factory", "semiconductor", "digital twin", "automation",
-            "travel", "camping", "festival", "concert", "restaurant",
-        ]
-        return any(has_term(k) for k in anchor_terms)
+        # 고객 키워드 또는 클러스터 기반 키워드 매칭만 통과(앙커 fallback 제거)
+        return any(has_term(k) for k in keywords)
 
     @staticmethod
     def _is_similar_title(a: str, b: str, jaccard_threshold: float = 0.45) -> bool:
