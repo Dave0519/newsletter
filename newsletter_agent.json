@@ -76,7 +76,8 @@
       "style": "small_gray_inline"
     },
     "dStageParallelWorkers": 2,
-    "dStageTimeoutSec": 1800
+    "dStageTimeoutSec": 1800,
+    "refillMaxRounds": 3
   },
   "schedule": {
     "kind": "daily",

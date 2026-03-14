@@ -260,14 +260,41 @@ class CLUEOrchestrator:
             checkpoint_state.setdefault("paths", {}).setdefault("cleaned", {})[customer_id] = str(p)
         self.log.info(f"D_DONE cid={customer_id} n={len(clean_items)}")
 
-        # Stage E: need-coverage-driven refill
+        # Stage E: shortage-aware refill loop (need/article/country gaps)
         self.log.info(f"E_START cid={customer_id}")
         selected = self._select_for_customer(customer, clean_items)
-        coverage = self._evaluate_need_coverage(customer, selected)
-        if coverage.get("need_gap"):
+
+        min_articles = int(policy.get("min_articles_soft", 8))
+        min_countries = int(policy.get("min_country_sections_soft", 2))
+        max_refill_rounds = int(policy.get("refill_max_rounds", 3))
+
+        for rr in range(1, max_refill_rounds + 1):
+            coverage = self._evaluate_need_coverage(customer, selected)
+            country_count = len(set([it.get("country", "GLOBAL") for it in selected if it.get("country")]))
+            article_gap = max(0, min_articles - len(selected))
+            country_gap = max(0, min_countries - country_count)
+            need_gap = bool(coverage.get("need_gap"))
+
+            self.log.info(
+                f"E_GAP cid={customer_id} round={rr} need_gap={need_gap} article_gap={article_gap} country_gap={country_gap}"
+            )
+
+            if not need_gap and article_gap == 0 and country_gap == 0:
+                break
+
             gap_queries = self._build_gap_queries(customer, coverage)
+            if country_gap > 0:
+                gap_queries.extend(self._build_country_gap_queries(customer, selected, country_gap))
+
             refill_queries = self._build_ko_en_query_pairs(gap_queries)
-            refill_meta = self.news_collector.collect_custom_queries(refill_queries, category="CUSTOM_NEEDS", limit=policy["refill_meta_limit"])
+            if not refill_queries:
+                break
+
+            refill_meta = self.news_collector.collect_custom_queries(
+                refill_queries,
+                category="CUSTOM_NEEDS",
+                limit=policy["refill_meta_limit"],
+            )
             refill_meta = self._dedupe_semantic(refill_meta)
             refill_origin = refill_meta[: policy["refill_origin_cap_per_customer"]]
             refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
@@ -403,6 +430,9 @@ class CLUEOrchestrator:
             "domain_max_share": 0.30,
             "d_stage_parallel_workers": 2,
             "d_stage_timeout_sec": 1800,
+            "min_articles_soft": 8,
+            "min_country_sections_soft": 2,
+            "refill_max_rounds": 3,
         }
         try:
             if not os.path.exists(cfg_path):
@@ -417,6 +447,11 @@ class CLUEOrchestrator:
             defaults["domain_max_share"] = float(col.get("domainMaxShare", defaults["domain_max_share"]))
             defaults["d_stage_parallel_workers"] = int(col.get("dStageParallelWorkers", defaults["d_stage_parallel_workers"]))
             defaults["d_stage_timeout_sec"] = int(col.get("dStageTimeoutSec", defaults["d_stage_timeout_sec"]))
+            defaults["min_articles_soft"] = int(col.get("softMinArticlesPerNewsletter", defaults["min_articles_soft"]))
+            defaults["min_country_sections_soft"] = int(
+                cfg.get("consistencyValidation", {}).get("softMinCountrySections", defaults["min_country_sections_soft"])
+            )
+            defaults["refill_max_rounds"] = int(col.get("refillMaxRounds", defaults["refill_max_rounds"]))
         except Exception:
             return defaults
         return defaults
@@ -524,6 +559,26 @@ class CLUEOrchestrator:
                 if v < 1:
                     queries.append(k)
         return queries[:8]
+
+    def _build_country_gap_queries(self, customer: dict, selected: list[dict], country_gap: int) -> list[str]:
+        existing = set([it.get("country", "GLOBAL") for it in (selected or []) if it.get("country")])
+        order = self.config.get("news", {}).get("country_order", ["KR", "US", "CN", "TW", "GLOBAL"])
+        missing = [c for c in order if c not in existing]
+
+        country_hint = {
+            "KR": "Korea AI semiconductor data center cloud",
+            "US": "US AI semiconductor data center cloud",
+            "CN": "China AI semiconductor policy supply chain",
+            "TW": "Taiwan AI semiconductor foundry packaging",
+            "GLOBAL": "global AI infrastructure semiconductor supply chain",
+        }
+
+        out = []
+        for c in missing[: max(1, int(country_gap))]:
+            q = country_hint.get(c)
+            if q:
+                out.append(q)
+        return out
 
     def _build_ko_en_query_pairs(self, queries: list[str]) -> list[str]:
         out = []
