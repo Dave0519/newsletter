@@ -47,6 +47,12 @@ class ContentProcessor:
                 practical = "해당 이슈는 관련 기술/공급망/투자 우선순위를 점검할 때 참고할 만한 신호입니다."
 
             row = dict(it)
+            # 1:1:1 고정 필드
+            row["title_from_url"] = title
+            row["summary_from_body"] = summary
+            row["source_url"] = it.get("url", "")
+            row["article_body"] = body
+
             row["title_ko"] = self._llm_generate_title_from_body(url_title=title, body=body)
             row["description"] = summary
             row["practical_implication"] = practical

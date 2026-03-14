@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 import yaml
 from dotenv import load_dotenv
@@ -53,8 +54,8 @@ class CLUEOrchestrator:
         self.dedup = DedupDB(os.path.join(base_dir, "data/clue.db"))
 
     def run(self, customer_id: str = "default", email_recipient: Optional[str] = None, dry_run: bool = False):
+        """Single-customer pipeline (B~E)."""
         issue_date = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d")
-
         customer = self._get_customer(customer_id)
 
         publish_enabled = self._is_publish_enabled()
@@ -77,111 +78,206 @@ class CLUEOrchestrator:
             self._append_audit_log(customer_id, result)
             return result
 
-        # PHASE 1: RSS 기반 1차 공통 수집
-        article_pool = self.news_collector.collect_all(per_category_limit=100)
-        custom_queries = self._build_customer_queries(customer)
+        policy = self._load_collection_policy()
 
-        research_cfg = self.config["news"].get("research_insight", {})
-        research_enabled = bool(research_cfg.get("enabled", True))
-        research_target = max(
-            research_cfg.get("max_items", 5),
-            research_cfg.get("target_per_newsletter", 2),
+        # Stage A: shared collection (single-customer execution keeps it local)
+        article_pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
+        article_pool = self._dedupe_by_title_strict(article_pool)
+        article_pool = self._dedupe_semantic(article_pool)
+
+        return self._run_customer_from_pool(
+            customer=customer,
+            article_pool=article_pool,
+            issue_date=issue_date,
+            dry_run=dry_run,
+            email_recipient=email_recipient,
+            policy=policy,
         )
-        raw_research = []
-        if research_enabled and research_target > 0:
-            # 리서치 개인화 필터링을 위해 기본치보다 넉넉하게 수집
-            raw_research = self.research_collector.collect(target_count=max(research_target * 4, 12))
 
-        # PHASE 2: content-based tagging
+    def run_all_customers(self, dry_run: bool = False, resume: bool = True, time_budget_minutes: int = 110) -> dict:
+        """Stage-split batch pipeline with checkpoints and resume support."""
+        now = datetime.now(ZoneInfo("Asia/Seoul"))
+        issue_date = now.strftime("%Y.%m.%d")
+        state = self._load_state() if resume else {}
+
+        if not state or state.get("stage") == "DONE" or state.get("issue_date") != issue_date:
+            run_id = f"run-{now.strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+            customer_ids = [c.get("customer_id") for c in self.customers if c.get("enabled", True)]
+            state = {
+                "run_id": run_id,
+                "issue_date": issue_date,
+                "started_at": now.isoformat(),
+                "stage": "A",
+                "customers": customer_ids,
+                "completed_customers": [],
+                "failed_customers": [],
+                "customer_stage": {},
+                "paths": {"checkpoints_dir": str(self._checkpoint_dir(run_id))},
+                "updated_at": now.isoformat(),
+            }
+            self._save_state(state)
+
+        if not self._is_publish_enabled():
+            state.update({
+                "stage": "DONE",
+                "updated_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
+                "status": "blocked",
+                "reason": "publish_switch_disabled",
+            })
+            self._save_state(state)
+            return {"status": "blocked", "reason": "publish_switch_disabled", "run_id": state.get("run_id")}
+
+        policy = self._load_collection_policy()
+        start_ts = datetime.now(ZoneInfo("Asia/Seoul")).timestamp()
+        deadline = start_ts + max(10, int(time_budget_minutes)) * 60
+
+        # Stage A: shared pool
+        if state.get("stage") == "A":
+            pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
+            pool = self._dedupe_by_title_strict(pool)
+            pool = self._dedupe_semantic(pool)
+            master_path = self._checkpoint_dir(state["run_id"]) / "master_candidate_pool.json"
+            self._dump_json(master_path, pool)
+            state["paths"]["master_candidate_pool"] = str(master_path)
+            state["stage"] = "B"
+            state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+            self._save_state(state)
+
+        pool_path = state.get("paths", {}).get("master_candidate_pool", "")
+        try:
+            pool = json.loads(Path(pool_path).read_text(encoding="utf-8")) if pool_path and os.path.exists(pool_path) else []
+        except Exception:
+            pool = []
+
+        results = []
+        for cid in state.get("customers", []):
+            if cid in set(state.get("completed_customers", [])):
+                continue
+            if datetime.now(ZoneInfo("Asia/Seoul")).timestamp() >= deadline:
+                break
+
+            customer = self._get_customer(cid)
+            try:
+                result = self._run_customer_from_pool(
+                    customer=customer,
+                    article_pool=list(pool),
+                    issue_date=issue_date,
+                    dry_run=dry_run,
+                    email_recipient=None,
+                    policy=policy,
+                    run_id=state.get("run_id"),
+                    checkpoint_state=state,
+                )
+                state["completed_customers"].append(cid)
+                state["customer_stage"][cid] = "DONE"
+                results.append({"customer_id": cid, "status": result.get("status"), "gate_ok": result.get("gate_ok")})
+            except Exception as e:
+                state["failed_customers"].append({"id": cid, "stage": state.get("customer_stage", {}).get(cid, "UNKNOWN"), "reason": str(e)[:400]})
+                state["customer_stage"][cid] = "FAILED"
+            state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+            self._save_state(state)
+
+        all_done = len(state.get("completed_customers", [])) >= len(state.get("customers", []))
+        if all_done:
+            state["stage"] = "DONE"
+            state["status"] = "partial_failed" if state.get("failed_customers") else "completed"
+        else:
+            state["stage"] = "B"
+            state["status"] = "in_progress"
+        state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+        self._save_state(state)
+
+        return {
+            "run_id": state.get("run_id"),
+            "status": state.get("status"),
+            "completed": len(state.get("completed_customers", [])),
+            "failed": len(state.get("failed_customers", [])),
+            "total": len(state.get("customers", [])),
+            "results": results,
+        }
+
+    def _run_customer_from_pool(
+        self,
+        customer: dict,
+        article_pool: list[dict],
+        issue_date: str,
+        dry_run: bool,
+        email_recipient: Optional[str],
+        policy: dict,
+        run_id: Optional[str] = None,
+        checkpoint_state: Optional[dict] = None,
+    ) -> dict:
+        customer_id = customer.get("customer_id", "default")
+
         for a in article_pool:
             a["country"] = self.country_tagger.tag(a.get("title", ""), a.get("summary", ""))
             cat, score = self._infer_category(a)
             a["category"] = cat
             a["_category_score"] = score
 
-        # PHASE 3: customer personalization
-        selected = self._select_for_customer(customer, article_pool)
-        selected = self._dedupe_by_title_strict(selected)
-        selected = self._dedupe_semantic(selected)
+        # Stage B: shortlist
+        shortlist_meta = self._select_for_customer(customer, article_pool)
+        shortlist_meta = shortlist_meta[: policy["shortlist_meta_cap_per_customer"]]
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "B"
+            p = self._checkpoint_dir(run_id) / f"shortlist_{customer_id}.json"
+            self._dump_json(p, shortlist_meta)
+            checkpoint_state.setdefault("paths", {}).setdefault("shortlists", {})[customer_id] = str(p)
 
-        # shortage mitigation: 기사 부족 시 source/queries 확장 재수집
-        target_scan = int(self.config["news"]["global_scan"].get("target_per_newsletter", 10))
-        if len(selected) < target_scan:
-            boost_queries = custom_queries[:]
-            boost_queries.extend([
-                "China AI policy technology development",
-                "Chinese LLM startup DeepSeek Moonshot",
-                "Reuters AI enterprise deployment",
-                "Nikkei Asia AI semiconductor strategy",
-                "Korea JoongAng Daily AI industry",
-                "MIT Technology Review AI enterprise",
-                "The Verge AI model update",
-                "Bloomberg AI enterprise rollout",
-                "Financial Times AI regulation enterprise",
-                "WSJ AI chip supply chain",
-                "OpenAI Anthropic Google enterprise agent deployment",
-                "NVIDIA AMD Intel AI data center roadmap",
-                "Samsung SK hynix HBM AI server demand",
-                "TSMC advanced packaging CoWoS AI demand",
-                "robotics physical AI manufacturing deployment",
-                "industrial AI agent workflow automation case study",
-                "Korea semiconductor AI policy",
-                "Taiwan AI semiconductor ecosystem",
-                "US China semiconductor export control AI",
-                "generative AI enterprise security governance",
-            ])
-            # 중복 제거
-            dedup_q = []
-            seen_q = set()
-            for q in boost_queries:
-                k = (q or "").strip().lower()
-                if not k or k in seen_q:
-                    continue
-                seen_q.add(k)
-                dedup_q.append(q)
+        # Stage C: origin read + judge
+        origin_candidates = shortlist_meta[: policy["origin_read_cap_per_customer"]]
+        clean_items = self.processor.process_news_batch(origin_candidates, lang="ko")
+        clean_items = self._dedupe_by_title_strict(clean_items)
+        clean_items = self._dedupe_semantic(clean_items)
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "C"
+            p = self._checkpoint_dir(run_id) / f"cleaned_{customer_id}.json"
+            self._dump_json(p, clean_items)
+            checkpoint_state.setdefault("paths", {}).setdefault("cleaned", {})[customer_id] = str(p)
 
-            refill = self.news_collector.collect_custom_queries(dedup_q, category="AI_TECH", limit=80)
-            if refill:
-                article_pool = self.news_collector._dedup_pool(article_pool + refill)
-                for a in article_pool:
-                    if "country" not in a:
-                        a["country"] = self.country_tagger.tag(a.get("title", ""), a.get("summary", ""))
-                    if "category" not in a:
-                        cat, score = self._infer_category(a)
-                        a["category"] = cat
-                        a["_category_score"] = score
-                selected = self._select_for_customer(customer, article_pool)
-                selected = self._dedupe_by_title_strict(selected)
-                selected = self._dedupe_semantic(selected)
+        # Stage D: need-coverage-driven refill
+        selected = self._select_for_customer(customer, clean_items)
+        coverage = self._evaluate_need_coverage(customer, selected)
+        if coverage.get("need_gap"):
+            gap_queries = self._build_gap_queries(customer, coverage)
+            refill_queries = self._build_ko_en_query_pairs(gap_queries)
+            refill_meta = self.news_collector.collect_custom_queries(refill_queries, category="CUSTOM_NEEDS", limit=policy["refill_meta_limit"])
+            refill_meta = self._dedupe_semantic(refill_meta)
+            refill_origin = refill_meta[: policy["refill_origin_cap_per_customer"]]
+            refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
+            selected = self._dedupe_semantic(selected + refill_clean)
+            selected = self._select_for_customer(customer, selected)
 
-        # 히스토리 기반 중복 제거는 비활성화 (테스트/재생성 시 동일 기사 허용)
-        personalized_research = self._select_research_for_customer(customer, raw_research) if raw_research else []
-        filtered_research = personalized_research if personalized_research else []
+        selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "D"
+            p = self._checkpoint_dir(run_id) / f"final_{customer_id}.json"
+            self._dump_json(p, selected)
+            checkpoint_state.setdefault("paths", {}).setdefault("final_candidates", {})[customer_id] = str(p)
 
-        # PHASE 4: regroup by country for existing template
+        # Stage E: render & deliver
+        research_cfg = self.config["news"].get("research_insight", {})
+        research_enabled = bool(research_cfg.get("enabled", True))
+        raw_research = self.research_collector.collect(target_count=max(12, research_cfg.get("target_per_newsletter", 2) * 4)) if research_enabled else []
+        filtered_research = self._select_research_for_customer(customer, raw_research) if raw_research else []
+
         scan_by_country = self._group_by_country(selected)
-
         ok, errors = self.builder.validate(
             scan_by_country,
             filtered_research,
-            min_scan=self.config["news"]["global_scan"]["target_per_newsletter"],
+            min_scan=self.config["news"]["global_scan"].get("target_per_newsletter", 10),
             min_research=research_cfg.get("target_per_newsletter", 0),
         )
         if not ok:
             self.log.warning(f"Validation failed: {errors}")
 
         max_per_country = self.config["news"]["global_scan"].get("max_per_country", 5)
-        processed_scan = {
-            c: self.processor.process_news_batch(items, lang="ko")[:max_per_country]
-            for c, items in scan_by_country.items()
-        }
+        processed_scan = {c: items[:max_per_country] for c, items in scan_by_country.items()}
         processed_scan = self._enforce_title_summary_consistency(processed_scan)
-        max_research = research_cfg.get("max_items", 0)
-        processed_research = []
-        if research_enabled and max_research > 0 and filtered_research:
-            processed_research = self.processor.process_research_batch(filtered_research, lang="ko")[:max_research]
 
-        # PHASE 5: build + deliver
+        max_research = research_cfg.get("max_items", 0)
+        processed_research = self.processor.process_research_batch(filtered_research, lang="ko")[:max_research] if (research_enabled and max_research > 0 and filtered_research) else []
+
         template_path, template_sha256 = self.builder.template_fingerprint()
         hashtags = self._build_needs_hashtags(customer)
         html = self.builder.build(
@@ -207,9 +303,6 @@ class CLUEOrchestrator:
         if not dry_run and gate_ok:
             recipient = email_recipient or customer.get("email") or self.config["email"]["recipient"]
             delivery_result = self.delivery.deliver(html, issue_date, recipient)
-            if delivery_result.get("email"):
-                # 히스토리 기반 dedup 기록 비활성화
-                pass
         elif not gate_ok:
             self.log.warning(f"Send blocked by hard gates: {hard_errors}")
 
@@ -234,11 +327,142 @@ class CLUEOrchestrator:
             "soft_warnings": soft_warnings,
             "template_path": template_path,
             "template_sha256": template_sha256,
+            "coverage": self._evaluate_need_coverage(customer, selected),
             "html": html,
         }
+
         self._append_run_log(customer_id, result)
         self._append_audit_log(customer_id, result)
+        if checkpoint_state is not None:
+            checkpoint_state["customer_stage"][customer_id] = "E"
         return result
+
+    def _state_path(self) -> Path:
+        return Path(self.base_dir, "..", "newsletter_agent_state.json")
+
+    def _checkpoint_dir(self, run_id: str) -> Path:
+        return Path(self.base_dir, "data", "checkpoints", run_id)
+
+    def _load_state(self) -> dict:
+        p = self._state_path()
+        if not p.exists():
+            return {}
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _save_state(self, state: dict):
+        p = self._state_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+
+    def _dump_json(self, path: Path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+
+    def _load_collection_policy(self) -> dict:
+        cfg_path = os.path.join(self.base_dir, "..", "newsletter_agent.json")
+        defaults = {
+            "per_category_limit": 150,
+            "shortlist_meta_cap_per_customer": 80,
+            "origin_read_cap_per_customer": 40,
+            "refill_meta_limit": 120,
+            "refill_origin_cap_per_customer": 15,
+            "domain_max_share": 0.30,
+        }
+        try:
+            if not os.path.exists(cfg_path):
+                return defaults
+            cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+            col = cfg.get("collection", {}) if isinstance(cfg, dict) else {}
+            defaults["per_category_limit"] = int(col.get("perCategoryLimit", defaults["per_category_limit"]))
+            defaults["shortlist_meta_cap_per_customer"] = int(col.get("shortlistMetaCapPerCustomer", defaults["shortlist_meta_cap_per_customer"]))
+            defaults["origin_read_cap_per_customer"] = int(col.get("originReadCapPerCustomer", defaults["origin_read_cap_per_customer"]))
+            defaults["refill_meta_limit"] = int(col.get("refillMetaLimit", defaults["refill_meta_limit"]))
+            defaults["refill_origin_cap_per_customer"] = int(col.get("refillOriginCapPerCustomer", defaults["refill_origin_cap_per_customer"]))
+            defaults["domain_max_share"] = float(col.get("domainMaxShare", defaults["domain_max_share"]))
+        except Exception:
+            return defaults
+        return defaults
+
+    def _evaluate_need_coverage(self, customer: dict, items: list[dict]) -> dict:
+        prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
+        critical_terms = [x for x in prefs.get("focus_topics", []) if isinstance(x, str) and x.strip()][:4]
+        general_terms = [x for x in prefs.get("keywords", []) if isinstance(x, str) and x.strip()][:10]
+        if not critical_terms:
+            critical_terms = general_terms[:2]
+
+        def hit_count(term: str) -> int:
+            t = (term or "").strip().lower()
+            if not t:
+                return 0
+            cnt = 0
+            for it in items or []:
+                text = f"{it.get('title','')} {it.get('summary','')} {it.get('description','')} {it.get('article_body','')[:1500]}".lower()
+                if t in text:
+                    cnt += 1
+            return cnt
+
+        critical_hits = {t: hit_count(t) for t in critical_terms}
+        general_hits = {t: hit_count(t) for t in general_terms[:6]}
+        critical_met = sum(1 for _, v in critical_hits.items() if v >= 1)
+        general_met = sum(1 for _, v in general_hits.items() if v >= 1)
+        need_gap = (critical_met < min(2, max(1, len(critical_hits)))) or (general_met < 1)
+        return {
+            "need_gap": need_gap,
+            "critical_hits": critical_hits,
+            "general_hits": general_hits,
+            "critical_met": critical_met,
+            "general_met": general_met,
+        }
+
+    def _build_gap_queries(self, customer: dict, coverage: dict) -> list[str]:
+        queries = []
+        for k, v in (coverage.get("critical_hits", {}) or {}).items():
+            if v < 1:
+                queries.append(k)
+        if not queries:
+            for k, v in (coverage.get("general_hits", {}) or {}).items():
+                if v < 1:
+                    queries.append(k)
+        return queries[:8]
+
+    def _build_ko_en_query_pairs(self, queries: list[str]) -> list[str]:
+        out = []
+        for q in queries or []:
+            qq = (q or "").strip()
+            if not qq:
+                continue
+            out.append(qq)
+            out.append(f"{qq} AI semiconductor")
+        # dedup preserve order
+        seen = set()
+        deduped = []
+        for q in out:
+            k = q.lower().strip()
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            deduped.append(q)
+        return deduped
+
+    def _rebalance_domain_bias(self, items: list[dict], max_share: float = 0.3) -> list[dict]:
+        if not items:
+            return items
+        total = len(items)
+        cap = max(1, int(total * max_share))
+        kept = []
+        dom_cnt = {}
+        for it in items:
+            u = (it.get("url") or it.get("source_url") or "").strip().lower()
+            d = self._normalize_domain(urlparse(u).netloc or "") if u else ""
+            d = d or "unknown"
+            if dom_cnt.get(d, 0) >= cap:
+                continue
+            dom_cnt[d] = dom_cnt.get(d, 0) + 1
+            kept.append(it)
+        return kept
 
     def _normalize_domain(self, domain: str) -> str:
         d = (domain or "").strip().lower()
