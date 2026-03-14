@@ -52,6 +52,43 @@
         "searchQueries": [
           "China AI policy technology development 2026",
           "Chinese LLM startup DeepSeek Moonshot 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "INDUSTRY_TREND",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "출시",
+              "파트너십",
+              "도입사례",
+              "규제",
+              "투자"
+            ]
+          },
+          {
+            "name": "AI_TECH",
+            "minArticles": 3,
+            "weight": 1.1,
+            "terms": [
+              "제조 AI",
+              "manufacturing AI",
+              "physical AI",
+              "OpenClaw",
+              "openclaw",
+              "enterprise rollout"
+            ]
+          },
+          {
+            "name": "SEMICON",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "반도체",
+              "semiconductor",
+              "global top companies"
+            ]
+          }
         ]
       },
       "delivery": {
@@ -119,6 +156,48 @@
           "오픈소스 LLM 중국 경쟁 2026",
           "China AI policy technology development 2026",
           "Chinese LLM startup DeepSeek Moonshot 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "LLM_MODEL",
+            "minArticles": 4,
+            "weight": 1.3,
+            "terms": [
+              "OpenAI",
+              "Claude",
+              "Anthropic",
+              "Gemini",
+              "model update",
+              "benchmark",
+              "benchmark performance",
+              "model"
+            ]
+          },
+          {
+            "name": "OPEN_SOURCE",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "open source",
+              "open source LLM",
+              "Chinese open source model",
+              "DeepSeek",
+              "Qwen",
+              "Bytedance Seedance"
+            ]
+          },
+          {
+            "name": "MULTIMODAL",
+            "minArticles": 2,
+            "weight": 1.1,
+            "terms": [
+              "Image Generation",
+              "video generation",
+              "AI video",
+              "physical AI",
+              "robotics"
+            ]
+          }
         ]
       },
       "delivery": {
@@ -179,6 +258,44 @@
           "온톨로지 AI 에이전트 도입 사례 2026",
           "China AI policy technology development 2026",
           "Chinese LLM startup DeepSeek Moonshot 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "ONTOLOGY",
+            "minArticles": 3,
+            "weight": 1.3,
+            "terms": [
+              "온톨로지",
+              "Ontology",
+              "knowledge graph",
+              "디지털 트윈",
+              "digital twin"
+            ]
+          },
+          {
+            "name": "AI_AGENT",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "AI agent",
+              "에이전트",
+              "Vibe Coding",
+              "바이브 코딩",
+              "AI 에이전트"
+            ]
+          },
+          {
+            "name": "ENTERPRISE",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "기업",
+              "도입사례",
+              "platform",
+              "플랫폼",
+              "경쟁사동향"
+            ]
+          }
         ]
       },
       "delivery": {
@@ -237,6 +354,43 @@
           "비개발자 AI 워크플로 혁신 사례 2026",
           "China AI policy technology development 2026",
           "Chinese LLM startup DeepSeek Moonshot 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "AIX",
+            "minArticles": 3,
+            "weight": 1.3,
+            "terms": [
+              "AIX",
+              "클로드코드",
+              "Claude Code",
+              "바이브코딩",
+              "AI Native workflow"
+            ]
+          },
+          {
+            "name": "PROCESS",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "Process Innovation",
+              "비개발자",
+              "workflow",
+              "non-developer",
+              "no-code",
+              "low-code"
+            ]
+          },
+          {
+            "name": "COMPETITOR",
+            "minArticles": 1,
+            "weight": 1.0,
+            "terms": [
+              "중국 경쟁사",
+              "중국",
+              "open source LLM"
+            ]
+          }
         ]
       },
       "delivery": {
@@ -296,6 +450,47 @@
           "한국 대만 반도체 AI 공급망 2026",
           "China AI policy technology development 2026",
           "Chinese LLM startup DeepSeek Moonshot 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "SEMICON",
+            "minArticles": 4,
+            "weight": 1.3,
+            "terms": [
+              "삼성 HBM",
+              "HBM",
+              "NVIDIA",
+              "반도체",
+              "semiconductor",
+              "AI 반도체",
+              "AI 공급망"
+            ]
+          },
+          {
+            "name": "AI_TECH",
+            "minArticles": 3,
+            "weight": 1.1,
+            "terms": [
+              "AI 기술",
+              "Physical AI",
+              "AI 산업",
+              "AI platform",
+              "AI 인프라"
+            ]
+          },
+          {
+            "name": "REGIONAL",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "한국",
+              "대만",
+              "미국",
+              "중국",
+              "Taiwan",
+              "Korea"
+            ]
+          }
         ]
       },
       "delivery": {
@@ -363,7 +558,69 @@
           "Korea culture exhibition performance musical schedule",
           "Korea local restaurant trend and recommendations"
         ],
-        "intentNotes": "키워드형 요청을 교육/기술/여가 3개 클러스터로 확장 해석해 매칭 (AI 동향 키워드 제외 적용)"
+        "intentNotes": "키워드형 요청을 교육/기술/여가 3개 클러스터로 확장 해석해 매칭 (AI 동향 키워드 제외 적용)",
+        "needClusters": [
+          {
+            "name": "AI_TREND",
+            "minArticles": 4,
+            "weight": 1.2,
+            "terms": [
+              "생성형 AI",
+              "AI 동향",
+              "AI 트렌드",
+              "AI 활용",
+              "AI Agent",
+              "에이전트",
+              "바이브코딩"
+            ]
+          },
+          {
+            "name": "AI_EDU",
+            "minArticles": 2,
+            "weight": 1.2,
+            "terms": [
+              "AI 교육",
+              "AI 러닝",
+              "AI 활용 교육",
+              "실사용팁",
+              "vibe coding",
+              "바이브코딩"
+            ]
+          },
+          {
+            "name": "TRAVEL",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "국내 여행지",
+              "주말 여행",
+              "캠핑",
+              "오토캠핑",
+              "차박"
+            ]
+          },
+          {
+            "name": "CULTURE",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "전시",
+              "공연",
+              "뮤지컬",
+              "문화생활"
+            ]
+          },
+          {
+            "name": "FOOD",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "맛집",
+              "로컬 맛집",
+              "전국 맛집"
+            ]
+          }
+        ]
       },
       "delivery": {
         "time": "06:00",
@@ -452,7 +709,63 @@
           "GPU computer architecture innovation inference efficiency 2026",
           "삼성전자 AI 반도체 HBM 전략 2026"
         ],
-        "intentNotes": "이란 전쟁/중동 지정학 리스크를 AI 인프라·반도체 관심과 동등한 우선순위로 반영"
+        "intentNotes": "이란 전쟁/중동 지정학 리스크를 AI 인프라·반도체 관심과 동등한 우선순위로 반영",
+        "needClusters": [
+          {
+            "name": "AI_INFRA",
+            "minArticles": 4,
+            "weight": 1.4,
+            "terms": [
+              "NVIDIA",
+              "HBM",
+              "GPU",
+              "AI 인프라",
+              "데이터센터",
+              "클라우드",
+              "Computer Architecture",
+              "AI 센터"
+            ]
+          },
+          {
+            "name": "SUPPLY_CHAIN",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "공급망",
+              "AI 공급망",
+              "HBM supply",
+              "memory",
+              "반도체",
+              "삼성전자",
+              "SK hynix"
+            ]
+          },
+          {
+            "name": "GEO_RISK",
+            "minArticles": 2,
+            "weight": 1.1,
+            "terms": [
+              "이란 전쟁",
+              "호르무즈",
+              "중동",
+              "지정학 리스크",
+              "중동 분쟁",
+              "규제",
+              "제재"
+            ]
+          },
+          {
+            "name": "POLICY",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "정책",
+              "투자",
+              "규제",
+              "증설"
+            ]
+          }
+        ]
       },
       "delivery": {
         "time": "06:00",

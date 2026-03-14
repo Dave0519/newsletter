@@ -504,7 +504,13 @@ class CLUEOrchestrator:
     def _precheck_candidates(self, customer: dict, items: list[dict]) -> list[dict]:
         """Fast precheck before expensive body extraction/LLM generation."""
         prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
-        keywords = [k.strip().lower() for k in (prefs.get("keywords", []) or []) if isinstance(k, str) and k.strip()]
+        clusters = self._extract_need_clusters(customer)
+        keywords = []
+        for c in clusters:
+            keywords.extend(c.get("terms", []) or [])
+        if not keywords:
+            keywords = [k.strip().lower() for k in (prefs.get("keywords", []) or []) if isinstance(k, str) and k.strip()]
+
         excludes = [x.strip().lower() for x in (prefs.get("excludes", []) or []) if isinstance(x, str) and x.strip()]
 
         out = []
@@ -522,7 +528,7 @@ class CLUEOrchestrator:
                 continue
 
             # keyword-based relevance score (cheap)
-            score = sum(text.count(k) for k in keywords[:12]) if keywords else 0
+            score = sum(text.count(k.lower()) for k in keywords) if keywords else 0
             # keep when matched, or when shortlist is small and category score is non-negative
             if score <= 0 and len(items) > 30 and it.get("_category_score", 0) < 1:
                 continue
@@ -535,47 +541,109 @@ class CLUEOrchestrator:
         out.sort(key=lambda x: (x.get("_precheck_score", 0), x.get("_customer_score", 0), x.get("published_at", "")), reverse=True)
         return out
 
-    def _evaluate_need_coverage(self, customer: dict, items: list[dict]) -> dict:
+    def _extract_need_clusters(self, customer: dict) -> list[dict]:
         prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
-        critical_terms = [x for x in prefs.get("focus_topics", []) if isinstance(x, str) and x.strip()][:4]
-        general_terms = [x for x in prefs.get("keywords", []) if isinstance(x, str) and x.strip()][:10]
-        if not critical_terms:
-            critical_terms = general_terms[:2]
+        clusters = prefs.get("needClusters", []) if isinstance(prefs, dict) else []
+        if isinstance(clusters, list) and clusters:
+            return [c for c in clusters if isinstance(c, dict) and c.get("name")]
 
-        def hit_count(term: str) -> int:
-            t = (term or "").strip().lower()
-            if not t:
-                return 0
-            cnt = 0
-            for it in items or []:
-                text = f"{it.get('title','')} {it.get('summary','')} {it.get('description','')} {it.get('article_body','')[:1500]}".lower()
-                if t in text:
-                    cnt += 1
-            return cnt
+        # fallback: focus_topics-driven pseudo clusters
+        fallback_terms = [x for x in prefs.get("focus_topics", []) if isinstance(x, str) and x.strip()]
+        fallback_keywords = [x for x in prefs.get("keywords", []) if isinstance(x, str) and x.strip()]
+        if fallback_terms:
+            return [{"name": "focus", "minArticles": 2, "weight": 1.0, "terms": fallback_terms[:8]}]
+        return [{"name": "keywords", "minArticles": 1, "weight": 1.0, "terms": fallback_keywords[:10]}]
 
-        critical_hits = {t: hit_count(t) for t in critical_terms}
-        general_hits = {t: hit_count(t) for t in general_terms[:6]}
-        critical_met = sum(1 for _, v in critical_hits.items() if v >= 1)
-        general_met = sum(1 for _, v in general_hits.items() if v >= 1)
-        need_gap = (critical_met < min(2, max(1, len(critical_hits)))) or (general_met < 1)
+    @staticmethod
+    def _cluster_term_hits(article: dict, term: str) -> int:
+        t = (term or "").strip().lower()
+        if not t:
+            return 0
+        if re.search(r"[a-z0-9]", t):
+            pattern = rf"\b{re.escape(t)}\b"
+        else:
+            pattern = re.escape(t)
+        text = f"{article.get('title','')} {article.get('summary','')} {article.get('description','')} {article.get('article_body','')[:1500]}".lower()
+        return len(re.findall(pattern, text))
+
+    def _evaluate_need_coverage(self, customer: dict, items: list[dict]) -> dict:
+        clusters = self._extract_need_clusters(customer)
+        cluster_hits = {}
+        cluster_gap = {}
+
+        def cluster_score(cluster: dict) -> tuple:
+            terms = [x for x in cluster.get("terms", []) if isinstance(x, str) and x.strip()]
+            min_required = int(cluster.get("minArticles", 0) or 1)
+            weight = float(cluster.get("weight", 1.0) or 1.0)
+            hits = {}
+            hit_sum = 0
+            for t in terms:
+                c = self._cluster_term_hits_dict(items, t)
+                hits[t] = c
+                hit_sum += c
+            hit_items = sum(1 for v in hits.values() if v >= 1)
+            met = hit_items >= max(1, min(min_required, max(1, len(terms))))
+            return cluster.get("name", "cluster"), {
+                "minArticles": min_required,
+                "weight": weight,
+                "terms": terms,
+                "term_hits": hits,
+                "hit_items": hit_items,
+                "hit_total": hit_sum,
+                "met": met,
+            }
+
+        critical_hits = {}
+        for c_name, c_data in map(cluster_score, clusters):
+            gap = int(c_data.get("minArticles", 0)) - int(c_data.get("hit_items", 0))
+            c_data["gap"] = max(0, gap)
+            cluster_hits[c_name] = c_data
+            if c_data.get("gap", 0) > 0:
+                cluster_gap[c_name] = c_data
+
+        # backward-compatible legacy fields for monitoring compatibility
+        flat_critical_terms = [t for c in clusters for t in c.get("terms", [])[:2]]
+        critical_hits = {t: self._cluster_term_hits_dict(items, t) for t in flat_critical_terms}
+
+        need_gap = len(cluster_gap) > 0
+
         return {
             "need_gap": need_gap,
+            "clusters": cluster_hits,
+            "cluster_gap": cluster_gap,
             "critical_hits": critical_hits,
-            "general_hits": general_hits,
-            "critical_met": critical_met,
-            "general_met": general_met,
+            "general_hits": {},
+            "critical_met": len(cluster_hits) - len(cluster_gap),
+            "general_met": len(cluster_hits) - len(cluster_gap),
         }
+
+    @staticmethod
+    def _cluster_term_hits_dict(items: list[dict], term: str) -> int:
+        if not term:
+            return 0
+        cnt = 0
+        t = term.lower()
+        for it in items or []:
+            text = f"{it.get('title','')} {it.get('summary','')} {it.get('description','')} {it.get('article_body','')[:1500]}".lower()
+            if t in text:
+                cnt += 1
+        return cnt
 
     def _build_gap_queries(self, customer: dict, coverage: dict) -> list[str]:
         queries = []
-        for k, v in (coverage.get("critical_hits", {}) or {}).items():
-            if v < 1:
-                queries.append(k)
+        for c_name, c_data in (coverage.get("cluster_gap", {}) or {}).items():
+            terms = [t for t in (c_data.get("terms", []) or []) if isinstance(t, str) and t.strip()]
+            # prioritize terms with low hit ratio
+            for t in terms:
+                if t not in queries:
+                    queries.append(t)
+            if len(terms) == 0:
+                queries.append(c_name)
         if not queries:
-            for k, v in (coverage.get("general_hits", {}) or {}).items():
-                if v < 1:
+            for k, v in (coverage.get("critical_hits", {}) or {}).items():
+                if v < 1 and k not in queries:
                     queries.append(k)
-        return queries[:8]
+        return queries[:10]
 
     def _apply_country_floor(self, selected: list[dict], fallback_pool: list[dict], country_floor: dict) -> list[dict]:
         if not country_floor:
@@ -924,8 +992,20 @@ class CLUEOrchestrator:
         if categories and not (categories & known_categories):
             categories = set()
 
+        clusters = self._extract_need_clusters(customer)
+        cluster_terms = []
+        for c in clusters:
+            cluster_terms.extend([x for x in c.get("terms", []) if isinstance(x, str) and x.strip()])
         keywords = [k.lower() for k in prefs.get("keywords", [])]
+        keywords = sorted(set([k.lower() for k in keywords + [x.lower() for x in cluster_terms]]))
         watch_companies = [c.lower() for c in prefs.get("watch_companies", []) if isinstance(c, str)]
+        cluster_specs = []
+        for c in clusters:
+            c_name = str(c.get("name", "cluster"))
+            c_terms = [x.lower() for x in c.get("terms", []) if isinstance(x, str) and x.strip()]
+            c_min = max(1, int(c.get("minArticles", 0) or 1))
+            c_weight = float(c.get("weight", 1.0) or 1.0)
+            cluster_specs.append((c_name, c_terms, c_min, c_weight))
 
         scoped = []
         for a in pool:
@@ -944,6 +1024,13 @@ class CLUEOrchestrator:
             keyword_score = sum(text.count(k) for k in keywords)
             company_hits = sum(1 for c in watch_companies if c and c in text)
             a["_customer_score"] = keyword_score + (company_hits * 3)
+            cluster_scores = {}
+            for c_name, c_terms, _, c_weight in cluster_specs:
+                s = 0
+                for t in c_terms:
+                    s += text.count(t)
+                cluster_scores[c_name] = s * c_weight
+            a["_cluster_scores"] = cluster_scores
 
         # score desc + recency
         scoped.sort(
@@ -954,24 +1041,58 @@ class CLUEOrchestrator:
         max_pool = 80
         target_scan = self.config["news"]["global_scan"].get("target_per_newsletter", 10)
 
-        # 1차: 니즈 키워드 매칭 기사 우선
-        matched = [a for a in scoped if a.get("_customer_score", 0) > 0]
-        matched = self._dedupe_similar_items(matched[:max_pool], text_key="title")
-        if len(matched) >= target_scan:
-            return matched
+        # 1차: 클러스터 최소치 보장 슬롯링 선점
+        selected = []
+        used = set()
+        if cluster_specs:
+            # buckets by cluster
+            buckets = []
+            for c_name, _, c_min, _ in cluster_specs:
+                bucket = [a for a in scoped if a.get("_cluster_scores", {}).get(c_name, 0) > 0 and id(a) not in used]
+                bucket = self._dedupe_similar_items(bucket, text_key="title")
+                buckets.append((c_name, c_min, bucket))
 
-        # 2차: 부족분은 카테고리 적합도가 높은 기사로만 보강(니즈 하한 유지)
-        merged = matched[:]
+            for c_name, c_min, bucket in buckets:
+                while len([1 for x in selected if x.get("_cluster_scores", {}).get(c_name, 0) > 0]) < c_min:
+                    if not bucket:
+                        break
+                    a = bucket.pop(0)
+                    uid = id(a)
+                    if uid in used:
+                        continue
+                    selected.append(a)
+                    used.add(uid)
+                if len(selected) >= max_pool:
+                    break
+
+            if len(selected) < target_scan:
+                for a in scoped:
+                    uid = id(a)
+                    if uid in used:
+                        continue
+                    selected.append(a)
+                    used.add(uid)
+                    if len(selected) >= max_pool:
+                        break
+        else:
+            selected = list(scoped)
+
+        if len(selected) >= target_scan:
+            return self._dedupe_similar_items(selected[:max_pool], text_key="title")
+
+        # fallback: 부족분은 카테고리 적합도가 높은 기사로만 보강
         for a in scoped:
-            if a in merged:
+            uid = id(a)
+            if uid in used:
                 continue
             if a.get("_category_score", 0) < 2:
                 continue
-            merged.append(a)
-            if len(merged) >= max_pool:
+            selected.append(a)
+            used.add(uid)
+            if len(selected) >= max_pool:
                 break
 
-        return self._dedupe_similar_items(merged, text_key="title")
+        return self._dedupe_similar_items(selected, text_key="title")
 
     def _group_by_country(self, items: list[dict]) -> dict[str, list[dict]]:
         out = {c: [] for c in self.config["news"].get("country_order", ["KR", "US", "CN", "TW", "GLOBAL"])}
@@ -1265,12 +1386,14 @@ class CLUEOrchestrator:
                 return re.search(rf"\b{re.escape(t)}\b", text) is not None
             return t in text
 
-        # 고객 키워드 매칭 또는 공통 AI/제조 앵커 매칭이 있을 때만 통과
+        # 고객 키워드 또는 클러스터 기반 키워드 매칭은 통과,
+        # keywords가 비어도 앵커 최소 기준을 둬 라이프클러스터 유입은 제한
         if any(has_term(k) for k in keywords):
             return True
 
         anchor_terms = [
-            "ai", "agent", "llm", "rag", "smart factory", "semiconductor", "digital twin", "automation"
+            "ai", "agent", "llm", "rag", "smart factory", "semiconductor", "digital twin", "automation",
+            "travel", "camping", "festival", "concert", "restaurant",
         ]
         return any(has_term(k) for k in anchor_terms)
 
@@ -1427,6 +1550,7 @@ class CLUEOrchestrator:
                 "keywords": profile.get("keywords", []),
                 "excludes": profile.get("excludes", []),
                 "search_queries": profile.get("searchQueries", []),
+                "needClusters": profile.get("needClusters", []),
             },
         }
 
