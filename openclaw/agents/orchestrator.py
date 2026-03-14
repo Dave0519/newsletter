@@ -102,6 +102,7 @@ class CLUEOrchestrator:
 
         if not state or state.get("stage") == "DONE" or state.get("issue_date") != issue_date:
             run_id = f"run-{now.strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+            self.log.info(f"RUN_START run_id={run_id} issue_date={issue_date}")
             customer_ids = [c.get("customer_id") for c in self.customers if c.get("enabled", True)]
             state = {
                 "run_id": run_id,
@@ -133,12 +134,14 @@ class CLUEOrchestrator:
 
         # Stage A: shared pool
         if state.get("stage") == "A":
+            self.log.info("A_START")
             pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
             pool = self._dedupe_by_title_strict(pool)
             pool = self._dedupe_semantic(pool)
             master_path = self._checkpoint_dir(state["run_id"]) / "master_candidate_pool.json"
             self._dump_json(master_path, pool)
             state["paths"]["master_candidate_pool"] = str(master_path)
+            self.log.info("A_DONE")
             state["stage"] = "B"
             state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
             self._save_state(state)
@@ -157,6 +160,7 @@ class CLUEOrchestrator:
                 break
 
             customer = self._get_customer(cid)
+            self.log.info(f"CUSTOMER_START cid={cid}")
             try:
                 result = self._run_customer_from_pool(
                     customer=customer,
@@ -170,10 +174,12 @@ class CLUEOrchestrator:
                 )
                 state["completed_customers"].append(cid)
                 state["customer_stage"][cid] = "DONE"
+                self.log.info(f"CUSTOMER_DONE cid={cid} status={result.get('status')}")
                 results.append({"customer_id": cid, "status": result.get("status"), "gate_ok": result.get("gate_ok")})
             except Exception as e:
                 state["failed_customers"].append({"id": cid, "stage": state.get("customer_stage", {}).get(cid, "UNKNOWN"), "reason": str(e)[:400]})
                 state["customer_stage"][cid] = "FAILED"
+                self.log.warning(f"CUSTOMER_FAIL cid={cid} stage={state.get('customer_stage', {}).get(cid, 'UNKNOWN')} reason={str(e)[:200]}")
             state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
             self._save_state(state)
 
@@ -216,6 +222,7 @@ class CLUEOrchestrator:
             a["_category_score"] = score
 
         # Stage B: shortlist
+        self.log.info(f"B_START cid={customer_id}")
         shortlist_meta = self._select_for_customer(customer, article_pool)
         shortlist_meta = shortlist_meta[: policy["shortlist_meta_cap_per_customer"]]
         if checkpoint_state is not None and run_id:
@@ -223,19 +230,33 @@ class CLUEOrchestrator:
             p = self._checkpoint_dir(run_id) / f"shortlist_{customer_id}.json"
             self._dump_json(p, shortlist_meta)
             checkpoint_state.setdefault("paths", {}).setdefault("shortlists", {})[customer_id] = str(p)
+        self.log.info(f"B_DONE cid={customer_id} n={len(shortlist_meta)}")
 
-        # Stage C: origin read + judge
-        origin_candidates = shortlist_meta[: policy["origin_read_cap_per_customer"]]
+        # Stage C: precheck (fast filter before expensive LLM steps)
+        self.log.info(f"C_START cid={customer_id}")
+        prechecked = self._precheck_candidates(customer, shortlist_meta)
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "C"
+            p = self._checkpoint_dir(run_id) / f"prechecked_{customer_id}.json"
+            self._dump_json(p, prechecked)
+            checkpoint_state.setdefault("paths", {}).setdefault("prechecked", {})[customer_id] = str(p)
+        self.log.info(f"C_DONE cid={customer_id} n={len(prechecked)}")
+
+        # Stage D: origin read + judge
+        self.log.info(f"D_START cid={customer_id}")
+        origin_candidates = prechecked[: policy["origin_read_cap_per_customer"]]
         clean_items = self.processor.process_news_batch(origin_candidates, lang="ko")
         clean_items = self._dedupe_by_title_strict(clean_items)
         clean_items = self._dedupe_semantic(clean_items)
         if checkpoint_state is not None and run_id:
-            checkpoint_state["customer_stage"][customer_id] = "C"
+            checkpoint_state["customer_stage"][customer_id] = "D"
             p = self._checkpoint_dir(run_id) / f"cleaned_{customer_id}.json"
             self._dump_json(p, clean_items)
             checkpoint_state.setdefault("paths", {}).setdefault("cleaned", {})[customer_id] = str(p)
+        self.log.info(f"D_DONE cid={customer_id} n={len(clean_items)}")
 
-        # Stage D: need-coverage-driven refill
+        # Stage E: need-coverage-driven refill
+        self.log.info(f"E_START cid={customer_id}")
         selected = self._select_for_customer(customer, clean_items)
         coverage = self._evaluate_need_coverage(customer, selected)
         if coverage.get("need_gap"):
@@ -250,12 +271,14 @@ class CLUEOrchestrator:
 
         selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
         if checkpoint_state is not None and run_id:
-            checkpoint_state["customer_stage"][customer_id] = "D"
+            checkpoint_state["customer_stage"][customer_id] = "E"
             p = self._checkpoint_dir(run_id) / f"final_{customer_id}.json"
             self._dump_json(p, selected)
             checkpoint_state.setdefault("paths", {}).setdefault("final_candidates", {})[customer_id] = str(p)
+        self.log.info(f"E_DONE cid={customer_id} n={len(selected)}")
 
-        # Stage E: render & deliver
+        # Stage F: render & deliver
+        self.log.info(f"F_START cid={customer_id}")
         research_cfg = self.config["news"].get("research_insight", {})
         research_enabled = bool(research_cfg.get("enabled", True))
         raw_research = self.research_collector.collect(target_count=max(12, research_cfg.get("target_per_newsletter", 2) * 4)) if research_enabled else []
@@ -333,8 +356,9 @@ class CLUEOrchestrator:
 
         self._append_run_log(customer_id, result)
         self._append_audit_log(customer_id, result)
+        self.log.info(f"F_DONE cid={customer_id} status={result.get('status')} gate_ok={result.get('gate_ok')}")
         if checkpoint_state is not None:
-            checkpoint_state["customer_stage"][customer_id] = "E"
+            checkpoint_state["customer_stage"][customer_id] = "F"
         return result
 
     def _state_path(self) -> Path:
@@ -385,6 +409,40 @@ class CLUEOrchestrator:
         except Exception:
             return defaults
         return defaults
+
+    def _precheck_candidates(self, customer: dict, items: list[dict]) -> list[dict]:
+        """Fast precheck before expensive body extraction/LLM generation."""
+        prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
+        keywords = [k.strip().lower() for k in (prefs.get("keywords", []) or []) if isinstance(k, str) and k.strip()]
+        excludes = [x.strip().lower() for x in (prefs.get("excludes", []) or []) if isinstance(x, str) and x.strip()]
+
+        out = []
+        seen_urls = set()
+        for it in items or []:
+            url = (it.get("url") or "").strip()
+            if not url:
+                continue
+            kurl = url.lower()
+            if kurl in seen_urls or self._is_forbidden_url(url):
+                continue
+
+            text = f"{it.get('title','')} {it.get('summary','')}".lower()
+            if excludes and any(x in text for x in excludes):
+                continue
+
+            # keyword-based relevance score (cheap)
+            score = sum(text.count(k) for k in keywords[:12]) if keywords else 0
+            # keep when matched, or when shortlist is small and category score is non-negative
+            if score <= 0 and len(items) > 30 and it.get("_category_score", 0) < 1:
+                continue
+
+            row = dict(it)
+            row["_precheck_score"] = score
+            out.append(row)
+            seen_urls.add(kurl)
+
+        out.sort(key=lambda x: (x.get("_precheck_score", 0), x.get("_customer_score", 0), x.get("published_at", "")), reverse=True)
+        return out
 
     def _evaluate_need_coverage(self, customer: dict, items: list[dict]) -> dict:
         prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}

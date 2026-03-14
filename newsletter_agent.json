@@ -54,6 +54,11 @@
     "minArticlesPerNewsletter": 6,
     "softMinArticlesPerNewsletter": 8,
     "targetArticlesPerNewsletter": 10,
+    "shortlistMetaCapPerCustomer": 80,
+    "originReadCapPerCustomer": 40,
+    "refillMetaLimit": 120,
+    "refillOriginCapPerCustomer": 15,
+    "domainMaxShare": 0.3,
     "countryMixGuideline": {
       "US": "40-50%",
       "KR": "20-30%",
