@@ -283,25 +283,47 @@ class CLUEOrchestrator:
             if not need_gap and article_gap == 0 and country_gap == 0:
                 break
 
-            gap_queries = self._build_gap_queries(customer, coverage)
+            cluster_gaps = list((coverage.get("cluster_gap", {}) or {}).items())
+            # Process each unmet need cluster separately to avoid diluting one weak cluster with others.
+            for c_name, c_data in cluster_gaps:
+                gap_queries = self._build_gap_queries_for_cluster(customer, c_name, c_data)
+                if not gap_queries:
+                    continue
+
+                self.log.info(f"E_CLUSTER_GAP cid={customer_id} round={rr} cluster={c_name} terms={gap_queries}")
+                refill_queries = self._build_ko_en_query_pairs(gap_queries)
+                if not refill_queries:
+                    continue
+
+                refill_meta = self.news_collector.collect_custom_queries(
+                    refill_queries,
+                    category="CUSTOM_NEEDS",
+                    limit=policy["refill_meta_limit"],
+                )
+                refill_meta = self._dedupe_semantic(refill_meta)
+                refill_origin = refill_meta[: policy["refill_origin_cap_per_customer"]]
+                refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
+                candidate_pool = self._dedupe_semantic(candidate_pool + refill_clean)
+                selected = self._dedupe_semantic(selected + refill_clean)
+                selected = self._select_for_customer(customer, selected)
+
             if country_gap > 0:
-                gap_queries.extend(self._build_country_gap_queries(customer, selected, country_gap))
-
-            refill_queries = self._build_ko_en_query_pairs(gap_queries)
-            if not refill_queries:
-                break
-
-            refill_meta = self.news_collector.collect_custom_queries(
-                refill_queries,
-                category="CUSTOM_NEEDS",
-                limit=policy["refill_meta_limit"],
-            )
-            refill_meta = self._dedupe_semantic(refill_meta)
-            refill_origin = refill_meta[: policy["refill_origin_cap_per_customer"]]
-            refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
-            candidate_pool = self._dedupe_semantic(candidate_pool + refill_clean)
-            selected = self._dedupe_semantic(selected + refill_clean)
-            selected = self._select_for_customer(customer, selected)
+                country_queries = self._build_country_gap_queries(customer, selected, country_gap)
+                if country_queries:
+                    self.log.info(f"E_COUNTRY_GAP cid={customer_id} round={rr} countries={country_queries}")
+                    refill_queries = self._build_ko_en_query_pairs(country_queries)
+                    if refill_queries:
+                        country_meta = self.news_collector.collect_custom_queries(
+                            refill_queries,
+                            category="CUSTOM_NEEDS",
+                            limit=policy["refill_meta_limit"],
+                        )
+                        country_meta = self._dedupe_semantic(country_meta)
+                        country_origin = country_meta[: policy["refill_origin_cap_per_customer"]]
+                        country_clean = self.processor.process_news_batch(country_origin, lang="ko")
+                        candidate_pool = self._dedupe_semantic(candidate_pool + country_clean)
+                        selected = self._dedupe_semantic(selected + country_clean)
+                        selected = self._select_for_customer(customer, selected)
 
         selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
         selected = self._apply_country_floor(
@@ -629,16 +651,24 @@ class CLUEOrchestrator:
                 cnt += 1
         return cnt
 
+    def _build_gap_queries_for_cluster(self, customer: dict, cluster_name: str, cluster_data: dict) -> list[str]:
+        queries = []
+        terms = [t for t in (cluster_data.get("terms", []) or []) if isinstance(t, str) and t.strip()]
+        # prioritize terms with low hit ratio
+        for t in terms:
+            if t not in queries:
+                queries.append(t)
+        if len(terms) == 0:
+            queries.append(cluster_name)
+
+        return queries[:10]
+
     def _build_gap_queries(self, customer: dict, coverage: dict) -> list[str]:
+        # compatibility wrapper: keep previous aggregate behavior for any caller that may rely on it
         queries = []
         for c_name, c_data in (coverage.get("cluster_gap", {}) or {}).items():
-            terms = [t for t in (c_data.get("terms", []) or []) if isinstance(t, str) and t.strip()]
-            # prioritize terms with low hit ratio
-            for t in terms:
-                if t not in queries:
-                    queries.append(t)
-            if len(terms) == 0:
-                queries.append(c_name)
+            queries.extend(self._build_gap_queries_for_cluster(customer, c_name, c_data))
+
         if not queries:
             for k, v in (coverage.get("critical_hits", {}) or {}).items():
                 if v < 1 and k not in queries:
