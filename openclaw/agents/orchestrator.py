@@ -9,6 +9,7 @@ from typing import Optional
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 from dotenv import load_dotenv
@@ -245,7 +246,11 @@ class CLUEOrchestrator:
         # Stage D: origin read + judge
         self.log.info(f"D_START cid={customer_id}")
         origin_candidates = prechecked[: policy["origin_read_cap_per_customer"]]
-        clean_items = self.processor.process_news_batch(origin_candidates, lang="ko")
+        clean_items = self._process_origin_candidates_parallel(
+            origin_candidates,
+            max_workers=policy.get("d_stage_parallel_workers", 2),
+            timeout_sec=policy.get("d_stage_timeout_sec", 1800),
+        )
         clean_items = self._dedupe_by_title_strict(clean_items)
         clean_items = self._dedupe_semantic(clean_items)
         if checkpoint_state is not None and run_id:
@@ -394,6 +399,8 @@ class CLUEOrchestrator:
             "refill_meta_limit": 120,
             "refill_origin_cap_per_customer": 15,
             "domain_max_share": 0.30,
+            "d_stage_parallel_workers": 2,
+            "d_stage_timeout_sec": 1800,
         }
         try:
             if not os.path.exists(cfg_path):
@@ -406,9 +413,39 @@ class CLUEOrchestrator:
             defaults["refill_meta_limit"] = int(col.get("refillMetaLimit", defaults["refill_meta_limit"]))
             defaults["refill_origin_cap_per_customer"] = int(col.get("refillOriginCapPerCustomer", defaults["refill_origin_cap_per_customer"]))
             defaults["domain_max_share"] = float(col.get("domainMaxShare", defaults["domain_max_share"]))
+            defaults["d_stage_parallel_workers"] = int(col.get("dStageParallelWorkers", defaults["d_stage_parallel_workers"]))
+            defaults["d_stage_timeout_sec"] = int(col.get("dStageTimeoutSec", defaults["d_stage_timeout_sec"]))
         except Exception:
             return defaults
         return defaults
+
+    def _process_origin_candidates_parallel(self, items: list[dict], max_workers: int = 2, timeout_sec: int = 1800) -> list[dict]:
+        """Run heavy origin-read + generation in bounded parallel chunks for Stage D."""
+        if not items:
+            return []
+
+        workers = max(1, int(max_workers or 1))
+        chunk_size = 5
+        chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+        if workers == 1 or len(chunks) == 1:
+            out = []
+            for ch in chunks:
+                out.extend(self.processor.process_news_batch(ch, lang="ko"))
+            return out
+
+        out = []
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(self.processor.process_news_batch, ch, "ko") for ch in chunks]
+            try:
+                for f in as_completed(futs, timeout=max(30, int(timeout_sec))):
+                    try:
+                        out.extend(f.result() or [])
+                    except Exception as e:
+                        self.log.warning(f"D_CHUNK_FAIL: {type(e).__name__}")
+            except Exception:
+                self.log.warning("D_TIMEOUT: stage-d parallel processing timed out; returning partial results")
+        return out
 
     def _precheck_candidates(self, customer: dict, items: list[dict]) -> list[dict]:
         """Fast precheck before expensive body extraction/LLM generation."""

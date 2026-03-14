@@ -74,7 +74,9 @@
       "source": "customer_needs_top_keywords",
       "placement": "below_global_scan_intro",
       "style": "small_gray_inline"
-    }
+    },
+    "dStageParallelWorkers": 2,
+    "dStageTimeoutSec": 1800
   },
   "schedule": {
     "kind": "daily",
@@ -364,14 +366,18 @@
     "max_tokens": 4096,
     "tools": []
   },
-  "executionMode": {
-    "perCustomerIsolation": true,
-    "sessionReset": "per_customer"
-  },
-  "concurrency": {
-    "perCustomerParallel": true,
-    "maxParallelCustomers": "enabled_count",
-    "notes": "enabled=true 고객을 병렬 처리하되, 고객별 수집/요약/검증 컨텍스트는 완전 분리"
-  },
-  "templateSha256": "6ad67d7e06f91cddfe1610908758f231899a4e192ee53bd3907d02a867e5f132"
+  "templateSha256": "6ad67d7e06f91cddfe1610908758f231899a4e192ee53bd3907d02a867e5f132",
+  "executionPolicy": {
+    "mode": "single_cron_staged_pipeline",
+    "stageOrder": [
+      "A_COLLECT_SHARED",
+      "B_SHORTLIST_META",
+      "C_PRECHECK",
+      "D_ORIGIN_PROCESS",
+      "E_NEEDS_REFILL",
+      "F_RENDER_AND_DELIVER"
+    ],
+    "customerRunMode": "sequential_except_d_parallel",
+    "notes": "D 단계만 제한 병렬(max workers)로 실행하고 타임박스를 적용"
+  }
 }
