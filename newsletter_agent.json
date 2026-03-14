@@ -146,7 +146,7 @@
     "practicalImplication": {
       "enabled": true,
       "label": "실무 시사점",
-      "lines": "3-4",
+      "lines": "2",
       "tone": "practical_balanced_non_assertive",
       "audienceFocus": [
         "customer_work",
@@ -161,7 +161,20 @@
         "메모리 산업 관점에서"
       ],
       "generationStage": "F_FINALIZE_AFTER_SELECTION",
-      "description": "실무 시사점은 최종 기사 선정 이후(F 단계) 생성한다."
+      "description": "실무 시사점은 최종 기사 선정 이후(F 단계) 생성한다.",
+      "style": "insight_only_non_advisory",
+      "policy": {
+        "purpose": "뉴스가 드러내는 구조적/맥락적 시사점만 서술",
+        "sentenceCount": "exactly_2",
+        "structure": [
+          "문장1: 사건이 드러낸 핵심 변화",
+          "문장2: 변화가 확산되는 축/영향 맥락"
+        ],
+        "forbidActionableAdvice": true,
+        "forbidImperative": true,
+        "forbidTemplatePhrases": true,
+        "grounding": "article_body_only"
+      }
     },
     "sourceValidation": {
       "requireExtractedBody": true,
@@ -328,6 +341,16 @@
       "regenerateOnMissingNeeds": true,
       "blockSendWhenMissingCriticalNeed": true,
       "reportMissingNeeds": true
+    },
+    "practicalImplicationStyle": {
+      "exactSentenceCount": 2,
+      "forbidAdvisoryPhrases": [
+        "해야 한다",
+        "필요하다",
+        "권장한다",
+        "점검해야"
+      ],
+      "requireInsightFocus": true
     }
   },
   "issueNumber": {

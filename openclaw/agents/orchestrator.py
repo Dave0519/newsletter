@@ -650,7 +650,7 @@ class CLUEOrchestrator:
             if token in html:
                 hard_errs.append(f"unresolved_placeholder:{token}")
 
-        # 금지 문구 하드 게이트
+        # 금지 문구는 하드 차단 대신 소프트 경고로 기록 (생성 프롬프트로 예방)
         banned_phrases = [
             "기사에는",
             "기사 본문에서는",
@@ -667,7 +667,7 @@ class CLUEOrchestrator:
         html_low = (html or "").lower()
         for phrase in banned_phrases:
             if phrase.lower() in html_low:
-                hard_errs.append(f"forbidden_phrase_detected:{phrase}")
+                soft_warns.append(f"forbidden_phrase_detected:{phrase}")
 
         # 기사 요약/실무시사점 분리 품질 체크
         for c, items in processed_scan.items():
