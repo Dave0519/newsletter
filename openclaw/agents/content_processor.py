@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 from html import unescape
 from typing import List, Dict, Tuple
 
@@ -209,6 +210,77 @@ class ContentProcessor:
             return passed, reason
         except Exception:
             return True, "judge_exception_skip"
+
+    def _llm_judge_need_cluster_match(
+        self,
+        title: str,
+        summary: str,
+        body: str,
+        cluster_name: str,
+        terms: list[str],
+    ) -> Tuple[bool, str, float]:
+        """Return (matched, reason, score) for whether article satisfies a need cluster."""
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            return False, "no_api_key_skip", 0.0
+
+        norm_terms = [self._clean(t).strip() for t in (terms or []) if isinstance(t, str) and t.strip()]
+        term_line = ", ".join(norm_terms[:12])
+
+        prompt = (
+            "너는 뉴스레터 품질 심사자다.\n"
+            "아래 '클러스터 니즈'가 기사 본문에서 실제로 충족되는지를 판정하라.\n"
+            "판정 기준:\n"
+            "1) 기사 본문에 클러스터 주제가 직접적으로 해당됨\n"
+            "2) 단순 키워드 유사성만으로는 충분치 않음(맥락 기반 판단)\n"
+            "3) 단정적 추측/의도 해석 금지, 본문 근거만 반영\n"
+            "출력은 JSON 한 줄만: {\\\"match\\\":true|false, \\\"score\\\":0.xx~1.xx, \\\"evidence\\\":\\\"짧은 근거\\\"}\\n\\n"
+            f"[cluster]\n{cluster_name}\n\n"
+            f"[seed_terms]\n{term_line}\n\n"
+            f"[제목]\n{self._clean(title)}\n\n"
+            f"[요약]\n{self._clean(summary)}\n\n"
+            f"[본문]\n{self._clean(body)[:9000]}"
+        )
+
+        try:
+            r = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                    "max_tokens": 220,
+                },
+                timeout=35,
+            )
+            if r.status_code != 200:
+                return False, "judge_api_fail_skip", 0.0
+
+            raw = (r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip()
+            m_json = re.search(r"\{[\s\S]*\}", raw)
+            if not m_json:
+                return False, "judge_parse_fail", 0.0
+
+            data = None
+            try:
+                data = json.loads(m_json.group(0))
+            except Exception:
+                return False, "judge_parse_fail", 0.0
+
+            raw_score = str(data.get("score", "")).replace(",", ".")
+            try:
+                score = float(raw_score)
+            except Exception:
+                score = 1.0 if str(data.get("match", "false")).lower() in {"true", "1", "yes"} else 0.0
+
+            # if 0~5 scale, normalize to 0~1.
+            score = max(0.0, min(1.0, score / 5.0 if score > 1.5 else score))
+            matched = bool(data.get("match", False)) if isinstance(data.get("match", False), bool) else str(data.get("match", "")).lower() in {"true", "1", "yes"}
+            reason = str(data.get("evidence", "")).strip()
+            return matched, reason, score
+        except Exception:
+            return False, "judge_exception_skip", 0.0
 
     def _llm_practical_implication(self, title: str, body: str, summary: str) -> str:
         api_key = os.getenv("OPENAI_API_KEY", "")

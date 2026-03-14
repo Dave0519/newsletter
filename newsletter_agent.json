@@ -276,6 +276,10 @@
     "llmJudge": {
       "enabled": true,
       "useKeywordsAsRecallOnly": true,
+      "coverageEnabled": true,
+      "coverageOnGapOnly": true,
+      "coverageMaxScore": 0.62,
+      "coverageMaxItemsPerCluster": 24,
       "articleJudge": {
         "required": true,
         "scores": [

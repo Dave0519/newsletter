@@ -264,13 +264,14 @@ class CLUEOrchestrator:
         self.log.info(f"E_START cid={customer_id}")
         selected = self._select_for_customer(customer, clean_items)
         candidate_pool = list(clean_items)
+        coverage_judge_cache: dict[str, dict] = {}
 
         min_articles = int(policy.get("min_articles_hard", policy.get("min_articles_soft", 8)))
         min_countries = int(policy.get("min_country_sections_hard", policy.get("min_country_sections_soft", 2)))
         max_refill_rounds = int(policy.get("refill_max_rounds", 3))
 
         for rr in range(1, max_refill_rounds + 1):
-            coverage = self._evaluate_need_coverage(customer, selected)
+            coverage = self._evaluate_need_coverage(customer, selected, policy=policy, judge_cache=coverage_judge_cache)
             country_count = len(set([it.get("country", "GLOBAL") for it in selected if it.get("country")]))
             article_gap = max(0, min_articles - len(selected))
             country_gap = max(0, min_countries - country_count)
@@ -414,7 +415,7 @@ class CLUEOrchestrator:
             "soft_warnings": soft_warnings,
             "template_path": template_path,
             "template_sha256": template_sha256,
-            "coverage": self._evaluate_need_coverage(customer, selected),
+            "coverage": self._evaluate_need_coverage(customer, selected, policy=policy, judge_cache=coverage_judge_cache),
             "html": html,
         }
 
@@ -466,6 +467,10 @@ class CLUEOrchestrator:
             "min_articles_hard": 8,
             "min_country_sections_hard": 2,
             "country_floor": {"US": 2, "KR": 1, "CN": 1, "GLOBAL": 1},
+            "coverage_judge_enabled": True,
+            "coverage_judge_on_gap_only": True,
+            "coverage_judge_max_score": 0.62,
+            "coverage_judge_max_items_per_cluster": 24,
         }
         try:
             if not os.path.exists(cfg_path):
@@ -490,6 +495,12 @@ class CLUEOrchestrator:
             cf = col.get("countryFloor", defaults["country_floor"])
             if isinstance(cf, dict):
                 defaults["country_floor"] = {str(k): int(v) for k, v in cf.items() if str(k) and int(v) >= 0}
+
+            judge_cfg = (cfg.get("consistencyValidation", {}).get("llmJudge", {}) if isinstance(cfg, dict) else {})
+            defaults["coverage_judge_enabled"] = bool(judge_cfg.get("coverageEnabled", defaults["coverage_judge_enabled"]))
+            defaults["coverage_judge_on_gap_only"] = bool(judge_cfg.get("coverageOnGapOnly", defaults["coverage_judge_on_gap_only"]))
+            defaults["coverage_judge_max_score"] = float(judge_cfg.get("coverageMaxScore", defaults["coverage_judge_max_score"]))
+            defaults["coverage_judge_max_items_per_cluster"] = int(judge_cfg.get("coverageMaxItemsPerCluster", defaults["coverage_judge_max_items_per_cluster"]))
 
         except Exception:
             return defaults
@@ -588,15 +599,50 @@ class CLUEOrchestrator:
         text = f"{article.get('title','')} {article.get('summary','')} {article.get('description','')} {article.get('article_body','')[:1500]}".lower()
         return len(re.findall(pattern, text))
 
-    def _evaluate_need_coverage(self, customer: dict, items: list[dict]) -> dict:
+    def _evaluate_need_coverage(
+        self,
+        customer: dict,
+        items: list[dict],
+        policy: Optional[dict] = None,
+        judge_cache: Optional[dict] = None,
+    ) -> dict:
         clusters = self._extract_need_clusters(customer)
+        policy = policy or {}
+        judge_cache = judge_cache if isinstance(judge_cache, dict) else {}
+
+        judge_enabled = bool(policy.get("coverage_judge_enabled", True))
+        judge_on_gap_only = bool(policy.get("coverage_judge_on_gap_only", True))
+        judge_threshold = float(policy.get("coverage_judge_max_score", 0.62))
+        judge_max_items = int(policy.get("coverage_judge_max_items_per_cluster", 24) or 24)
+
         cluster_hits = {}
         cluster_gap = {}
+
+        need_meta = {
+            "need_gap": False,
+            "clusters": cluster_hits,
+            "cluster_gap": cluster_gap,
+            "critical_hits": {},
+            "general_hits": {},
+            "critical_met": 0,
+            "general_met": 0,
+            "judge": {
+                "enabled": judge_enabled,
+                "on_gap_only": judge_on_gap_only,
+                "calls": 0,
+                "items_scored": 0,
+                "max_score": judge_threshold,
+            },
+        }
 
         def cluster_score(cluster: dict) -> tuple:
             terms = [x for x in cluster.get("terms", []) if isinstance(x, str) and x.strip()]
             min_required = int(cluster.get("minArticles", 0) or 1)
             weight = float(cluster.get("weight", 1.0) or 1.0)
+            if min_required <= 0:
+                min_required = 1
+
+            # 1) fast recall with exact/regex keyword matches
             hits = {}
             hit_sum = 0
             for t in terms:
@@ -604,21 +650,86 @@ class CLUEOrchestrator:
                 hits[t] = c
                 hit_sum += c
             hit_items = sum(1 for v in hits.values() if v >= 1)
-            met = hit_items >= max(1, min(min_required, max(1, len(terms))))
+
+            # 2) precision lift with llm judge (only when needed)
+            judge_added = 0
+            judge_votes: list[dict] = []
+            judge_items: list[dict] = []
+
+            need_gap_here = hit_items < max(1, min(min_required, max(1, len(terms))))
+            if judge_enabled and terms and (not judge_on_gap_only or need_gap_here):
+                missing_target = max(0, min_required - hit_items)
+                if missing_target > 0:
+                    # focus only on top-N candidates to control token usage
+                    for it in items[:judge_max_items]:
+                        if judge_added >= missing_target:
+                            break
+
+                        url = (it.get("url") or it.get("source_url") or "").strip().lower()
+                        if not url:
+                            continue
+
+                        cache_key = f"{url}::{cluster.get('name', 'cluster')}"
+                        cached = judge_cache.get(cache_key)
+                        if cached is None:
+                            title = it.get("title", "")
+                            summary = it.get("summary", "")
+                            body = it.get("article_body", "")
+                            matched, reason, score = self.processor._llm_judge_need_cluster_match(
+                                title=title,
+                                summary=summary,
+                                body=body,
+                                cluster_name=cluster.get("name", "cluster"),
+                                terms=terms,
+                            )
+                            need_meta["judge"]["calls"] += 1
+                            need_meta["judge"]["items_scored"] += 1
+                            cached = {
+                                "matched": bool(matched),
+                                "score": float(score),
+                                "reason": str(reason or ""),
+                            }
+                            judge_cache[cache_key] = cached
+                        else:
+                            need_meta["judge"]["items_scored"] += 1
+
+                        judge_votes.append({"score": cached.get("score", 0.0), "reason": cached.get("reason", "")})
+                        judge_items.append({
+                            "url": url,
+                            "matched": cached.get("matched", False),
+                            "score": cached.get("score", 0.0),
+                        })
+
+                        if float(cached.get("score", 0.0)) >= judge_threshold and bool(cached.get("matched", False)):
+                            judge_added += 1
+
+            judge_hit_items = hit_items + judge_added
+            # maintain original semantics: required is 1..min(min_required, len(terms))
+            need_target = max(1, min(min_required, max(1, len(terms))))
+            met = judge_hit_items >= need_target
+
+            # keep hit_total as compatibility score signal (string-match count + weighted judge boost)
+            hit_total = hit_sum + judge_added
             return cluster.get("name", "cluster"), {
                 "minArticles": min_required,
                 "weight": weight,
                 "terms": terms,
                 "term_hits": hits,
-                "hit_items": hit_items,
-                "hit_total": hit_sum,
+                "judge_hits": judge_votes[: judge_max_items],
+                "judge_items": judge_items,
+                "hit_items": judge_hit_items,
+                "hit_items_string": hit_items,
+                "hit_total": hit_total,
                 "met": met,
             }
 
         critical_hits = {}
         for c_name, c_data in map(cluster_score, clusters):
-            gap = int(c_data.get("minArticles", 0)) - int(c_data.get("hit_items", 0))
+            terms = c_data.get("terms", []) or []
+            need_target = max(1, min(int(c_data.get("minArticles", 0) or 1), max(1, len(terms))))
+            gap = need_target - int(c_data.get("hit_items", 0))
             c_data["gap"] = max(0, gap)
+            c_data["evidence_mode"] = "llm" if c_data.get("hit_items_string", 0) < c_data.get("minArticles", 0) else "string"
             cluster_hits[c_name] = c_data
             if c_data.get("gap", 0) > 0:
                 cluster_gap[c_name] = c_data
@@ -627,17 +738,12 @@ class CLUEOrchestrator:
         flat_critical_terms = [t for c in clusters for t in c.get("terms", [])[:2]]
         critical_hits = {t: self._cluster_term_hits_dict(items, t) for t in flat_critical_terms}
 
-        need_gap = len(cluster_gap) > 0
+        need_meta["critical_hits"] = critical_hits
+        need_meta["critical_met"] = len(cluster_hits) - len(cluster_gap)
+        need_meta["general_met"] = len(cluster_hits) - len(cluster_gap)
+        need_meta["need_gap"] = len(cluster_gap) > 0
 
-        return {
-            "need_gap": need_gap,
-            "clusters": cluster_hits,
-            "cluster_gap": cluster_gap,
-            "critical_hits": critical_hits,
-            "general_hits": {},
-            "critical_met": len(cluster_hits) - len(cluster_gap),
-            "general_met": len(cluster_hits) - len(cluster_gap),
-        }
+        return need_meta
 
     @staticmethod
     def _cluster_term_hits_dict(items: list[dict], term: str) -> int:
