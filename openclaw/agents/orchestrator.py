@@ -263,9 +263,10 @@ class CLUEOrchestrator:
         # Stage E: shortage-aware refill loop (need/article/country gaps)
         self.log.info(f"E_START cid={customer_id}")
         selected = self._select_for_customer(customer, clean_items)
+        candidate_pool = list(clean_items)
 
-        min_articles = int(policy.get("min_articles_soft", 8))
-        min_countries = int(policy.get("min_country_sections_soft", 2))
+        min_articles = int(policy.get("min_articles_hard", policy.get("min_articles_soft", 8)))
+        min_countries = int(policy.get("min_country_sections_hard", policy.get("min_country_sections_soft", 2)))
         max_refill_rounds = int(policy.get("refill_max_rounds", 3))
 
         for rr in range(1, max_refill_rounds + 1):
@@ -298,10 +299,17 @@ class CLUEOrchestrator:
             refill_meta = self._dedupe_semantic(refill_meta)
             refill_origin = refill_meta[: policy["refill_origin_cap_per_customer"]]
             refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
+            candidate_pool = self._dedupe_semantic(candidate_pool + refill_clean)
             selected = self._dedupe_semantic(selected + refill_clean)
             selected = self._select_for_customer(customer, selected)
 
         selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
+        selected = self._apply_country_floor(
+            selected=selected,
+            fallback_pool=candidate_pool,
+            country_floor=policy.get("country_floor", {}),
+        )
+        selected = self._fill_minimum_articles(selected, candidate_pool, min_articles=min_articles)
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "E"
             p = self._checkpoint_dir(run_id) / f"final_{customer_id}.json"
@@ -433,6 +441,9 @@ class CLUEOrchestrator:
             "min_articles_soft": 8,
             "min_country_sections_soft": 2,
             "refill_max_rounds": 3,
+            "min_articles_hard": 8,
+            "min_country_sections_hard": 2,
+            "country_floor": {"US": 2, "KR": 1, "CN": 1, "GLOBAL": 1},
         }
         try:
             if not os.path.exists(cfg_path):
@@ -452,6 +463,12 @@ class CLUEOrchestrator:
                 cfg.get("consistencyValidation", {}).get("softMinCountrySections", defaults["min_country_sections_soft"])
             )
             defaults["refill_max_rounds"] = int(col.get("refillMaxRounds", defaults["refill_max_rounds"]))
+            defaults["min_articles_hard"] = int(col.get("minArticlesHard", defaults["min_articles_hard"]))
+            defaults["min_country_sections_hard"] = int(col.get("minCountrySectionsHard", defaults["min_country_sections_hard"]))
+            cf = col.get("countryFloor", defaults["country_floor"])
+            if isinstance(cf, dict):
+                defaults["country_floor"] = {str(k): int(v) for k, v in cf.items() if str(k) and int(v) >= 0}
+
         except Exception:
             return defaults
         return defaults
@@ -559,6 +576,48 @@ class CLUEOrchestrator:
                 if v < 1:
                     queries.append(k)
         return queries[:8]
+
+    def _apply_country_floor(self, selected: list[dict], fallback_pool: list[dict], country_floor: dict) -> list[dict]:
+        if not country_floor:
+            return selected
+        out = list(selected or [])
+        used = set([(it.get("url") or it.get("source_url") or "").strip().lower() for it in out])
+
+        def count_country(c):
+            return sum(1 for x in out if x.get("country", "GLOBAL") == c)
+
+        # prefer already-ranked fallback order
+        for country, need_n in country_floor.items():
+            while count_country(country) < int(need_n):
+                cand = None
+                for it in fallback_pool or []:
+                    u = (it.get("url") or it.get("source_url") or "").strip().lower()
+                    if not u or u in used:
+                        continue
+                    if it.get("country", "GLOBAL") != country:
+                        continue
+                    cand = it
+                    break
+                if cand is None:
+                    break
+                out.append(cand)
+                used.add((cand.get("url") or cand.get("source_url") or "").strip().lower())
+        return out
+
+    def _fill_minimum_articles(self, selected: list[dict], fallback_pool: list[dict], min_articles: int) -> list[dict]:
+        out = list(selected or [])
+        if len(out) >= int(min_articles):
+            return out
+        used = set([(it.get("url") or it.get("source_url") or "").strip().lower() for it in out])
+        for it in fallback_pool or []:
+            if len(out) >= int(min_articles):
+                break
+            u = (it.get("url") or it.get("source_url") or "").strip().lower()
+            if not u or u in used:
+                continue
+            out.append(it)
+            used.add(u)
+        return out
 
     def _build_country_gap_queries(self, customer: dict, selected: list[dict], country_gap: int) -> list[str]:
         existing = set([it.get("country", "GLOBAL") for it in (selected or []) if it.get("country")])

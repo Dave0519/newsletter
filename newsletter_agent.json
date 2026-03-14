@@ -77,7 +77,16 @@
     },
     "dStageParallelWorkers": 2,
     "dStageTimeoutSec": 1800,
-    "refillMaxRounds": 3
+    "refillMaxRounds": 3,
+    "minArticlesHard": 8,
+    "minCountrySectionsHard": 2,
+    "countryFloor": {
+      "US": 2,
+      "KR": 1,
+      "CN": 1,
+      "GLOBAL": 1
+    },
+    "countryMixGuidelineNote": "guideline only; hard inclusion is controlled by countryFloor/minCountrySectionsHard"
   },
   "schedule": {
     "kind": "daily",
