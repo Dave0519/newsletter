@@ -159,7 +159,9 @@
         "업무 관점에서",
         "메모리 산업 관점에서도",
         "메모리 산업 관점에서"
-      ]
+      ],
+      "generationStage": "F_FINALIZE_AFTER_SELECTION",
+      "description": "실무 시사점은 최종 기사 선정 이후(F 단계) 생성한다."
     },
     "sourceValidation": {
       "requireExtractedBody": true,
@@ -378,6 +380,14 @@
       "F_RENDER_AND_DELIVER"
     ],
     "customerRunMode": "sequential_except_d_parallel",
-    "notes": "D 단계만 제한 병렬(max workers)로 실행하고 타임박스를 적용"
+    "notes": "D 단계만 제한 병렬(max workers)로 실행하고 타임박스를 적용",
+    "stageDefinition": {
+      "A": "collect_shared_pool",
+      "B": "shortlist_meta_per_customer",
+      "C": "precheck_before_llm",
+      "D": "origin_read_and_summary_only(no_practical_implication)",
+      "E": "needs_refill_and_finalize_candidates",
+      "F": "render_then_generate_practical_implication_then_gate_and_deliver"
+    }
   }
 }

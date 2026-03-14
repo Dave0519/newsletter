@@ -302,6 +302,8 @@ class CLUEOrchestrator:
         max_per_country = self.config["news"]["global_scan"].get("max_per_country", 5)
         processed_scan = {c: items[:max_per_country] for c, items in scan_by_country.items()}
         processed_scan = self._enforce_title_summary_consistency(processed_scan)
+        # Practical implication generation is deferred to final stage after article selection.
+        processed_scan = self.processor.generate_practical_implications(processed_scan)
 
         max_research = research_cfg.get("max_items", 0)
         processed_research = self.processor.process_research_batch(filtered_research, lang="ko")[:max_research] if (research_enabled and max_research > 0 and filtered_research) else []

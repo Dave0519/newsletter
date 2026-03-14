@@ -42,9 +42,9 @@ class ContentProcessor:
                     continue
                 summary = summary_retry
 
-            practical = self._llm_practical_implication(title=title, body=body, summary=summary)
-            if not practical:
-                practical = "해당 이슈는 관련 기술/공급망/투자 우선순위를 점검할 때 참고할 만한 신호입니다."
+            # Stage D에서는 practical_implication을 생성하지 않는다.
+            # 최종 기사 선정 이후(Stage F)에서만 생성한다.
+            practical = ""
 
             row = dict(it)
             # 1:1:1 고정 필드
@@ -63,6 +63,26 @@ class ContentProcessor:
 
     def process_research_batch(self, items: List[Dict], lang: str = "ko") -> List[Dict]:
         return items or []
+
+    def generate_practical_implications(self, scan_by_country: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
+        """Generate practical implications after final article selection stage."""
+        out: Dict[str, List[Dict]] = {}
+        for c, items in (scan_by_country or {}).items():
+            bucket: List[Dict] = []
+            for it in items or []:
+                row = dict(it)
+                practical = (row.get("practical_implication") or "").strip()
+                if not practical:
+                    title = row.get("title_from_url") or row.get("title_ko") or row.get("title") or ""
+                    summary = row.get("summary_from_body") or row.get("description") or ""
+                    body = row.get("article_body") or ""
+                    practical = self._llm_practical_implication(title=title, body=body, summary=summary)
+                    if not practical:
+                        practical = "해당 이슈는 관련 기술/공급망/투자 우선순위를 점검할 때 참고할 만한 신호입니다."
+                    row["practical_implication"] = practical
+                bucket.append(row)
+            out[c] = bucket
+        return out
 
     def _extract_article_content(self, url: str) -> Tuple[str, str, str]:
         if not url:
