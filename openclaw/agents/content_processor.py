@@ -16,7 +16,28 @@ class ContentProcessor:
     def __init__(self, llm_cfg: dict | None = None):
         self.cfg = llm_cfg or {}
         self._llm_model_name = self._resolve_model_name()
+        self._llm_default_max_tokens = self.cfg.get("max_tokens", 4096) if isinstance(self.cfg, dict) else 4096
+        self._llm_max_completion_tokens = self.cfg.get("max_completion_tokens") if isinstance(self.cfg, dict) else None
 
+    def _needs_completion_tokens(self, model_name: str) -> bool:
+        m = (model_name or "").lower()
+        return m.startswith("gpt-5")
+
+    def _build_llm_request(self, messages: list[dict], temperature: float, max_tokens: int) -> dict:
+        if self._needs_completion_tokens(self._llm_model_name):
+            completion_tokens = self._llm_max_completion_tokens if self._llm_max_completion_tokens is not None else max_tokens
+            return {
+                "model": self._llm_model_name,
+                "messages": messages,
+                "temperature": temperature,
+                "max_completion_tokens": completion_tokens,
+            }
+        return {
+            "model": self._llm_model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
 
     def _resolve_model_name(self) -> str:
         cfg = self.cfg
@@ -176,12 +197,11 @@ class ContentProcessor:
             r = requests.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": self._llm_model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.2,
-                    "max_tokens": 900,
-                },
+                json=self._build_llm_request(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=900,
+                ),
                 timeout=40,
             )
             if r.status_code != 200:
@@ -211,12 +231,11 @@ class ContentProcessor:
             r = requests.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": self._llm_model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0,
-                    "max_tokens": 180,
-                },
+                json=self._build_llm_request(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                    max_tokens=180,
+                ),
                 timeout=30,
             )
             if r.status_code != 200:
@@ -265,12 +284,11 @@ class ContentProcessor:
             r = requests.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": self._llm_model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.1,
-                    "max_tokens": 220,
-                },
+                json=self._build_llm_request(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=220,
+                ),
                 timeout=35,
             )
             if r.status_code != 200:
@@ -320,12 +338,11 @@ class ContentProcessor:
             r = requests.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": self._llm_model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.2,
-                    "max_tokens": 300,
-                },
+                json=self._build_llm_request(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=300,
+                ),
                 timeout=30,
             )
             if r.status_code != 200:
@@ -355,12 +372,11 @@ class ContentProcessor:
             r = requests.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": self._llm_model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.1,
-                    "max_tokens": 120,
-                },
+                json=self._build_llm_request(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=120,
+                ),
                 timeout=20,
             )
             if r.status_code != 200:
