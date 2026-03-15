@@ -57,9 +57,9 @@
     "relevanceFiltering": {
       "requireKeywordMatch": true,
       "semanticFallbackEnabled": true,
-      "semanticFallbackMaxItems": 48,
+      "semanticFallbackMaxItems": 80,
       "precheckSemanticFallbackEnabled": true,
-      "precheckSemanticFallbackMaxItems": 32
+      "precheckSemanticFallbackMaxItems": 64
     },
     "shortlistMetaCapPerCustomer": 80,
     "originReadCapPerCustomer": 40,

@@ -224,7 +224,7 @@ class CLUEOrchestrator:
 
         # Stage B: shortlist
         self.log.info(f"B_START cid={customer_id}")
-        shortlist_meta = self._select_for_customer(customer, article_pool, policy=policy, stage="B")
+        shortlist_meta = self._select_for_customer(customer, article_pool, allow_semantic_fallback=True, policy=policy, stage="B")
         shortlist_meta = shortlist_meta[: policy["shortlist_meta_cap_per_customer"]]
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "B"
