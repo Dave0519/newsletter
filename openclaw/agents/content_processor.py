@@ -15,6 +15,25 @@ class ContentProcessor:
 
     def __init__(self, llm_cfg: dict | None = None):
         self.cfg = llm_cfg or {}
+        self._llm_model_name = self._resolve_model_name()
+
+
+    def _resolve_model_name(self) -> str:
+        cfg = self.cfg
+        if isinstance(cfg, str):
+            return cfg
+        if isinstance(cfg, dict):
+            m = cfg.get("model")
+            if isinstance(m, str) and m:
+                return m
+            if isinstance(m, dict):
+                n = m.get("name") or m.get("model")
+                if isinstance(n, str) and n:
+                    return n
+            v = cfg.get("name")
+            if isinstance(v, str) and v:
+                return v
+        return "gpt-4o-mini"
 
     def process_news_batch(self, items: List[Dict], lang: str = "ko") -> List[Dict]:
         out: List[Dict] = []
@@ -158,7 +177,7 @@ class ContentProcessor:
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": self._llm_model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.2,
                     "max_tokens": 900,
@@ -193,7 +212,7 @@ class ContentProcessor:
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": self._llm_model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0,
                     "max_tokens": 180,
@@ -247,7 +266,7 @@ class ContentProcessor:
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": self._llm_model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
                     "max_tokens": 220,
@@ -302,7 +321,7 @@ class ContentProcessor:
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": self._llm_model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.2,
                     "max_tokens": 300,
@@ -337,7 +356,7 @@ class ContentProcessor:
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": self._llm_model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
                     "max_tokens": 120,

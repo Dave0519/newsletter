@@ -12,4 +12,8 @@ news:
 email:
   recipient: ""
 telegram: {}
-llm: {}
+llm:
+  name: gpt-5-mini
+  temperature: 0.2
+  max_tokens: 4096
+  tools: []
