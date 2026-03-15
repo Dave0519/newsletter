@@ -483,6 +483,7 @@ class CLUEOrchestrator:
             "relevance_signal_high_hits": 2,
             "relevance_signal_ambiguous_hits": 1,
             "relevance_signal_ambiguous_llm_score": 0.62,
+            "relevance_pass_ambiguous": False,
             "relevance_allow_no_signal_volume_fallback": False,
             "block_send_below_hard_min": True,
         }
@@ -536,6 +537,9 @@ class CLUEOrchestrator:
             defaults["relevance_signal_ambiguous_hits"] = int(rel.get("signalAmbiguousHits", defaults["relevance_signal_ambiguous_hits"]))
             defaults["relevance_signal_ambiguous_llm_score"] = float(
                 rel.get("signalAmbiguousLlmScore", defaults["relevance_signal_ambiguous_llm_score"])
+            )
+            defaults["relevance_pass_ambiguous"] = bool(
+                rel.get("passAmbiguous", defaults["relevance_pass_ambiguous"])
             )
             defaults["relevance_allow_no_signal_volume_fallback"] = bool(
                 rel.get("allowNoSignalVolumeFallback", defaults["relevance_allow_no_signal_volume_fallback"])
@@ -1248,9 +1252,11 @@ class CLUEOrchestrator:
                     signal = self._semantic_need_signal(customer, a, cluster_specs, policy=policy, stage=stage)
                     if signal == "NO_SIGNAL":
                         continue
-                    if signal == "AMBIGUOUS" and not self._has_semantic_need_match(customer, a, cluster_specs):
-                        continue
-                    # HIGH/AMBIGUOUS(LLM 통과)는 통과
+                    if signal == "AMBIGUOUS":
+                        pass_ambiguous = bool(policy.get("relevance_pass_ambiguous", False))
+                        if (not pass_ambiguous) and not self._has_semantic_need_match(customer, a, cluster_specs):
+                            continue
+                    # HIGH/AMBIGUOUS(LLM 통과 또는 policy pass_ambiguous)
                 # 문맥 판정 비활성된 경우만 보수적으로 통과
             else:
                 # 기존 경로 (안전망): 문맥 + 키워드 혼합

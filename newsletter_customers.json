@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "updatedAt": "2026-03-12T16:37:56+09:00",
+  "updatedAt": "2026-03-16T02:18:24+09:00",
   "serialPolicy": {
     "format": "YYNNNNN",
     "startNumber": 1,
     "globalSequence": true,
-    "nextRegistrationNumber": 8,
+    "nextRegistrationNumber": 9,
     "example": [
       "2600001",
       "2600002",
@@ -132,7 +132,22 @@
           "robotics paper",
           "Big Tech data center investment"
         ],
-        "excludes": [],
+        "excludes": [
+          "정치",
+          "이란 전쟁",
+          "이란",
+          "중동",
+          "미중",
+          "우크라이나",
+          "군사",
+          "보안",
+          "안보",
+          "전쟁",
+          "지정학",
+          "Middle East",
+          "Israel",
+          "Iran"
+        ],
         "summaryStyle": "ko_context_3to4_lines",
         "tone": "balanced",
         "prioritySignals": [
@@ -771,6 +786,130 @@
         "time": "06:00",
         "timezone": "Asia/Seoul"
       }
+    },
+    {
+      "customerId": "ryd",
+      "serialNumber": "2600008",
+      "registeredYear": 2026,
+      "name": "류동일",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_AGENT",
+          "AI_TECH",
+          "AI_ECOSYSTEM",
+          "COMPETITIVE_INTELLIGENCE",
+          "SOTA_AI"
+        ],
+        "keywords": [
+          "AI Agent",
+          "바이브코딩",
+          "Vibe Coding",
+          "SOTA AI",
+          "SOTA 모델",
+          "Agent 성능 강화",
+          "업무 프로세스 혁신",
+          "오픈소스 AI 에이전트",
+          "Chinese AI",
+          "미국 AI",
+          "중국 AI",
+          "한국 AI",
+          "삼성전자",
+          "TSMC",
+          "AI 과제",
+          "미래 AI",
+          "AI 한계",
+          "인간 판단",
+          "협업"
+        ],
+        "excludes": [
+          "세일즈",
+          "정치 뉴스",
+          "재테크",
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "벤치마크",
+          "성능향상",
+          "프로세스 혁신",
+          "경쟁사동향"
+        ],
+        "lookbackHours": 48,
+        "searchQueries": [
+          "SOTA AI model performance benchmark 2026",
+          "AI agent performance improvement in enterprise 2026",
+          "Vibe Coding productivity for AI projects 2026",
+          "Samsung Electronics AI strategy 2026",
+          "TSMC AI and semiconductor roadmap 2026",
+          "AI Agent 활용한 업무 프로세스 혁신 사례 2026",
+          "Open source and proprietary AI agent tool comparison 2026",
+          "미래 AI 업무 방식 전환 전략 2026",
+          "AI가 할 수 있는 일과 인간 판단이 필요한 영역 2026",
+          "China US Korea AI 경쟁 동향 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "AGENT_PERFORMANCE",
+            "minArticles": 4,
+            "weight": 1.4,
+            "terms": [
+              "AI Agent",
+              "에이전트",
+              "Vibe Coding",
+              "바이브코딩",
+              "업무 프로세스"
+            ]
+          },
+          {
+            "name": "SOTA_MODELS",
+            "minArticles": 4,
+            "weight": 1.3,
+            "terms": [
+              "SOTA",
+              "SOTA AI 모델",
+              "benchmark",
+              "모델업데이트",
+              "모델 성능"
+            ]
+          },
+          {
+            "name": "COMPETITORS_REGIONAL",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "삼성전자",
+              "TSMC",
+              "미국",
+              "중국",
+              "한국"
+            ]
+          },
+          {
+            "name": "AI_LIMITS",
+            "minArticles": 2,
+            "weight": 1.1,
+            "terms": [
+              "AI의 한계",
+              "인간의 판단",
+              "협업",
+              "미래 AI",
+              "AI 역할"
+            ]
+          }
+        ],
+        "intentNotes": "업무 과제에서 AI Agent/바이브코딩 전략 및 미래 AI 역할 전개에 대한 인사이트 중심. 정치/재테크/세일즈/광고 제외."
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      },
+      "externalId": "SKHY.2071621"
     }
   ]
 }

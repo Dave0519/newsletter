@@ -63,9 +63,10 @@
       "contextFirst": true,
       "contextOnly": true,
       "signalHighHits": 2,
-      "signalAmbiguousHits": 1,
+      "signalAmbiguousHits": 2,
       "signalAmbiguousLlmScore": 0.62,
-      "allowNoSignalVolumeFallback": false
+      "allowNoSignalVolumeFallback": false,
+      "passAmbiguous": true
     },
     "shortlistMetaCapPerCustomer": 80,
     "originReadCapPerCustomer": 40,
