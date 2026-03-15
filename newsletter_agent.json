@@ -61,7 +61,11 @@
       "precheckSemanticFallbackEnabled": true,
       "precheckSemanticFallbackMaxItems": 64,
       "contextFirst": true,
-      "contextOnly": true
+      "contextOnly": true,
+      "signalHighHits": 2,
+      "signalAmbiguousHits": 1,
+      "signalAmbiguousLlmScore": 0.62,
+      "allowNoSignalVolumeFallback": false
     },
     "shortlistMetaCapPerCustomer": 80,
     "originReadCapPerCustomer": 40,

@@ -480,6 +480,10 @@ class CLUEOrchestrator:
             "relevance_semantic_fallback_max_items": 80,
             "precheck_semantic_fallback_enabled": True,
             "precheck_semantic_fallback_max_items": 64,
+            "relevance_signal_high_hits": 2,
+            "relevance_signal_ambiguous_hits": 1,
+            "relevance_signal_ambiguous_llm_score": 0.62,
+            "relevance_allow_no_signal_volume_fallback": False,
             "block_send_below_hard_min": True,
         }
         try:
@@ -527,6 +531,14 @@ class CLUEOrchestrator:
             )
             defaults["precheck_semantic_fallback_max_items"] = int(
                 rel.get("precheckSemanticFallbackMaxItems", defaults["precheck_semantic_fallback_max_items"])
+            )
+            defaults["relevance_signal_high_hits"] = int(rel.get("signalHighHits", defaults["relevance_signal_high_hits"]))
+            defaults["relevance_signal_ambiguous_hits"] = int(rel.get("signalAmbiguousHits", defaults["relevance_signal_ambiguous_hits"]))
+            defaults["relevance_signal_ambiguous_llm_score"] = float(
+                rel.get("signalAmbiguousLlmScore", defaults["relevance_signal_ambiguous_llm_score"])
+            )
+            defaults["relevance_allow_no_signal_volume_fallback"] = bool(
+                rel.get("allowNoSignalVolumeFallback", defaults["relevance_allow_no_signal_volume_fallback"])
             )
             send_gate = col.get("sendGate", {})
             if isinstance(send_gate, dict):
@@ -602,18 +614,22 @@ class CLUEOrchestrator:
 
             policy = policy or {}
             strict_pass = score > 0
+
             if not strict_pass:
                 should_fallback = bool(policy.get("precheck_semantic_fallback_enabled", True))
                 fallback_limit = int(policy.get("precheck_semantic_fallback_max_items", 0))
+                allow_no_signal_fallback = bool(policy.get("relevance_allow_no_signal_volume_fallback", False))
 
-                # Keep low-scoring candidates only when semantic gate confirms contextual relevance.
-                if should_fallback and fallback_evaluated < fallback_limit and self._has_semantic_need_match(customer, it, cluster_specs):
+                signal = self._semantic_need_signal(customer, it, cluster_specs, policy=policy, stage="C")
+                if signal == "HIGH":
                     strict_pass = True
+                elif signal == "AMBIGUOUS":
                     fallback_evaluated += 1
-                else:
-                    # keep if volume is low and no hard category issue
-                    if len(items) <= 30 or it.get("_category_score", 0) >= 1:
+                    if should_fallback and (fallback_evaluated <= fallback_limit) and self._has_semantic_need_match(customer, it, cluster_specs):
                         strict_pass = True
+                elif allow_no_signal_fallback and should_fallback and (len(items) <= 30 or it.get("_category_score", 0) >= 1):
+                    # backward-compat: very low-volume safety net only if explicitly enabled
+                    strict_pass = True
 
             if not strict_pass:
                 continue
@@ -1227,14 +1243,23 @@ class CLUEOrchestrator:
                 continue
 
             if context_only:
-                # B 단계는 키워드 매칭을 완전히 빼고 문맥(의도) 판단만 사용
-                if do_semantic_fallback and not self._has_semantic_need_match(customer, a, cluster_specs):
-                    continue
+                # B 단계는 키워드/규칙으로 1차 점수화 후, NO_SIGNAL은 즉시 탈락.
+                if do_semantic_fallback:
+                    signal = self._semantic_need_signal(customer, a, cluster_specs, policy=policy, stage=stage)
+                    if signal == "NO_SIGNAL":
+                        continue
+                    if signal == "AMBIGUOUS" and not self._has_semantic_need_match(customer, a, cluster_specs):
+                        continue
+                    # HIGH/AMBIGUOUS(LLM 통과)는 통과
                 # 문맥 판정 비활성된 경우만 보수적으로 통과
             else:
                 # 기존 경로 (안전망): 문맥 + 키워드 혼합
                 context_first = bool(policy.get("relevance_context_first", False) and stage in {"B", "E"})
-                semantic_hit = self._has_semantic_need_match(customer, a, cluster_specs) if (context_first and do_semantic_fallback) else False
+                if context_first:
+                    signal = self._semantic_need_signal(customer, a, cluster_specs, policy=policy, stage=stage)
+                    semantic_hit = signal in {"HIGH", "AMBIGUOUS"} and self._has_semantic_need_match(customer, a, cluster_specs)
+                else:
+                    semantic_hit = self._has_semantic_need_match(customer, a, cluster_specs) if do_semantic_fallback else False
                 keyword_hit = self._is_customer_relevant(a, keywords)
 
                 if bool(policy.get("relevance_require_keyword_match", True)) and not (keyword_hit or semantic_hit):
@@ -1317,13 +1342,49 @@ class CLUEOrchestrator:
 
         return self._dedupe_similar_items(selected, text_key="title")
 
+    def _semantic_need_signal(
+        self,
+        customer: dict,
+        article: dict,
+        cluster_specs: list[tuple],
+        policy: dict | None = None,
+        stage: str = "B",
+    ) -> str:
+        """Return HIGH / AMBIGUOUS / NO_SIGNAL for B/E prefiltering.
+
+        HIGH: strong local heuristic or strong LLM semantic confirmation
+        AMBIGUOUS: weak local evidence; requires LLM confirmation in caller
+        NO_SIGNAL: clear miss; exclude in strict policy
+        """
+        policy = policy or {}
+        high_thresh = int(policy.get("relevance_signal_high_hits", 2))
+        ambig_thresh = int(policy.get("relevance_signal_ambiguous_hits", 1))
+
+        signal = self._fast_semantic_signal(customer, article, cluster_specs, policy)
+        if signal == "HIGH":
+            return "HIGH"
+        if signal == "AMBIGUOUS":
+            return "AMBIGUOUS"
+
+        if stage == "E":
+            # E is already constrained by Stage-E gap-driven refetch; keep strict NO_SIGNAL behavior
+            return "NO_SIGNAL"
+
+        # For C/B fallback attempts, AMBIGUOUS is only path to call LLM; if no signal remains miss.
+        return "NO_SIGNAL"
+
     def _has_semantic_need_match(self, customer: dict, article: dict, cluster_specs: list[tuple]) -> bool:
         """Fallback semantic check for customers whose term-based relevance is weak."""
+        # For compatibility, keep bool interface used by legacy callers.
+        return self._evaluate_semantic_need_match(customer, article, cluster_specs)
+
+    def _fast_semantic_signal(self, customer: dict, article: dict, cluster_specs: list[tuple], policy: dict | None = None) -> str:
+        """Heuristic stage for quick triage before LLM is called."""
         # Allow if there are no explicit need terms; no need to over-prune.
         if not cluster_specs:
-            return True
+            return "HIGH"
 
-        # Cache by article+term to avoid repeated LLM calls.
+        # Cache by article+term to avoid repeated LLM calls and repeated heuristic checks.
         if not hasattr(self, "_semantic_need_cache"):
             self._semantic_need_cache = {}
 
@@ -1332,7 +1393,6 @@ class CLUEOrchestrator:
         body = article.get("article_body", "")
         url = (article.get("url") or article.get("source_url") or "").strip().lower()
 
-        # local heuristic before LLM call (also used when API key is missing)
         cluster_terms = []
         for c_name, c_terms, _, _ in cluster_specs:
             if c_terms:
@@ -1340,7 +1400,6 @@ class CLUEOrchestrator:
             else:
                 cluster_terms.append(str(c_name).lower().strip())
 
-        # dedupe while preserving order
         seen = set()
         deduped = []
         for t in cluster_terms:
@@ -1351,6 +1410,9 @@ class CLUEOrchestrator:
 
         text = f"{title} {summary} {body}".lower().replace("\n", " ")
         text_tokens = set(re.sub(r"[^a-z0-9가-힣]+", " ", text).split())
+
+        high_thresh = int((policy or {}).get("relevance_signal_high_hits", 2))
+        ambig_thresh = int((policy or {}).get("relevance_signal_ambiguous_hits", 1))
 
         def has_term(term: str) -> bool:
             t = (term or "").strip().lower()
@@ -1369,23 +1431,47 @@ class CLUEOrchestrator:
                     return True
             if t in text:
                 return True
-            # 부분 토큰 일치 fallback
             ttoks = set(re.sub(r"[^a-z0-9가-힣]+", " ", t).split())
             if ttoks and len(ttoks.intersection(text_tokens)) >= max(1, len(ttoks) // 2):
                 return True
             return False
 
-        local_hits = 0
+        matched_terms = []
         for t in cluster_terms[:18]:
             if has_term(t):
-                local_hits += 1
-                if local_hits >= 2:
-                    break
+                matched_terms.append(t)
 
-        if local_hits >= 1:
-            local_key = f"{url}::local::{cluster_terms[0] if cluster_terms else 'x'}"
+        if len(matched_terms) >= max(1, high_thresh):
+            return "HIGH"
+        if len(matched_terms) >= max(1, ambig_thresh):
+            return "AMBIGUOUS"
+
+        return "NO_SIGNAL"
+
+    def _evaluate_semantic_need_match(self, customer: dict, article: dict, cluster_specs: list[tuple]) -> bool:
+        """Contextual semantic judge. Returns whether article matches at least one need term."""
+        # Allow if there are no explicit need terms; no need to over-prune.
+        if not cluster_specs:
+            return True
+
+        if not hasattr(self, "_semantic_need_cache"):
+            self._semantic_need_cache = {}
+
+        title = article.get("title", "")
+        summary = article.get("summary", "")
+        body = article.get("article_body", "")
+        url = (article.get("url") or article.get("source_url") or "").strip().lower()
+
+        # quick acceptance for strong local match to avoid LLM overuse.
+        local_signal = self._fast_semantic_signal(customer, article, cluster_specs)
+        if local_signal == "HIGH":
+            local_key = f"{url}::local::high"
             self._semantic_need_cache[local_key] = True
             return True
+
+        if local_signal == "AMBIGUOUS" and not os.getenv("OPENAI_API_KEY", ""):
+            # ambiguous local match requires LLM to keep precision
+            return False
 
         if not os.getenv("OPENAI_API_KEY", ""):
             return False
