@@ -416,7 +416,7 @@
   },
   "model": {
     "provider": "openai",
-    "name": "gpt-5-mini",
+    "name": "gpt-4o-mini",
     "temperature": 0.2,
     "max_tokens": 4096,
     "tools": []
