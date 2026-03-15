@@ -54,6 +54,13 @@
     "minArticlesPerNewsletter": 6,
     "softMinArticlesPerNewsletter": 8,
     "targetArticlesPerNewsletter": 10,
+    "relevanceFiltering": {
+      "requireKeywordMatch": true,
+      "semanticFallbackEnabled": true,
+      "semanticFallbackMaxItems": 48,
+      "precheckSemanticFallbackEnabled": true,
+      "precheckSemanticFallbackMaxItems": 32
+    },
     "shortlistMetaCapPerCustomer": 80,
     "originReadCapPerCustomer": 40,
     "refillMetaLimit": 120,
@@ -80,6 +87,9 @@
     "refillMaxRounds": 3,
     "minArticlesHard": 8,
     "minCountrySectionsHard": 2,
+    "sendGate": {
+      "blockSendBelowHardMin": true
+    },
     "countryFloor": {
       "US": 2,
       "KR": 1,

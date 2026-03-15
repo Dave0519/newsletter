@@ -224,7 +224,7 @@ class CLUEOrchestrator:
 
         # Stage B: shortlist
         self.log.info(f"B_START cid={customer_id}")
-        shortlist_meta = self._select_for_customer(customer, article_pool)
+        shortlist_meta = self._select_for_customer(customer, article_pool, policy=policy, stage="B")
         shortlist_meta = shortlist_meta[: policy["shortlist_meta_cap_per_customer"]]
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "B"
@@ -235,7 +235,7 @@ class CLUEOrchestrator:
 
         # Stage C: precheck (fast filter before expensive LLM steps)
         self.log.info(f"C_START cid={customer_id}")
-        prechecked = self._precheck_candidates(customer, shortlist_meta)
+        prechecked = self._precheck_candidates(customer, shortlist_meta, policy=policy)
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "C"
             p = self._checkpoint_dir(run_id) / f"prechecked_{customer_id}.json"
@@ -262,7 +262,7 @@ class CLUEOrchestrator:
 
         # Stage E: shortage-aware refill loop (need/article/country gaps)
         self.log.info(f"E_START cid={customer_id}")
-        selected = self._select_for_customer(customer, clean_items, allow_semantic_fallback=True)
+        selected = self._select_for_customer(customer, clean_items, policy=policy, allow_semantic_fallback=True, stage="E")
         candidate_pool = list(clean_items)
         coverage_judge_cache: dict[str, dict] = {}
 
@@ -307,7 +307,7 @@ class CLUEOrchestrator:
                 refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
                 candidate_pool = self._dedupe_semantic(candidate_pool + refill_clean)
                 selected = self._dedupe_semantic(selected + refill_clean)
-                selected = self._select_for_customer(customer, selected, allow_semantic_fallback=True)
+                selected = self._select_for_customer(customer, selected, policy=policy, allow_semantic_fallback=True, stage="E")
 
             if country_gap > 0:
                 country_queries = self._build_country_gap_queries(customer, selected, country_gap)
@@ -325,7 +325,7 @@ class CLUEOrchestrator:
                         country_clean = self.processor.process_news_batch(country_origin, lang="ko")
                         candidate_pool = self._dedupe_semantic(candidate_pool + country_clean)
                         selected = self._dedupe_semantic(selected + country_clean)
-                        selected = self._select_for_customer(customer, selected, allow_semantic_fallback=True)
+                        selected = self._select_for_customer(customer, selected, policy=policy, allow_semantic_fallback=True, stage="E")
 
         selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
         selected = self._apply_country_floor(
@@ -386,6 +386,7 @@ class CLUEOrchestrator:
             html=html,
             template_path=template_path,
             prior_errors=errors,
+            policy=policy,
         )
 
         delivery_result = {"email": False, "telegram": False}
@@ -472,6 +473,12 @@ class CLUEOrchestrator:
             "coverage_judge_on_gap_only": True,
             "coverage_judge_max_score": 0.62,
             "coverage_judge_max_items_per_cluster": 24,
+            "relevance_require_keyword_match": True,
+            "relevance_semantic_fallback_enabled": True,
+            "relevance_semantic_fallback_max_items": 48,
+            "precheck_semantic_fallback_enabled": True,
+            "precheck_semantic_fallback_max_items": 32,
+            "block_send_below_hard_min": True,
         }
         try:
             if not os.path.exists(cfg_path):
@@ -502,6 +509,24 @@ class CLUEOrchestrator:
             defaults["coverage_judge_on_gap_only"] = bool(judge_cfg.get("coverageOnGapOnly", defaults["coverage_judge_on_gap_only"]))
             defaults["coverage_judge_max_score"] = float(judge_cfg.get("coverageMaxScore", defaults["coverage_judge_max_score"]))
             defaults["coverage_judge_max_items_per_cluster"] = int(judge_cfg.get("coverageMaxItemsPerCluster", defaults["coverage_judge_max_items_per_cluster"]))
+
+            rel = col.get("relevanceFiltering", {}) if isinstance(col, dict) else {}
+            defaults["relevance_require_keyword_match"] = bool(rel.get("requireKeywordMatch", defaults["relevance_require_keyword_match"]))
+            defaults["relevance_semantic_fallback_enabled"] = bool(
+                rel.get("semanticFallbackEnabled", defaults["relevance_semantic_fallback_enabled"])
+            )
+            defaults["relevance_semantic_fallback_max_items"] = int(
+                rel.get("semanticFallbackMaxItems", defaults["relevance_semantic_fallback_max_items"])
+            )
+            defaults["precheck_semantic_fallback_enabled"] = bool(
+                rel.get("precheckSemanticFallbackEnabled", defaults["precheck_semantic_fallback_enabled"])
+            )
+            defaults["precheck_semantic_fallback_max_items"] = int(
+                rel.get("precheckSemanticFallbackMaxItems", defaults["precheck_semantic_fallback_max_items"])
+            )
+            send_gate = col.get("sendGate", {})
+            if isinstance(send_gate, dict):
+                defaults["block_send_below_hard_min"] = bool(send_gate.get("blockSendBelowHardMin", defaults["block_send_below_hard_min"]))
 
         except Exception:
             return defaults
@@ -535,7 +560,7 @@ class CLUEOrchestrator:
                 self.log.warning("D_TIMEOUT: stage-d parallel processing timed out; returning partial results")
         return out
 
-    def _precheck_candidates(self, customer: dict, items: list[dict]) -> list[dict]:
+    def _precheck_candidates(self, customer: dict, items: list[dict], policy: dict | None = None) -> list[dict]:
         """Fast precheck before expensive body extraction/LLM generation."""
         prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
         clusters = self._extract_need_clusters(customer)
@@ -546,6 +571,13 @@ class CLUEOrchestrator:
             keywords = [k.strip().lower() for k in (prefs.get("keywords", []) or []) if isinstance(k, str) and k.strip()]
 
         excludes = [x.strip().lower() for x in (prefs.get("excludes", []) or []) if isinstance(x, str) and x.strip()]
+
+        cluster_specs = self._extract_need_clusters(customer)
+        keywords = []
+        for c in cluster_specs:
+            keywords.extend([x.lower() for x in (c.get("terms", []) or []) if isinstance(x, str) and x.strip()])
+        # fallback quota to avoid LLM overuse in C-stage (title+summary only)
+        fallback_evaluated = 0
 
         out = []
         seen_urls = set()
@@ -563,8 +595,23 @@ class CLUEOrchestrator:
 
             # keyword-based relevance score (cheap)
             score = sum(text.count(k.lower()) for k in keywords) if keywords else 0
-            # keep when matched, or when shortlist is small and category score is non-negative
-            if score <= 0 and len(items) > 30 and it.get("_category_score", 0) < 1:
+
+            policy = policy or {}
+            strict_pass = score > 0
+            if not strict_pass:
+                should_fallback = bool(policy.get("precheck_semantic_fallback_enabled", True))
+                fallback_limit = int(policy.get("precheck_semantic_fallback_max_items", 0))
+
+                # Keep low-scoring candidates only when semantic gate confirms contextual relevance.
+                if should_fallback and fallback_evaluated < fallback_limit and self._has_semantic_need_match(customer, it, cluster_specs):
+                    strict_pass = True
+                    fallback_evaluated += 1
+                else:
+                    # keep if volume is low and no hard category issue
+                    if len(items) <= 30 or it.get("_category_score", 0) >= 1:
+                        strict_pass = True
+
+            if not strict_pass:
                 continue
 
             row = dict(it)
@@ -950,6 +997,7 @@ class CLUEOrchestrator:
         html: str,
         template_path: str,
         prior_errors: Optional[list[str]] = None,
+        policy: dict | None = None,
     ) -> tuple[bool, list[str], list[str]]:
         hard_errs = []
         soft_warns = []
@@ -961,8 +1009,15 @@ class CLUEOrchestrator:
                 hard_errs.append(str(e))
 
         total_scan = sum(len(v) for v in processed_scan.values())
-        if total_scan < 8:
-            soft_warns.append(f"soft_min_articles_not_met:{total_scan}<8")
+        policy = policy or {}
+        hard_block = bool(policy.get("block_send_below_hard_min", False))
+        hard_min = int(policy.get("min_articles_hard", 8) or 0)
+        soft_min = int(policy.get("min_articles_soft", 8) or 8)
+
+        if hard_min > 0 and hard_block and total_scan < hard_min:
+            hard_errs.append(f"hard_min_articles_not_met:{total_scan}<{hard_min}")
+        elif total_scan < soft_min:
+            soft_warns.append(f"soft_min_articles_not_met:{total_scan}<{soft_min}")
 
         active_countries = [c for c, items in processed_scan.items() if items]
         if len(active_countries) < 2:
@@ -1132,7 +1187,7 @@ class CLUEOrchestrator:
             pass
         return True
 
-    def _select_for_customer(self, customer: dict, pool: list[dict], allow_semantic_fallback: bool = False) -> list[dict]:
+    def _select_for_customer(self, customer: dict, pool: list[dict], allow_semantic_fallback: bool = False, policy: dict | None = None, stage: str = "B") -> list[dict]:
         prefs = customer.get("preferences", {})
         categories = set(prefs.get("categories", []))
         known_categories = set((self.sources.get("categories") or {}).keys()) | {"GENERAL"}
@@ -1156,19 +1211,25 @@ class CLUEOrchestrator:
             cluster_specs.append((c_name, c_terms, c_min, c_weight))
 
         scoped = []
+        policy = policy or {}
+        require_keyword_match = bool(policy.get("relevance_require_keyword_match", True))
+        do_semantic_fallback = bool(policy.get("relevance_semantic_fallback_enabled", True)) and allow_semantic_fallback
+        fallback_max = int(policy.get("relevance_semantic_fallback_max_items", 0))
+        fallback_count = 0
         for a in pool:
             if categories and a.get("category") not in categories:
                 continue
             # 카테고리 적합도 최소 게이트
             if a.get("_category_score", 0) < 0:
                 continue
-            # 니즈와 무관한 글로벌/라이프스타일성 기사 제외
-            if not self._is_customer_relevant(a, keywords):
-                if allow_semantic_fallback and self._has_semantic_need_match(customer, a, cluster_specs):
-                    # syntax 기반 매칭 실패 분기만 LLM semantic fallback로 보강
-                    pass
+
+            # 1차 필터: 문자열 키워드 통과 또는 단계별 폴백
+            if require_keyword_match and not self._is_customer_relevant(a, keywords):
+                if do_semantic_fallback and fallback_count < fallback_max and self._has_semantic_need_match(customer, a, cluster_specs):
+                    fallback_count += 1
                 else:
                     continue
+
             scoped.append(a)
 
         for a in scoped:
