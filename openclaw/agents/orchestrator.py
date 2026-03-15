@@ -474,10 +474,11 @@ class CLUEOrchestrator:
             "coverage_judge_max_score": 0.62,
             "coverage_judge_max_items_per_cluster": 24,
             "relevance_require_keyword_match": True,
+            "relevance_context_first": True,
             "relevance_semantic_fallback_enabled": True,
-            "relevance_semantic_fallback_max_items": 48,
+            "relevance_semantic_fallback_max_items": 80,
             "precheck_semantic_fallback_enabled": True,
-            "precheck_semantic_fallback_max_items": 32,
+            "precheck_semantic_fallback_max_items": 64,
             "block_send_below_hard_min": True,
         }
         try:
@@ -512,6 +513,7 @@ class CLUEOrchestrator:
 
             rel = col.get("relevanceFiltering", {}) if isinstance(col, dict) else {}
             defaults["relevance_require_keyword_match"] = bool(rel.get("requireKeywordMatch", defaults["relevance_require_keyword_match"]))
+            defaults["relevance_context_first"] = bool(rel.get("contextFirst", defaults["relevance_context_first"]))
             defaults["relevance_semantic_fallback_enabled"] = bool(
                 rel.get("semanticFallbackEnabled", defaults["relevance_semantic_fallback_enabled"])
             )
@@ -1223,11 +1225,21 @@ class CLUEOrchestrator:
             if a.get("_category_score", 0) < 0:
                 continue
 
-            # 1차 필터: 문자열 키워드 통과 또는 단계별 폴백
-            if require_keyword_match and not self._is_customer_relevant(a, keywords):
-                if do_semantic_fallback and fallback_count < fallback_max and self._has_semantic_need_match(customer, a, cluster_specs):
+            # 1차 필터: 문맥 우선(semantic 먼저), 키워드 보조
+            context_first = bool(policy.get("relevance_context_first", False) and stage in {"B", "E"})
+            semantic_hit = self._has_semantic_need_match(customer, a, cluster_specs) if (context_first and do_semantic_fallback) else False
+            keyword_hit = self._is_customer_relevant(a, keywords)
+
+            if require_keyword_match and not (keyword_hit or semantic_hit):
+                # strict mode에서는 최소 1개라도 통과하지 못하면 제외
+                continue
+
+            if context_first and do_semantic_fallback and semantic_hit and not keyword_hit:
+                # context-first 패스에는 semantic fallback 제한 카운터를 반영
+                if fallback_count < fallback_max:
                     fallback_count += 1
                 else:
+                    # 문맥 일치 하더라도 예산 초과 시 통과 불가 (실행량 상한 유지)
                     continue
 
             scoped.append(a)
