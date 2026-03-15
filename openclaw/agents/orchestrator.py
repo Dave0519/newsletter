@@ -474,6 +474,7 @@ class CLUEOrchestrator:
             "coverage_judge_max_score": 0.62,
             "coverage_judge_max_items_per_cluster": 24,
             "relevance_require_keyword_match": True,
+            "relevance_context_only": True,
             "relevance_context_first": True,
             "relevance_semantic_fallback_enabled": True,
             "relevance_semantic_fallback_max_items": 80,
@@ -513,6 +514,7 @@ class CLUEOrchestrator:
 
             rel = col.get("relevanceFiltering", {}) if isinstance(col, dict) else {}
             defaults["relevance_require_keyword_match"] = bool(rel.get("requireKeywordMatch", defaults["relevance_require_keyword_match"]))
+            defaults["relevance_context_only"] = bool(rel.get("contextOnly", defaults["relevance_context_only"]))
             defaults["relevance_context_first"] = bool(rel.get("contextFirst", defaults["relevance_context_first"]))
             defaults["relevance_semantic_fallback_enabled"] = bool(
                 rel.get("semanticFallbackEnabled", defaults["relevance_semantic_fallback_enabled"])
@@ -1214,10 +1216,9 @@ class CLUEOrchestrator:
 
         scoped = []
         policy = policy or {}
-        require_keyword_match = bool(policy.get("relevance_require_keyword_match", True))
         do_semantic_fallback = bool(policy.get("relevance_semantic_fallback_enabled", True)) and allow_semantic_fallback
-        fallback_max = int(policy.get("relevance_semantic_fallback_max_items", 0))
-        fallback_count = 0
+        context_only = bool(policy.get("relevance_context_only", True)) and stage == "B"
+
         for a in pool:
             if categories and a.get("category") not in categories:
                 continue
@@ -1225,21 +1226,18 @@ class CLUEOrchestrator:
             if a.get("_category_score", 0) < 0:
                 continue
 
-            # 1차 필터: 문맥 우선(semantic 먼저), 키워드 보조
-            context_first = bool(policy.get("relevance_context_first", False) and stage in {"B", "E"})
-            semantic_hit = self._has_semantic_need_match(customer, a, cluster_specs) if (context_first and do_semantic_fallback) else False
-            keyword_hit = self._is_customer_relevant(a, keywords)
+            if context_only:
+                # B 단계는 키워드 매칭을 완전히 빼고 문맥(의도) 판단만 사용
+                if do_semantic_fallback and not self._has_semantic_need_match(customer, a, cluster_specs):
+                    continue
+                # 문맥 판정 비활성된 경우만 보수적으로 통과
+            else:
+                # 기존 경로 (안전망): 문맥 + 키워드 혼합
+                context_first = bool(policy.get("relevance_context_first", False) and stage in {"B", "E"})
+                semantic_hit = self._has_semantic_need_match(customer, a, cluster_specs) if (context_first and do_semantic_fallback) else False
+                keyword_hit = self._is_customer_relevant(a, keywords)
 
-            if require_keyword_match and not (keyword_hit or semantic_hit):
-                # strict mode에서는 최소 1개라도 통과하지 못하면 제외
-                continue
-
-            if context_first and do_semantic_fallback and semantic_hit and not keyword_hit:
-                # context-first 패스에는 semantic fallback 제한 카운터를 반영
-                if fallback_count < fallback_max:
-                    fallback_count += 1
-                else:
-                    # 문맥 일치 하더라도 예산 초과 시 통과 불가 (실행량 상한 유지)
+                if bool(policy.get("relevance_require_keyword_match", True)) and not (keyword_hit or semantic_hit):
                     continue
 
             scoped.append(a)
@@ -1329,14 +1327,69 @@ class CLUEOrchestrator:
         if not hasattr(self, "_semantic_need_cache"):
             self._semantic_need_cache = {}
 
-        # If API is unavailable, keep candidate to avoid emptying the mail.
-        if not os.getenv("OPENAI_API_KEY", ""):
-            return True
-
         title = article.get("title", "")
         summary = article.get("summary", "")
         body = article.get("article_body", "")
         url = (article.get("url") or article.get("source_url") or "").strip().lower()
+
+        # local heuristic before LLM call (also used when API key is missing)
+        cluster_terms = []
+        for c_name, c_terms, _, _ in cluster_specs:
+            if c_terms:
+                cluster_terms.extend([str(t).lower().strip() for t in c_terms if isinstance(t, str) and t.strip()])
+            else:
+                cluster_terms.append(str(c_name).lower().strip())
+
+        # dedupe while preserving order
+        seen = set()
+        deduped = []
+        for t in cluster_terms:
+            if t and t not in seen:
+                seen.add(t)
+                deduped.append(t)
+        cluster_terms = deduped
+
+        text = f"{title} {summary} {body}".lower().replace("\n", " ")
+        text_tokens = set(re.sub(r"[^a-z0-9가-힣]+", " ", text).split())
+
+        def has_term(term: str) -> bool:
+            t = (term or "").strip().lower()
+            if not t:
+                return False
+            if any(ch.isalnum() for ch in t):
+                try:
+                    if re.search(rf"\b{re.escape(t)}\b", text):
+                        return True
+                except re.error:
+                    if t in text:
+                        return True
+                compact = re.sub(r"\s+", "", t)
+                compact_text = re.sub(r"\s+", "", text)
+                if compact and compact in compact_text:
+                    return True
+            if t in text:
+                return True
+            # 부분 토큰 일치 fallback
+            ttoks = set(re.sub(r"[^a-z0-9가-힣]+", " ", t).split())
+            if ttoks and len(ttoks.intersection(text_tokens)) >= max(1, len(ttoks) // 2):
+                return True
+            return False
+
+        local_hits = 0
+        for t in cluster_terms[:18]:
+            if has_term(t):
+                local_hits += 1
+                if local_hits >= 2:
+                    break
+
+        if local_hits >= 1:
+            local_key = f"{url}::local::{cluster_terms[0] if cluster_terms else 'x'}"
+            self._semantic_need_cache[local_key] = True
+            return True
+
+        if not os.getenv("OPENAI_API_KEY", ""):
+            return False
+
         judge_threshold = 0.62
 
         for c_name, c_terms, _, _ in cluster_specs:
@@ -1372,7 +1425,6 @@ class CLUEOrchestrator:
                 self._semantic_need_cache[cache_key] = False
 
         return False
-
 
     def _group_by_country(self, items: list[dict]) -> dict[str, list[dict]]:
         out = {c: [] for c in self.config["news"].get("country_order", ["KR", "US", "CN", "TW", "GLOBAL"])}

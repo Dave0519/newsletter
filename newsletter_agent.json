@@ -60,7 +60,8 @@
       "semanticFallbackMaxItems": 80,
       "precheckSemanticFallbackEnabled": true,
       "precheckSemanticFallbackMaxItems": 64,
-      "contextFirst": true
+      "contextFirst": true,
+      "contextOnly": true
     },
     "shortlistMetaCapPerCustomer": 80,
     "originReadCapPerCustomer": 40,
