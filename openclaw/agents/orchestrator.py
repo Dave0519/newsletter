@@ -262,7 +262,7 @@ class CLUEOrchestrator:
 
         # Stage E: shortage-aware refill loop (need/article/country gaps)
         self.log.info(f"E_START cid={customer_id}")
-        selected = self._select_for_customer(customer, clean_items)
+        selected = self._select_for_customer(customer, clean_items, allow_semantic_fallback=True)
         candidate_pool = list(clean_items)
         coverage_judge_cache: dict[str, dict] = {}
 
@@ -291,7 +291,8 @@ class CLUEOrchestrator:
                 if not gap_queries:
                     continue
 
-                self.log.info(f"E_CLUSTER_GAP cid={customer_id} round={rr} cluster={c_name} terms={gap_queries}")
+                unmet_terms = c_data.get("unmet_terms") or gap_queries
+                self.log.info(f"E_CLUSTER_GAP cid={customer_id} round={rr} cluster={c_name} unmet_terms={unmet_terms} terms={gap_queries}")
                 refill_queries = self._build_ko_en_query_pairs(gap_queries)
                 if not refill_queries:
                     continue
@@ -306,7 +307,7 @@ class CLUEOrchestrator:
                 refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
                 candidate_pool = self._dedupe_semantic(candidate_pool + refill_clean)
                 selected = self._dedupe_semantic(selected + refill_clean)
-                selected = self._select_for_customer(customer, selected)
+                selected = self._select_for_customer(customer, selected, allow_semantic_fallback=True)
 
             if country_gap > 0:
                 country_queries = self._build_country_gap_queries(customer, selected, country_gap)
@@ -324,7 +325,7 @@ class CLUEOrchestrator:
                         country_clean = self.processor.process_news_batch(country_origin, lang="ko")
                         candidate_pool = self._dedupe_semantic(candidate_pool + country_clean)
                         selected = self._dedupe_semantic(selected + country_clean)
-                        selected = self._select_for_customer(customer, selected)
+                        selected = self._select_for_customer(customer, selected, allow_semantic_fallback=True)
 
         selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
         selected = self._apply_country_floor(
@@ -636,51 +637,60 @@ class CLUEOrchestrator:
         }
 
         def cluster_score(cluster: dict) -> tuple:
+            cluster_name = str(cluster.get("name", "cluster"))
             terms = [x for x in cluster.get("terms", []) if isinstance(x, str) and x.strip()]
             min_required = int(cluster.get("minArticles", 0) or 1)
             weight = float(cluster.get("weight", 1.0) or 1.0)
             if min_required <= 0:
                 min_required = 1
 
-            # 1) fast recall with exact/regex keyword matches
-            hits = {}
-            hit_sum = 0
+            # If no explicit terms exist, use cluster name as fallback query anchor
+            if not terms:
+                terms = [cluster_name]
+
+            need_target = max(1, min(min_required, max(1, len(terms))))
+
+            # 1) fast recall with exact/regex keyword matches per need term
+            term_hits = {}
+            string_matched_terms = []
             for t in terms:
                 c = self._cluster_term_hits_dict(items, t)
-                hits[t] = c
-                hit_sum += c
-            hit_items = sum(1 for v in hits.values() if v >= 1)
+                term_hits[t] = c
+                if c >= 1:
+                    string_matched_terms.append(t)
 
-            # 2) precision lift with llm judge (only when needed)
-            judge_added = 0
-            judge_votes: list[dict] = []
-            judge_items: list[dict] = []
+            # 2) precision lift with llm judge for each unmet term
+            judge_added_terms = set()
+            term_judge_hits = []
+            term_judge_items = []
 
-            need_gap_here = hit_items < max(1, min(min_required, max(1, len(terms))))
-            if judge_enabled and terms and (not judge_on_gap_only or need_gap_here):
-                missing_target = max(0, min_required - hit_items)
-                if missing_target > 0:
-                    # focus only on top-N candidates to control token usage
+            unmet_terms = [t for t in terms if term_hits.get(t, 0) <= 0]
+            need_gap_here = len(string_matched_terms) < need_target
+
+            if judge_enabled and unmet_terms and (not judge_on_gap_only or need_gap_here):
+                for t in unmet_terms:
+                    # stop when requirement is already met
+                    if len(string_matched_terms) + len(judge_added_terms) >= need_target:
+                        break
+
+                    best_term_judge = []
                     for it in items[:judge_max_items]:
-                        if judge_added >= missing_target:
+                        if t in judge_added_terms:
                             break
 
                         url = (it.get("url") or it.get("source_url") or "").strip().lower()
                         if not url:
                             continue
 
-                        cache_key = f"{url}::{cluster.get('name', 'cluster')}"
+                        cache_key = f"{url}::{cluster_name}::{t}"
                         cached = judge_cache.get(cache_key)
                         if cached is None:
-                            title = it.get("title", "")
-                            summary = it.get("summary", "")
-                            body = it.get("article_body", "")
                             matched, reason, score = self.processor._llm_judge_need_cluster_match(
-                                title=title,
-                                summary=summary,
-                                body=body,
-                                cluster_name=cluster.get("name", "cluster"),
-                                terms=terms,
+                                title=it.get("title", ""),
+                                summary=it.get("summary", ""),
+                                body=it.get("article_body", ""),
+                                cluster_name=cluster_name,
+                                terms=[t],
                             )
                             need_meta["judge"]["calls"] += 1
                             need_meta["judge"]["items_scored"] += 1
@@ -693,32 +703,45 @@ class CLUEOrchestrator:
                         else:
                             need_meta["judge"]["items_scored"] += 1
 
-                        judge_votes.append({"score": cached.get("score", 0.0), "reason": cached.get("reason", "")})
-                        judge_items.append({
+                        term_judge_items.append({
+                            "term": t,
                             "url": url,
-                            "matched": cached.get("matched", False),
-                            "score": cached.get("score", 0.0),
+                            "matched": bool(cached.get("matched", False)),
+                            "score": float(cached.get("score", 0.0)),
+                            "reason": str(cached.get("reason", "")),
+                        })
+                        best_term_judge.append({
+                            "term": t,
+                            "url": url,
+                            "matched": bool(cached.get("matched", False)),
+                            "score": float(cached.get("score", 0.0)),
+                            "reason": str(cached.get("reason", "")),
                         })
 
-                        if float(cached.get("score", 0.0)) >= judge_threshold and bool(cached.get("matched", False)):
-                            judge_added += 1
+                        if bool(cached.get("matched", False)) and float(cached.get("score", 0.0)) >= judge_threshold:
+                            judge_added_terms.add(t)
 
-            judge_hit_items = hit_items + judge_added
-            # maintain original semantics: required is 1..min(min_required, len(terms))
-            need_target = max(1, min(min_required, max(1, len(terms))))
-            met = judge_hit_items >= need_target
+                    term_judge_hits.extend(best_term_judge)
 
-            # keep hit_total as compatibility score signal (string-match count + weighted judge boost)
-            hit_total = hit_sum + judge_added
-            return cluster.get("name", "cluster"), {
+            hit_terms = set(string_matched_terms) | set(judge_added_terms)
+            hit_items = len(hit_terms)
+
+            # keep hit_total as compatibility score signal (string-match hit count + llm-confirmed terms)
+            hit_total = len(string_matched_terms) + len(judge_added_terms)
+            met = hit_items >= need_target
+
+            unmet_terms_after_judge = [t for t in terms if t not in hit_terms]
+            return cluster_name, {
+                "name": cluster_name,
                 "minArticles": min_required,
                 "weight": weight,
                 "terms": terms,
-                "term_hits": hits,
-                "judge_hits": judge_votes[: judge_max_items],
-                "judge_items": judge_items,
-                "hit_items": judge_hit_items,
-                "hit_items_string": hit_items,
+                "term_hits": term_hits,
+                "term_judge_hits": term_judge_hits,
+                "term_judge_items": term_judge_items,
+                "unmet_terms": unmet_terms_after_judge,
+                "hit_items": hit_items,
+                "hit_items_string": len(string_matched_terms),
                 "hit_total": hit_total,
                 "met": met,
             }
@@ -730,6 +753,7 @@ class CLUEOrchestrator:
             gap = need_target - int(c_data.get("hit_items", 0))
             c_data["gap"] = max(0, gap)
             c_data["evidence_mode"] = "llm" if c_data.get("hit_items_string", 0) < c_data.get("minArticles", 0) else "string"
+            c_data["unmet_count"] = len(c_data.get("unmet_terms", []))
             cluster_hits[c_name] = c_data
             if c_data.get("gap", 0) > 0:
                 cluster_gap[c_name] = c_data
@@ -759,26 +783,16 @@ class CLUEOrchestrator:
 
     def _build_gap_queries_for_cluster(self, customer: dict, cluster_name: str, cluster_data: dict) -> list[str]:
         queries = []
-        terms = [t for t in (cluster_data.get("terms", []) or []) if isinstance(t, str) and t.strip()]
-        # prioritize terms with low hit ratio
+        unmet_terms = [t for t in (cluster_data.get("unmet_terms", []) or []) if isinstance(t, str) and t.strip()]
+        terms = unmet_terms if unmet_terms else [t for t in (cluster_data.get("terms", []) or []) if isinstance(t, str) and t.strip()]
+
         for t in terms:
             if t not in queries:
                 queries.append(t)
+
         if len(terms) == 0:
             queries.append(cluster_name)
 
-        return queries[:10]
-
-    def _build_gap_queries(self, customer: dict, coverage: dict) -> list[str]:
-        # compatibility wrapper: keep previous aggregate behavior for any caller that may rely on it
-        queries = []
-        for c_name, c_data in (coverage.get("cluster_gap", {}) or {}).items():
-            queries.extend(self._build_gap_queries_for_cluster(customer, c_name, c_data))
-
-        if not queries:
-            for k, v in (coverage.get("critical_hits", {}) or {}).items():
-                if v < 1 and k not in queries:
-                    queries.append(k)
         return queries[:10]
 
     def _apply_country_floor(self, selected: list[dict], fallback_pool: list[dict], country_floor: dict) -> list[dict]:
@@ -847,10 +861,8 @@ class CLUEOrchestrator:
         out = []
         for q in queries or []:
             qq = (q or "").strip()
-            if not qq:
-                continue
-            out.append(qq)
-            out.append(f"{qq} AI semiconductor")
+            if qq:
+                out.append(qq)
         # dedup preserve order
         seen = set()
         deduped = []
@@ -1120,7 +1132,7 @@ class CLUEOrchestrator:
             pass
         return True
 
-    def _select_for_customer(self, customer: dict, pool: list[dict]) -> list[dict]:
+    def _select_for_customer(self, customer: dict, pool: list[dict], allow_semantic_fallback: bool = False) -> list[dict]:
         prefs = customer.get("preferences", {})
         categories = set(prefs.get("categories", []))
         known_categories = set((self.sources.get("categories") or {}).keys()) | {"GENERAL"}
@@ -1152,7 +1164,11 @@ class CLUEOrchestrator:
                 continue
             # 니즈와 무관한 글로벌/라이프스타일성 기사 제외
             if not self._is_customer_relevant(a, keywords):
-                continue
+                if allow_semantic_fallback and self._has_semantic_need_match(customer, a, cluster_specs):
+                    # syntax 기반 매칭 실패 분기만 LLM semantic fallback로 보강
+                    pass
+                else:
+                    continue
             scoped.append(a)
 
         for a in scoped:
@@ -1229,6 +1245,61 @@ class CLUEOrchestrator:
                 break
 
         return self._dedupe_similar_items(selected, text_key="title")
+
+    def _has_semantic_need_match(self, customer: dict, article: dict, cluster_specs: list[tuple]) -> bool:
+        """Fallback semantic check for customers whose term-based relevance is weak."""
+        # Allow if there are no explicit need terms; no need to over-prune.
+        if not cluster_specs:
+            return True
+
+        # Cache by article+term to avoid repeated LLM calls.
+        if not hasattr(self, "_semantic_need_cache"):
+            self._semantic_need_cache = {}
+
+        # If API is unavailable, keep candidate to avoid emptying the mail.
+        if not os.getenv("OPENAI_API_KEY", ""):
+            return True
+
+        title = article.get("title", "")
+        summary = article.get("summary", "")
+        body = article.get("article_body", "")
+        url = (article.get("url") or article.get("source_url") or "").strip().lower()
+        judge_threshold = 0.62
+
+        for c_name, c_terms, _, _ in cluster_specs:
+            for term in c_terms[:6]:
+                t = (term or "").strip().lower()
+                if not t:
+                    continue
+                cache_key = f"{url}::{c_name}::{t}"
+                cached = self._semantic_need_cache.get(cache_key)
+                if cached is True:
+                    return True
+                if cached is False:
+                    continue
+
+                try:
+                    matched, _reason, score = self.processor._llm_judge_need_cluster_match(
+                        title=title,
+                        summary=summary,
+                        body=body,
+                        cluster_name=c_name,
+                        terms=[t],
+                    )
+                    matched_flag = bool(matched)
+                    score_value = float(score if score is not None else 0.0)
+                except Exception:
+                    matched_flag = False
+                    score_value = 0.0
+
+                if matched_flag and score_value >= judge_threshold:
+                    self._semantic_need_cache[cache_key] = True
+                    return True
+
+                self._semantic_need_cache[cache_key] = False
+
+        return False
+
 
     def _group_by_country(self, items: list[dict]) -> dict[str, list[dict]]:
         out = {c: [] for c in self.config["news"].get("country_order", ["KR", "US", "CN", "TW", "GLOBAL"])}
