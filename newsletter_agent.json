@@ -158,7 +158,17 @@
     ],
     "writingEngine": "ai_only",
     "forbidProgrammaticWriting": true,
-    "description": "파이썬 임시 스크립트/로컬 로직 실행 금지. 작성(제목/요약/실무시사점)은 AI만 수행하며, 코드는 수집/검증/렌더/발송 오케스트레이션에만 사용"
+    "description": "파이썬 임시 스크립트/로컬 로직 실행 금지. 작성(제목/요약/실무시사점)은 AI만 수행하며, 코드는 수집/검증/렌더/발송 오케스트레이션에만 사용",
+    "practicalImplicationStyle": {
+      "exactSentenceCount": "3-5",
+      "forbidAdvisoryPhrases": [
+        "해야 한다",
+        "권장한다",
+        "필요하다",
+        "점검해야"
+      ],
+      "requireInsightFocus": true
+    }
   },
   "renderPolicy": {
     "template": "CLUE_TEMPLATE_OFFICIAL",
@@ -437,6 +447,17 @@
       "D": "origin_read_and_summary_only(no_practical_implication)",
       "E": "needs_refill_and_finalize_candidates",
       "F": "render_then_generate_practical_implication_then_gate_and_deliver"
+    },
+    "practicalImplication": {
+      "lines": "3-5",
+      "policy": {
+        "sentenceCount": "3-5",
+        "structure": [
+          "문장1: 핵심 사실이 드러내는 실무적 변화 정리",
+          "문장2: 영향이 미치는 범위/연계 포인트",
+          "문장3~5: 과도한 추측 없이 다음 조치 판단에 필요한 관찰 포인트"
+        ]
+      }
     }
   }
 }
