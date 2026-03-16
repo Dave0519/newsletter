@@ -55,7 +55,7 @@
     "softMinArticlesPerNewsletter": 8,
     "targetArticlesPerNewsletter": 10,
     "relevanceFiltering": {
-      "requireKeywordMatch": true,
+      "requireKeywordMatch": false,
       "semanticFallbackEnabled": true,
       "semanticFallbackMaxItems": 80,
       "precheckSemanticFallbackEnabled": true,
@@ -63,9 +63,9 @@
       "contextFirst": true,
       "contextOnly": true,
       "signalHighHits": 2,
-      "signalAmbiguousHits": 2,
+      "signalAmbiguousHits": 1,
       "signalAmbiguousLlmScore": 0.62,
-      "allowNoSignalVolumeFallback": false,
+      "allowNoSignalVolumeFallback": true,
       "passAmbiguous": true
     },
     "shortlistMetaCapPerCustomer": 80,
