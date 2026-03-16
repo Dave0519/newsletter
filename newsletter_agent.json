@@ -177,22 +177,17 @@
       "tone": "practical_balanced_non_assertive",
       "audienceFocus": [
         "customer_work",
-        "SK_hynix"
+        "industry_context"
       ],
       "forbiddenLeadPhrases": [
-        "실무에서는",
-        "SK hynix에서는",
-        "업무 관점에서는",
-        "업무 관점에서",
-        "메모리 산업 관점에서도",
-        "메모리 산업 관점에서"
+        "실무에서는"
       ],
       "generationStage": "F_FINALIZE_AFTER_SELECTION",
       "description": "실무 시사점은 최종 기사 선정 이후(F 단계) 생성한다.",
       "style": "insight_only_non_advisory",
       "policy": {
         "purpose": "뉴스가 드러내는 구조적/맥락적 시사점만 서술",
-        "sentenceCount": "exactly_2",
+        "sentenceCount": "3-5",
         "structure": [
           "문장1: 사건이 드러낸 핵심 변화",
           "문장2: 변화가 확산되는 축/영향 맥락"

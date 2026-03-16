@@ -1071,7 +1071,10 @@ class CLUEOrchestrator:
             "평가합니다",
             "로 볼 수 있습니다",
             "실무에서는",
-            "SK hynix에서는",
+            "업무 관점에서는",
+            "업무 관점에서",
+            "메모리 산업 관점에서도",
+            "메모리 산업 관점에서",
         ]
         html_low = (html or "").lower()
         for phrase in banned_phrases:
