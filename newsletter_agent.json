@@ -59,11 +59,11 @@
       "semanticFallbackEnabled": true,
       "semanticFallbackMaxItems": 80,
       "precheckSemanticFallbackEnabled": true,
-      "precheckSemanticFallbackMaxItems": 64,
+      "precheckSemanticFallbackMaxItems": 80,
       "contextFirst": true,
       "contextOnly": true,
       "signalHighHits": 2,
-      "signalAmbiguousHits": 1,
+      "signalAmbiguousHits": 2,
       "signalAmbiguousLlmScore": 0.62,
       "allowNoSignalVolumeFallback": true,
       "passAmbiguous": true
