@@ -1,11 +1,11 @@
 {
   "version": 3,
-  "updatedAt": "2026-03-16T02:18:24+09:00",
+  "updatedAt": "2026-03-16T09:27:07.041516+09:00",
   "serialPolicy": {
     "format": "YYNNNNN",
     "startNumber": 1,
     "globalSequence": true,
-    "nextRegistrationNumber": 9,
+    "nextRegistrationNumber": 13,
     "example": [
       "2600001",
       "2600002",
@@ -910,6 +910,426 @@
         "timezone": "Asia/Seoul"
       },
       "externalId": "SKHY.2071621"
+    },
+    {
+      "customerId": "hgd1",
+      "serialNumber": "2600009",
+      "registeredYear": 2026,
+      "name": "REGIONAL",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_AGENT",
+          "AI_TECH",
+          "OPEN_SOURCE_MODEL",
+          "AIX"
+        ],
+        "keywords": [
+          "바이브 코딩",
+          "Agent 개발",
+          "Open Claw",
+          "문제정의",
+          "미국",
+          "한국",
+          "중국",
+          "OpenAI",
+          "Google",
+          "빅테크",
+          "AI 기술",
+          "빅테크 전략"
+        ],
+        "excludes": [
+          "광고",
+          "정치 뉴스"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "도입사례",
+          "투자",
+          "벤치마크",
+          "경쟁사동향"
+        ],
+        "lookbackHours": 48,
+        "watch_companies": [
+          "Google",
+          "OpenAI"
+        ],
+        "monitorCountries": [
+          "US",
+          "KR",
+          "CN"
+        ],
+        "searchQueries": [
+          "AIX_AGENT 바이브코딩 2026",
+          "MODEL_MONITOR 모델 2026",
+          "REGIONAL 미국 2026",
+          "Open AI model update 2026",
+          "Google AI announcement 2026",
+          "바이브 코딩 사례 2026",
+          "국내 AI Agent 도입 2026",
+          "미국 AI 기술 동향 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "AIX_AGENT",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "바이브코딩",
+              "Agent",
+              "AI Agent",
+              "OpenClaw",
+              "Open AI",
+              "문제정의",
+              "사내 AI"
+            ]
+          },
+          {
+            "name": "MODEL_MONITOR",
+            "minArticles": 2,
+            "weight": 1.1,
+            "terms": [
+              "모델",
+              "모델업데이트",
+              "LLM",
+              "benchmark",
+              "빅테크"
+            ]
+          },
+          {
+            "name": "REGIONAL",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "미국",
+              "한국",
+              "중국",
+              "AI 시장"
+            ]
+          }
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "hgb1",
+      "serialNumber": "2600010",
+      "registeredYear": 2026,
+      "name": "SEMICON_REGIONAL",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AIX",
+          "AI_AGENT",
+          "AI_TECH",
+          "OPEN_SOURCE_MODEL",
+          "SEMICONDUCTOR"
+        ],
+        "keywords": [
+          "AIX",
+          "Agent 구축",
+          "확산 로드맵",
+          "code generator",
+          "LLM fine tuning",
+          "삼성",
+          "미국",
+          "반도체 AI",
+          "실무 적용",
+          "AI 적용 현황",
+          "실질적 효과"
+        ],
+        "excludes": [
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "도입사례",
+          "투자",
+          "벤치마크",
+          "경쟁사동향"
+        ],
+        "lookbackHours": 48,
+        "watch_companies": [
+          "Samsung Electronics",
+          "NVIDIA"
+        ],
+        "monitorCountries": [
+          "US",
+          "KR",
+          "CN",
+          "TW"
+        ],
+        "searchQueries": [
+          "AIX_ADOPTION AIX 2026",
+          "LLM_TECH LLM 2026",
+          "SEMICON_REGIONAL 반도체 2026",
+          "AIX roadmap strategy 2026",
+          "LLM fine tuning enterprise 2026",
+          "code generator model update 2026",
+          "Samsung AI 반도체 2026",
+          "AI adoption use case enterprise 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "AIX_ADOPTION",
+            "minArticles": 3,
+            "weight": 1.3,
+            "terms": [
+              "AIX",
+              "Agent",
+              "확산",
+              "로드맵",
+              "확산 전략"
+            ]
+          },
+          {
+            "name": "LLM_TECH",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "LLM",
+              "fine tuning",
+              "code generator",
+              "모델",
+              "모델 최적화"
+            ]
+          },
+          {
+            "name": "SEMICON_REGIONAL",
+            "minArticles": 2,
+            "weight": 1.0,
+            "terms": [
+              "반도체",
+              "AI 반도체",
+              "삼성",
+              "미국",
+              "중국",
+              "대만"
+            ]
+          }
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "tjw1",
+      "serialNumber": "2600011",
+      "registeredYear": 2026,
+      "name": "STRATEGY",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_TECH",
+          "AI_INVESTMENT",
+          "GLOBAL_AI"
+        ],
+        "keywords": [
+          "AI 테크",
+          "중국 AI",
+          "미국 AI",
+          "AI 투자",
+          "AI 경쟁사",
+          "반도체 AI 투자"
+        ],
+        "excludes": [
+          "광고",
+          "정치 뉴스"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "도입사례",
+          "투자",
+          "벤치마크",
+          "경쟁사동향"
+        ],
+        "lookbackHours": 48,
+        "watch_companies": [
+          "OpenAI",
+          "NVIDIA",
+          "Anthropic"
+        ],
+        "monitorCountries": [
+          "US",
+          "CN"
+        ],
+        "searchQueries": [
+          "AI_COMPETITION AI 테크 2026",
+          "INVESTMENT 투자 2026",
+          "STRATEGY 국내 2026",
+          "AI investment trend 2026",
+          "US China AI competition 2026",
+          "AI tech roadmap competition 2026",
+          "Korea AI 투자 2026",
+          "반도체 AI 투자 동향 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "AI_COMPETITION",
+            "minArticles": 3,
+            "weight": 1.3,
+            "terms": [
+              "AI 테크",
+              "중국",
+              "미국",
+              "경쟁사",
+              "투자"
+            ]
+          },
+          {
+            "name": "INVESTMENT",
+            "minArticles": 2,
+            "weight": 1.1,
+            "terms": [
+              "투자",
+              "AI 투자",
+              "펀딩",
+              "자금"
+            ]
+          },
+          {
+            "name": "STRATEGY",
+            "minArticles": 1,
+            "weight": 1.0,
+            "terms": [
+              "국내",
+              "정책",
+              "기술 동향",
+              "시장"
+            ]
+          }
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
+    },
+    {
+      "customerId": "hgc1",
+      "serialNumber": "2600012",
+      "registeredYear": 2026,
+      "name": "AGENT_PLATFORM",
+      "email": "bonggyu1.choi@sk.com",
+      "channel": "email",
+      "enabled": true,
+      "needsProfile": {
+        "topics": [
+          "AI_TECH",
+          "AI_CHIP",
+          "AI_AGENT",
+          "AI_PLATFORM",
+          "GLOBAL_AI"
+        ],
+        "keywords": [
+          "Global AI 동향",
+          "AI Chip",
+          "AI Agent",
+          "NVIDIA",
+          "AI Platform",
+          "삼성전자",
+          "Micron",
+          "TSMC",
+          "반도체 제조"
+        ],
+        "excludes": [
+          "광고"
+        ],
+        "summaryStyle": "ko_context_3to4_lines",
+        "tone": "balanced",
+        "prioritySignals": [
+          "신규출시",
+          "모델업데이트",
+          "도입사례",
+          "투자",
+          "벤치마크",
+          "경쟁사동향"
+        ],
+        "lookbackHours": 48,
+        "watch_companies": [
+          "NVIDIA",
+          "Samsung Electronics",
+          "Micron",
+          "TSMC"
+        ],
+        "monitorCountries": [
+          "US",
+          "CN",
+          "KR",
+          "TW"
+        ],
+        "searchQueries": [
+          "GLOBAL_AI AI 2026",
+          "AI_CHIP AI Chip 2026",
+          "AGENT_PLATFORM AI Agent 2026",
+          "global AI trends 2026",
+          "NVIDIA AI chip roadmap 2026",
+          "AI platform deployment 2026",
+          "Micron AI memory 2026",
+          "TSMC AI and semiconductor roadmap 2026"
+        ],
+        "needClusters": [
+          {
+            "name": "GLOBAL_AI",
+            "minArticles": 3,
+            "weight": 1.3,
+            "terms": [
+              "AI",
+              "Global AI",
+              "AI 동향",
+              "AI 전략"
+            ]
+          },
+          {
+            "name": "AI_CHIP",
+            "minArticles": 3,
+            "weight": 1.2,
+            "terms": [
+              "AI Chip",
+              "NVIDIA",
+              "HBM",
+              "반도체",
+              "TSMC"
+            ]
+          },
+          {
+            "name": "AGENT_PLATFORM",
+            "minArticles": 2,
+            "weight": 1.1,
+            "terms": [
+              "AI Agent",
+              "AI Platform",
+              "배포",
+              "플랫폼",
+              "자동화"
+            ]
+          }
+        ]
+      },
+      "delivery": {
+        "time": "06:00",
+        "timezone": "Asia/Seoul"
+      }
     }
   ]
 }
