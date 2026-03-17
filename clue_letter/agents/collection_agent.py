@@ -229,6 +229,8 @@ class CollectionAgent:
         min_success_body_len: int = 1200,
         daily_news_target: int = 10,
         daily_news_flexible_target: bool = True,
+        global_fetch_time_cap: float = 90.0,
+        source_fail_rate_circuit: float | None = 0.85,
     ):
         self.data_root = Path(data_root)
         self.needs_agent = needs_agent
@@ -246,8 +248,10 @@ class CollectionAgent:
         self.min_success_body_len = min_success_body_len
         self.daily_news_target = daily_news_target
         self.daily_news_flexible_target = daily_news_flexible_target
+        self.global_fetch_time_cap = float(global_fetch_time_cap) if global_fetch_time_cap is not None else 0.0
+        self.source_fail_rate_circuit = float(source_fail_rate_circuit) if source_fail_rate_circuit is not None else None
         self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
-        self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0}
+        self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0, "filtered_stale": 0, "fallback_used": 0, "short_circuit": 0}
 
     def _log(self, msg: str) -> None:
         if self.trace_enabled:
@@ -318,6 +322,28 @@ class CollectionAgent:
         if _korean_ratio(body + summary + title) < self.min_ratio:
             return False
         return True
+
+    def _extract_publication_time(self, raw: dict) -> str:
+        for k in ("published_at", "pubDate", "date", "updated", "updated_at", "published"):
+            v = raw.get(k) if isinstance(raw, dict) else None
+            if isinstance(v, str):
+                v = v.strip()
+            elif v is not None:
+                v = str(v).strip()
+            if v:
+                return v
+        return ""
+
+    def _compute_recency_score(self, published_at: str, now: datetime) -> float:
+        dt = _to_datetime(published_at)
+        if dt is None:
+            return 0.0
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=now.tzinfo)
+        else:
+            dt = dt.astimezone(now.tzinfo)
+        age_h = (now - dt).total_seconds() / 3600.0
+        return max(0.0, 1.0 - (age_h / 24.0))
 
     def _score_preselect_by_metadata(self, title: str, snippet: str, needs: list[str], preferred_need: str | None = None) -> float:
         text = f"{title or ''} {snippet or ''}".lower()
@@ -439,6 +465,7 @@ class CollectionAgent:
             self.stage_counters["fail"] += 1
             return None
 
+        published_at = self._extract_publication_time(raw)
         body_len = len(body_ko)
         if body_len < int(self.min_success_body_len):
             self.stage_counters["short"] += 1
@@ -484,8 +511,10 @@ class CollectionAgent:
             matched_aliases=matched_aliases,
             query=source_query,
             extracted_at=datetime.now().astimezone().isoformat(),
+            published_at=published_at,
             body_len=body_len,
             extraction_status="success_full",
+            recency_score=0.0,
             source_score=1.0 if source_type == "direct" else float(self.source_fallback_weight),
         )
 
@@ -505,12 +534,22 @@ class CollectionAgent:
         return article
 
 
-    def _score_total(self, article: CollectedArticle, now: datetime, needs_payload: list[dict]) -> float:
-        recency = float(article.recency_score or 0.4)
+    def _score_total(self, article: CollectedArticle, now: datetime, needs_payload: list[dict], need_freq: dict[str, int], max_need_freq: int) -> float:
+        recency = float(article.recency_score or 0.0)
         src_score = float(article.source_score or 1.0)
         need_score = float(len(article.matched_need_ids or []))
-        # 니즈/동의어 중복 시 약한 보정
-        return 0.55 * need_score + 0.25 * recency + 0.20 * src_score
+
+        # diversity penalty: 반복 니즈 과점유 완화
+        local = 0
+        if need_freq:
+            if article.matched_need_ids:
+                local = max(need_freq.get(nid, 0) for nid in article.matched_need_ids)
+        penalty = 0.0
+        if max_need_freq and local > 0:
+            penalty = 0.15 * (local / float(max_need_freq))
+
+        article.diversity_penalty = penalty
+        return 0.55 * need_score + 0.25 * recency + 0.20 * src_score - penalty
 
     def _rebalance_by_need(self, articles: list[CollectedArticle], needs_payload: list[dict], target: int, flexible: bool = True) -> list[CollectedArticle]:
         if not articles:
@@ -572,13 +611,24 @@ class CollectionAgent:
         total_news = [a for a in candidates if a.extraction_status == "success_full"]
 
         now = datetime.now().astimezone()
+        need_freq: dict[str, int] = {}
+        for item in needs_payload:
+            nid = str(item.get("need_id", "")).strip()
+            if nid:
+                need_freq[nid] = 0
+
         for a in total_news:
-            # source_score already set in article constructor
-            a.recency_score = 0.6
+            a.recency_score = self._compute_recency_score(a.published_at, now)
             a.need_match_score = float(len(a.matched_need_ids))
             if a.matched_need_ids:
+                for nid in a.matched_need_ids:
+                    if nid in need_freq:
+                        need_freq[nid] += 1
                 a.source_score = max(0.1, float(a.source_score))
-            a.relevance_score = self._score_total(a, now, needs_payload)
+
+        max_need_freq = max(list(need_freq.values()) or [1])
+        for a in total_news:
+            a.relevance_score = self._score_total(a, now, needs_payload, need_freq, max_need_freq)
 
         total_news.sort(key=lambda x: x.relevance_score, reverse=True)
         selected = self._rebalance_by_need(total_news, needs_payload, target=int(self.daily_news_target), flexible=self.daily_news_flexible_target)
@@ -632,6 +682,7 @@ class CollectionAgent:
                     if not raw["url"] or not _is_candidate_news_url(raw["url"]) or raw["url"] in collected_urls:
                         continue
                     if not _is_within_last_days(raw.get("published_at") or "", max_days, now):
+                        self.stage_counters["filtered_stale"] += 1
                         continue
 
                     score = self._score_preselect_by_metadata(raw.get("title") or "", raw.get("snippet") or "", [x.get("need_text", "") for x in needs_payload], preferred_need=need_id)
@@ -652,24 +703,48 @@ class CollectionAgent:
 
             return sorted(preselects, key=lambda x: x["score"], reverse=True)
 
-        def build_from_preselect(preselects: list[dict]):
+        def should_stop(start_t: datetime, source_type: str, source_stats: dict[str, dict[str, int]]) -> bool:
+            if self.global_fetch_time_cap > 0 and (datetime.now().astimezone() - start_t).total_seconds() >= self.global_fetch_time_cap:
+                self.stage_counters["short_circuit"] += 1
+                return True
+            if self.source_fail_rate_circuit is not None and source_type in source_stats:
+                s = source_stats[source_type]
+                if s.get("attempt", 0) >= 8 and s.get("attempt", 0) > 0:
+                    if (s["fail"] / s["attempt"]) >= self.source_fail_rate_circuit:
+                        return True
+            return False
+
+        def build_from_preselect(preselects: list[dict], source_type: str, start_t: datetime, source_stats: dict[str, dict[str, int]]):
             for item in preselects:
                 if len(candidates) >= min(self.global_candidates_cap, max(min_count, 12)):
                     break
+                if should_stop(start_t, source_type, source_stats):
+                    self._log(f"[collect] breaker triggered source={source_type}")
+                    break
+
+                source_stats.setdefault(source_type, {"attempt": 0, "fail": 0})
+                source_stats[source_type]["attempt"] += 1
+
                 raw = item["raw"]
                 source_query = item["query"]
-                src = item.get("source_type", "direct")
+                src = item.get("source_type", source_type)
                 article = self._maybe_build_article(raw, source_query, needs_payload, latest_user.exclusions, collected_urls, source_type=src)
                 if article is None:
+                    source_stats[source_type]["fail"] += 1
                     continue
+
                 candidates.append(article)
                 self.stage_counters["built"] += 1
                 self._log(f"[collect] built score={article.relevance_score:.2f} need={article.need_category} src={src} url={article.url[:90]}")
 
+        source_stats: dict[str, dict[str, int]] = {}
+        start_t = datetime.now().astimezone()
+        core_limit = limit
+
         # core first
         if callable(getattr(self, "search_core", None)):
-            pre = stage_preselect(self.search_core, query_pairs, source_type="direct", max_hits=limit)
-            build_from_preselect(pre)
+            pre = stage_preselect(self.search_core, query_pairs, source_type="direct", max_hits=core_limit)
+            build_from_preselect(pre, "direct", start_t, source_stats)
 
         # google fallback for deficient needs or if still low
         if callable(getattr(self, "search_google", None)):
@@ -677,13 +752,14 @@ class CollectionAgent:
             if current < max(min_count, 12):
                 g_pairs = query_pairs[:]
                 pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(8, limit // 2))
-                build_from_preselect(pre)
+                self.stage_counters["fallback_used"] += 1
+                build_from_preselect(pre, "google", start_t, source_stats)
 
         total_candidates = candidates
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
 
-        self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']}")
-        self._persist_total_news_and_daily(user, total_news, selected)
+        self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
+        self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)
 
         final_selected = selected
         if len(final_selected) == 0:
@@ -694,7 +770,7 @@ class CollectionAgent:
         target_cap = max(min_count, self.daily_news_target, 8)
         return final_selected[: target_cap]
 
-    def _persist_total_news_and_daily(self, user: UserProfile, total_news: list[CollectedArticle], daily: list[CollectedArticle]) -> None:
+    def _persist_total_news_and_daily(self, user: UserProfile, total_news: list[CollectedArticle], daily: list[CollectedArticle], total_candidates: list[CollectedArticle], needs_payload: list[dict], min_count: int) -> None:
         dirs = self._user_dirs(user)
         ensure_dir(dirs["daily"])
         ensure_dir(dirs["history"])
@@ -718,19 +794,42 @@ class CollectionAgent:
                 rec = {
                     "url": a.url,
                     "title": a.title,
-                    "published_at": a.query.split("|", 1)[0] if a.query else "",
+                    "published_at": a.published_at,
                     "source": a.source,
                     "source_type": a.source_type,
                     "matched_needs": a.matched_needs,
                     "matched_aliases": a.matched_aliases,
                     "need_match_score": a.need_match_score,
                     "source_score": a.source_score,
+                    "diversity_penalty": a.diversity_penalty,
                     "body_len": a.body_len,
                     "collected_at": a.collected_at,
+                    "query": a.query,
                     "extraction_status": a.extraction_status,
                     "recency_score": a.recency_score,
                 }
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+        metric_path = dirs["daily"] / "total_news_metrics.json"
+        need_balance = {
+            nid: 0 for nid in [item.get("need_id") for item in needs_payload] if isinstance(item, dict) and item.get("need_id")
+        }
+        for a in selected:
+            for nid in a.matched_need_ids:
+                need_balance[nid] = need_balance.get(nid, 0) + 1
+        metrics = {
+            "total_candidates": len(total_candidates),
+            "need_matched_count": len([a for a in total_candidates if a.matched_need_ids]),
+            "success_full_count": len(total_news),
+            "success_full_rate": (len(total_news) / len(total_candidates)) if total_candidates else 0.0,
+            "google_news_ratio": (len([a for a in total_candidates if (a.source_type or "").lower() == "google"]) / len(total_candidates)) if total_candidates else 0.0,
+            "daily_news_need_balance": need_balance,
+            "coverage_ok": (len(selected) >= min(min_count, self.daily_news_target)) if selected else False,
+            "short_count": self.stage_counters.get("short", 0),
+            "fail_count": self.stage_counters.get("fail", 0),
+        }
+        metric_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+
     def _persist_daily_and_history(self, user: UserProfile, articles: list[CollectedArticle]) -> None:
         dirs = self._user_dirs(user)
         ensure_dir(dirs["daily"])
@@ -763,7 +862,7 @@ class CollectionAgent:
             summary_snip = summary_snip[:597] + "..."
 
         return {
-            "record_link": f"{art.title}:{art.summary}:{art.url}:{art.country}",
+            "record_link": f"{art.url}|{art.title}",
             "title": art.title,
             "summary": art.summary,
             "summary_snippet": summary_snip,
