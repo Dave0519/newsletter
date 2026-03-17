@@ -313,7 +313,9 @@ class CollectionAgent:
         # 본문 길이: 너무 짧거나 너무 템플릿성인 문서는 버림
         if len(body) < 500:
             return False
-        if _is_noise(body) or _is_noise(summary) or _is_noise(title):
+        # summary는 번역 산출물 특성상 일시적으로 단정/고정 텍스트가 들어올 수 있어
+        # 본문+제목 품질만 강하게 걸러내고 summary는 보조 지표로 처리
+        if _is_noise(body) or _is_noise(title):
             return False
         # 동일 반복 문자/토큰이 과도하게 반복되는 짧은 텍스트 제거
         if len(set(body.replace(" ", ""))) < 90:
@@ -345,13 +347,45 @@ class CollectionAgent:
         age_h = (now - dt).total_seconds() / 3600.0
         return max(0.0, 1.0 - (age_h / 24.0))
 
-    def _score_preselect_by_metadata(self, title: str, snippet: str, needs: list[str], preferred_need: str | None = None) -> float:
+    def _collect_need_term_index(self, needs_payload: list[dict]) -> list[str]:
+        terms: list[str] = []
+        for item in needs_payload:
+            if not isinstance(item, dict):
+                continue
+            need_text = str(item.get("need_text", "")).strip()
+            if need_text:
+                terms.append(need_text)
+            for a in item.get("aliases", []) or []:
+                a = str(a).strip()
+                if a and a not in terms:
+                    terms.append(a)
+        return terms
+
+    def _get_preferred_need_terms(self, needs_payload: list[dict], need_id: str | None) -> list[str]:
+        if not need_id:
+            return []
+        for item in needs_payload:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("need_id", "")).strip() != str(need_id).strip():
+                continue
+            out = []
+            for v in ([item.get("need_id", ""), item.get("need_text", "")] + list(item.get("aliases", []) or [])):
+                s = str(v).strip()
+                if s and s not in out:
+                    out.append(s)
+            return out
+        return [need_id]
+
+    def _score_preselect_by_metadata(self, title: str, snippet: str, needs: list[str], preferred_need: list[str] | None = None) -> float:
         text = f"{title or ''} {snippet or ''}".lower()
         score = 0.0
         if preferred_need:
-            p = preferred_need.lower().strip()
-            if p and p in text:
-                score += 1.2
+            for p in preferred_need:
+                pv = str(p).lower().strip()
+                if pv and pv in text:
+                    score += 1.2
+                    break
         for idx, need in enumerate(needs):
             key = str(need).lower().strip()
             if not key:
@@ -452,6 +486,8 @@ class CollectionAgent:
         except Exception:
             return None
 
+        # RSS 검색 전개: title+snippet만으로 니즈 매칭,
+        # 본문은 길이 필터(최소 800자) 용도로만 사용
         if "news.google.com/rss/articles/" in url and self.resolve_url:
             try:
                 resolved = self.resolve_url(url)
@@ -473,52 +509,35 @@ class CollectionAgent:
             return None
         if not body_text:
             self.stage_counters["fail"] += 1
-            self._log(f"[collect] fetch_empty url={url[:90]}")
             return None
 
-        body_ko = self._to_kor(body_text, 20000)
-        if not body_ko:
-            self.stage_counters["fail"] += 1
-            return None
-
-        published_at = self._extract_publication_time(raw)
-        body_len = len(body_ko)
+        body_len = len(body_text)
         if body_len < int(self.min_success_body_len):
             self.stage_counters["short"] += 1
             return None
 
-        raw_title_ko = self._to_kor((raw.get("title") or "").strip())
-        if not raw_title_ko:
+        raw_title = (raw.get("title") or "").strip()
+        raw_snippet = (raw.get("snippet") or "").strip()
+        if not raw_title and not raw_snippet:
             self.stage_counters["fail"] += 1
             return None
 
-        summary_body = _dedupe_title_in_body(raw_title_ko, body_ko)
-        if not summary_body:
-            summary_body = body_ko
-
-        summary_ko = summarize_ko(summary_body, sentence_count=5)
-        summary_ko = _trim_summary_prefix(raw_title_ko, summary_ko)
-        title_ko = rewrite_title(raw_title_ko, body_ko + "\n" + summary_ko)
-        if not title_ko:
-            title_ko = raw_title_ko
-        if not title_ko:
-            title_ko = self._to_kor((raw.get("title") or "").strip())
-        summary_ko = self._split_sentences(summary_ko, 5)
-
-        if not self._build_quality_filter(title_ko, summary_ko, body_ko):
+        # 닫기: 제목+description만으로 니즈 매칭
+        merged_for_match = f"{raw_title} {raw_snippet}"
+        matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged_for_match, needs_payload)
+        if not matched_need_ids:
             self.stage_counters["fail"] += 1
             return None
 
-        country = self._extract_country(body_ko, title_ko)
-        merged = f"{title_ko} {summary_ko} {body_ko}"
-        matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged, needs_payload)
+        published_at = self._extract_publication_time(raw)
+        country = self._extract_country(raw_snippet or body_text, raw_title)
 
         article = CollectedArticle(
-            title=title_ko,
+            title=raw_title,
             url=url,
             country=country,
-            summary=summary_ko,
-            body=body_ko,
+            summary=raw_snippet,
+            body=body_text,
             source="browser",
             source_type=source_type,
             need_category=matched_needs[0] if matched_needs else None,
@@ -537,8 +556,9 @@ class CollectionAgent:
         score = self._score_relevance(article, [n for n in (matched_needs or []) if n], exclusions)
         article.relevance_score = float(score + need_hit_score)
         article.need_match_score = article.relevance_score
-        article.relevance_note = f"relevance_score={score:.1f}"
-        if score <= 0:
+        article.relevance_note = f"relevance_score={score:.1f}, need_hit={need_hit_score:.1f}"
+
+        if score <= 0 and need_hit_score <= 0:
             self.stage_counters["fail"] += 1
             return None
 
@@ -707,7 +727,9 @@ class CollectionAgent:
                         self.stage_counters["filtered_stale"] += 1
                         continue
 
-                    score = self._score_preselect_by_metadata(raw.get("title") or "", raw.get("snippet") or "", [x.get("need_text", "") for x in needs_payload], preferred_need=need_id)
+                    need_terms = self._collect_need_term_index(needs_payload)
+                    preferred_terms = self._get_preferred_need_terms(needs_payload, need_id)
+                    score = self._score_preselect_by_metadata(raw.get("title") or "", raw.get("snippet") or "", need_terms, preferred_need=preferred_terms)
                     if score < self.min_ratio:
                         continue
 
@@ -768,14 +790,10 @@ class CollectionAgent:
             pre = stage_preselect(self.search_core, query_pairs, source_type="direct", max_hits=core_limit)
             build_from_preselect(pre, "direct", start_t, source_stats)
 
-        # google fallback for deficient needs or if still low
-        if callable(getattr(self, "search_google", None)):
-            current = len(candidates)
-            if current < max(min_count, 12):
-                g_pairs = query_pairs[:]
-                pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(8, limit // 2))
-                self.stage_counters["fallback_used"] += 1
-                build_from_preselect(pre, "google", start_t, source_stats)
+        # 사용자 요청 반영: RSS(core) 경로 중심으로만 처리
+        # (원문 URL 접근 및 800자 필터 이후 success_full 판단)
+        # 기존 Google fallback은 사용하지 않음
+        # google fallback disabled intentionally
 
         total_candidates = candidates
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
