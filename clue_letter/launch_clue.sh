@@ -5,7 +5,24 @@
 # then run:
 #   clue-run
 
-export OPENAI_API_KEY="${OPENAI_API_KEY:-}" # set this externally
+# Load OPENAI_* env from repository .env files when present.
+# Priority:
+#  1) /Users/davechoi/.openclaw/workspace/openclaw/.env
+#  2) ./clue_letter/.env
+# Existing environment values are preserved.
+
+set -a
+if [ -f /Users/davechoi/.openclaw/workspace/openclaw/.env ]; then
+  # shellcheck disable=SC1091
+  source /Users/davechoi/.openclaw/workspace/openclaw/.env
+fi
+if [ -f /Users/davechoi/.openclaw/workspace/clue_letter/.env ]; then
+  # shellcheck disable=SC1091
+  source /Users/davechoi/.openclaw/workspace/clue_letter/.env
+fi
+set +a
+
+export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 export OPENAI_MODEL="${OPENAI_MODEL:-gpt-5-mini}"
 export OPENAI_API_BASE="${OPENAI_API_BASE:-https://api.openai.com/v1}"
 

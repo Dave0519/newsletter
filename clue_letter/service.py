@@ -2,10 +2,43 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.append("/Users/davechoi/.openclaw/workspace")
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            if "=" not in s:
+                continue
+            k, v = s.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except Exception:
+        return
+
+
+def _bootstrap_env() -> None:
+    # Runtime safety: ensure OpenAI keys are loaded even without shell source.
+    root = Path(__file__).resolve().parent
+    _load_env_file(root.parent / "openclaw" / ".env")
+    _load_env_file(root / ".env")
+
+
+_bootstrap_env()
+
+os.environ.setdefault("OPENAI_MODEL", "gpt-5-mini")
+os.environ.setdefault("OPENAI_API_BASE", "https://api.openai.com/v1")
 
 from agents.super_agent import SuperAgent
 
