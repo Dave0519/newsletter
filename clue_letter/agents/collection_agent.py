@@ -574,7 +574,7 @@ class CollectionAgent:
             country=country,
             summary=raw_snippet,
             body=body_text,
-            source="browser",
+            source="http",
             source_type=source_type,
             need_category=matched_needs[0] if matched_needs else None,
             matched_need_ids=matched_need_ids,
@@ -856,7 +856,7 @@ class CollectionAgent:
         issue = datetime.now().strftime("%Y-%m-%d")
         day_file = dirs["daily"] / f"{issue}.jsonl"
 
-        with day_file.open("a", encoding="utf-8") as f:
+        with day_file.open("w", encoding="utf-8") as f:
             for a in daily:
                 rec = self._make_daily_record(a)
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -920,7 +920,7 @@ class CollectionAgent:
         for a in articles:
             buckets[a.query or "default"].append(a)
 
-        with day_file.open("a", encoding="utf-8") as f:
+        with day_file.open("w", encoding="utf-8") as f:
             for a in articles:
                 rec = self._make_daily_record(a)
                 rec["topics_coverage"] = sorted(buckets.keys())
