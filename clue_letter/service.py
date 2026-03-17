@@ -72,6 +72,8 @@ def main(argv=None):
     parser.add_argument("--countries", nargs="*", default=[], help="preferred countries")
     parser.add_argument("--exclusions", nargs="*", default=[], help="exclusions")
     parser.add_argument("--dry", action="store_true", help="dry-run only")
+    parser.add_argument("--batch-size", type=int, default=0, help="Run only first N users from selected batch")
+    parser.add_argument("--batch-start", type=int, default=0, help="Zero-based start index for user batch")
     parser.add_argument("--browser", action="store_true", help="use browser relay explicitly (default is HTTP/requests)")
     parser.add_argument("--no-browser", action="store_true", help="explicitly force no-browser; use HTTP/requests fetch path")
 
@@ -114,7 +116,7 @@ def main(argv=None):
         return
 
     if args.action == "run-all":
-        out = svc.run_all(dry_run=args.dry)
+        out = _run_all_batched(svc, dry_run=args.dry, batch_size=args.batch_size, batch_start=args.batch_start)
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return
 
@@ -125,6 +127,24 @@ def main(argv=None):
         print(json.dumps({"name": u.name, "user_code": u.user_code, "active": u.is_active, "interests": u.interests, "countries": u.countries}, ensure_ascii=False, indent=2))
         return
 
+
+
+
+def _run_all_batched(svc: SuperAgent, dry_run: bool, batch_size: int, batch_start: int, min_count: int = 8):
+    users = [u for u in svc.list_users() if u.is_active]
+    if not users:
+        return []
+    start = max(0, batch_start)
+    end = len(users) if batch_size <= 0 else min(len(users), start + batch_size)
+    codes = [u.user_code for u in users[start:end]]
+
+    out = []
+    for code in codes:
+        try:
+            out.append(svc.run_for_user(code, dry_run=dry_run, min_count=min_count))
+        except Exception as e:
+            out.append({"ok": False, "user_code": code, "name": next((u.name for u in users if u.user_code == code), None), "error": str(e)})
+    return out
 
 if __name__ == "__main__":
     main()
