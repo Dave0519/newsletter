@@ -61,7 +61,7 @@ class ContentProcessor:
         for it in items or []:
             rss_title = self._clean(it.get("title", ""))
             source_title, body, status = self._extract_article_content(it.get("url", ""))
-            if status != "success_full":
+            if status != "success" or len(body) < 400:
                 continue
 
             # 제목은 반드시 원문 URL 페이지에서 추출한 값을 우선 사용
@@ -97,7 +97,7 @@ class ContentProcessor:
             row["title_ko"] = self._llm_generate_title_from_body(url_title=title, body=body)
             row["description"] = summary
             row["practical_implication"] = practical
-            row["extraction_status"] = "success_full"
+            row["extraction_status"] = "success"
             out.append(row)
 
         return out
@@ -170,9 +170,7 @@ class ContentProcessor:
 
             candidates.sort(key=lambda x: x[0], reverse=True)
             body = self._clean(candidates[0][1])
-            if len(body) < 1200:
-                return source_title, body, "short"
-            return source_title, body, "success_full"
+            return source_title, body, "success"
         except Exception:
             return "", "", "fail"
 

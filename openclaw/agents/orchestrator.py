@@ -82,29 +82,17 @@ class CLUEOrchestrator:
         policy = self._load_collection_policy()
 
         # Stage A: shared collection (single-customer execution keeps it local)
-        needs_mode = bool(policy.get("needs_mode", True))
-        need_terms = self._build_need_terms(customer) if needs_mode else []
-        article_pool = self.news_collector.collect_all(
-            per_category_limit=policy["per_category_limit"],
-            needs_mode=needs_mode,
-            needs_terms=need_terms,
-            needs_target_per_keyword=int(policy.get("needs_target_per_keyword", 50)),
-            global_candidates_cap=int(policy.get("global_candidates_cap", 1200)),
-        )
+        article_pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
         article_pool = self._dedupe_by_title_strict(article_pool)
         article_pool = self._dedupe_semantic(article_pool)
-        total_news = self._build_total_news(article_pool, policy=policy, timeout_sec=max(30, int(policy.get("d_stage_timeout_sec", 1200))))
 
         return self._run_customer_from_pool(
             customer=customer,
-            article_pool=total_news if total_news else article_pool,
+            article_pool=article_pool,
             issue_date=issue_date,
             dry_run=dry_run,
             email_recipient=email_recipient,
             policy=policy,
-            start_stage="E" if total_news else "B",
-            prechecked_override=total_news if total_news else None,
-            clean_override=total_news if total_news else None,
         )
 
     def run_all_customers(self, dry_run: bool = False, resume: bool = True, time_budget_minutes: int = 110) -> dict:
@@ -148,37 +136,13 @@ class CLUEOrchestrator:
         # Stage A: shared pool
         if state.get("stage") == "A":
             self.log.info("A_START")
-            all_need_terms: list[str] = []
-            if bool(policy.get("needs_mode", True)):
-                for cid in state.get("customers", []):
-                    customer = self._get_customer(cid)
-                    all_need_terms.extend(self._build_need_terms(customer))
-            all_need_terms = list(dict.fromkeys([t for t in all_need_terms if isinstance(t, str) and t.strip()]))
-
-            pool = self.news_collector.collect_all(
-                per_category_limit=policy["per_category_limit"],
-                needs_mode=bool(policy.get("needs_mode", True)),
-                needs_terms=all_need_terms,
-                needs_target_per_keyword=int(policy.get("needs_target_per_keyword", 50)),
-                global_candidates_cap=int(policy.get("global_candidates_cap", 1200)),
-            )
+            pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
             pool = self._dedupe_by_title_strict(pool)
             pool = self._dedupe_semantic(pool)
             master_path = self._checkpoint_dir(state["run_id"]) / "master_candidate_pool.json"
             self._dump_json(master_path, pool)
             state["paths"]["master_candidate_pool"] = str(master_path)
-
-            # 총합 24h+니즈 후보를 본문 추출 성공(success_full) 기준으로 total_news 구성
-            total_news = self._build_total_news(
-                pool,
-                policy=policy,
-                timeout_sec=max(30, int(policy.get("d_stage_timeout_sec", 1200))),
-            )
-            total_path = self._checkpoint_dir(state["run_id"]) / "total_news.json"
-            self._dump_json(total_path, total_news)
-            state["paths"]["total_news"] = str(total_path)
-
-            self.log.info("A_DONE total_news=%d", len(total_news))
+            self.log.info("A_DONE")
             state["stage"] = "B"
             state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
             self._save_state(state)
@@ -189,55 +153,34 @@ class CLUEOrchestrator:
         except Exception:
             pool = []
 
-        total_news = []
-        try:
-            total_path = state.get("paths", {}).get("total_news", "")
-            total_news = json.loads(Path(total_path).read_text(encoding="utf-8")) if total_path and os.path.exists(total_path) else []
-        except Exception:
-            total_news = []
-
         results = []
         for cid in state.get("customers", []):
-            stage = state.get("customer_stage", {}).get(cid, "B")
-            if stage in {"DONE", "F"}:
-                if cid not in set(state.get("completed_customers", [])):
-                    state["completed_customers"].append(cid)
-                    self.log.info(f"CUSTOMER_AUTO_DONE cid={cid}")
-                    state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
-                    self._save_state(state)
-                continue
-
             if cid in set(state.get("completed_customers", [])):
                 continue
             if datetime.now(ZoneInfo("Asia/Seoul")).timestamp() >= deadline:
                 break
 
             customer = self._get_customer(cid)
-            self.log.info(f"CUSTOMER_START cid={cid} resume_stage={stage}")
+            self.log.info(f"CUSTOMER_START cid={cid}")
             try:
                 result = self._run_customer_from_pool(
                     customer=customer,
-                    article_pool=list(total_news) if total_news else list(pool),
+                    article_pool=list(pool),
                     issue_date=issue_date,
                     dry_run=dry_run,
                     email_recipient=None,
                     policy=policy,
                     run_id=state.get("run_id"),
                     checkpoint_state=state,
-                    start_stage="E" if total_news else stage,
-                    prechecked_override=list(total_news) if total_news else None,
-                    clean_override=list(total_news) if total_news else None,
                 )
                 state["completed_customers"].append(cid)
                 state["customer_stage"][cid] = "DONE"
-                if isinstance(state.get("failed_customers"), list):
-                    state["failed_customers"] = [f for f in state.get("failed_customers", []) if f.get("id") != cid]
                 self.log.info(f"CUSTOMER_DONE cid={cid} status={result.get('status')}")
                 results.append({"customer_id": cid, "status": result.get("status"), "gate_ok": result.get("gate_ok")})
             except Exception as e:
-                stage = state.get("customer_stage", {}).get(cid, "UNKNOWN")
-                state["failed_customers"].append({"id": cid, "stage": stage, "reason": str(e)[:400]})
-                self.log.warning(f"CUSTOMER_FAIL cid={cid} stage={stage} reason={str(e)[:200]}")
+                state["failed_customers"].append({"id": cid, "stage": state.get("customer_stage", {}).get(cid, "UNKNOWN"), "reason": str(e)[:400]})
+                state["customer_stage"][cid] = "FAILED"
+                self.log.warning(f"CUSTOMER_FAIL cid={cid} stage={state.get('customer_stage', {}).get(cid, 'UNKNOWN')} reason={str(e)[:200]}")
             state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
             self._save_state(state)
 
@@ -260,28 +203,6 @@ class CLUEOrchestrator:
             "results": results,
         }
 
-    def _build_total_news(
-        self,
-        pool: list[dict],
-        policy: dict,
-        timeout_sec: int = 1200,
-    ) -> list[dict]:
-        if not pool:
-            return []
-        cap = max(0, int(policy.get("global_candidates_cap", len(pool) or 0) or 0))
-        if cap and len(pool) > cap:
-            pool = pool[:cap]
-
-        cleaned = self._process_origin_candidates_parallel(
-            pool,
-            max_workers=max(1, int(policy.get("d_stage_parallel_workers", 2))),
-            timeout_sec=timeout_sec,
-        )
-        cleaned = [x for x in cleaned if x.get("extraction_status") == "success_full"]
-        cleaned = self._dedupe_by_title_strict(cleaned)
-        cleaned = self._dedupe_semantic(cleaned)
-        return cleaned
-
     def _run_customer_from_pool(
         self,
         customer: dict,
@@ -292,191 +213,133 @@ class CLUEOrchestrator:
         policy: dict,
         run_id: Optional[str] = None,
         checkpoint_state: Optional[dict] = None,
-        start_stage: str = "B",
-        prechecked_override: Optional[list[dict]] = None,
-        clean_override: Optional[list[dict]] = None,
     ) -> dict:
         customer_id = customer.get("customer_id", "default")
 
-        article_pool = [dict(a) for a in (article_pool or [])]
         for a in article_pool:
             a["country"] = self.country_tagger.tag(a.get("title", ""), a.get("summary", ""))
             cat, score = self._infer_category(a)
             a["category"] = cat
             a["_category_score"] = score
 
-        paths = (checkpoint_state or {}).get("paths", {}) if checkpoint_state else {}
-        short_path = (paths.get("shortlists", {}) or {}).get(customer_id)
-        pre_path = (paths.get("prechecked", {}) or {}).get(customer_id)
-        clean_path = (paths.get("cleaned", {}) or {}).get(customer_id)
-        final_path = (paths.get("final_candidates", {}) or {}).get(customer_id)
-
-        shortlist_meta = self._load_checkpoint_json(short_path)
-        prechecked = self._load_checkpoint_json(pre_path)
-        clean_items = self._load_checkpoint_json(clean_path)
-        selected = self._load_checkpoint_json(final_path)
-        if prechecked_override is not None:
-            prechecked = prechecked_override
-        if clean_override is not None:
-            clean_items = clean_override
-
-        valid_stages = {"B", "C", "D", "E", "F"}
-        stage = start_stage if start_stage in valid_stages else "B"
-        if stage in {"C", "D", "E", "F"} and not shortlist_meta:
-            stage = "B"
-        if stage in {"D", "E", "F"} and not prechecked:
-            stage = "C"
-        if stage in {"E", "F"} and not clean_items:
-            stage = "D"
-        if stage == "F" and not selected:
-            stage = "E"
-
-        ckpt_state = checkpoint_state
-
-        def _flush_state():
-            if ckpt_state is not None and run_id:
-                ckpt_state["updated_at"] = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
-                self._save_state(ckpt_state)
-
         # Stage B: shortlist
-        if stage == "B":
-            self.log.info(f"B_START cid={customer_id}")
-            shortlist_meta = self._select_for_customer(customer, article_pool, allow_semantic_fallback=True, policy=policy, stage="B")
-            shortlist_meta = shortlist_meta[: policy["shortlist_meta_cap_per_customer"]]
-            if ckpt_state is not None and run_id:
-                ckpt_state["customer_stage"][customer_id] = "B"
-                p = self._checkpoint_dir(run_id) / f"shortlist_{customer_id}.json"
-                self._dump_json(p, shortlist_meta)
-                ckpt_state.setdefault("paths", {}).setdefault("shortlists", {})[customer_id] = str(p)
-                _flush_state()
-            self.log.info(f"B_DONE cid={customer_id} n={len(shortlist_meta)}")
-            stage = "C"
+        self.log.info(f"B_START cid={customer_id}")
+        shortlist_meta = self._select_for_customer(customer, article_pool, allow_semantic_fallback=True, policy=policy, stage="B")
+        shortlist_meta = shortlist_meta[: policy["shortlist_meta_cap_per_customer"]]
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "B"
+            p = self._checkpoint_dir(run_id) / f"shortlist_{customer_id}.json"
+            self._dump_json(p, shortlist_meta)
+            checkpoint_state.setdefault("paths", {}).setdefault("shortlists", {})[customer_id] = str(p)
+        self.log.info(f"B_DONE cid={customer_id} n={len(shortlist_meta)}")
 
         # Stage C: precheck (fast filter before expensive LLM steps)
-        if stage == "C":
-            self.log.info(f"C_START cid={customer_id}")
-            if prechecked is None:
-                prechecked = self._precheck_candidates(customer, shortlist_meta or [], policy=policy)
-            if ckpt_state is not None and run_id:
-                ckpt_state["customer_stage"][customer_id] = "C"
-                p = self._checkpoint_dir(run_id) / f"prechecked_{customer_id}.json"
-                self._dump_json(p, prechecked)
-                ckpt_state.setdefault("paths", {}).setdefault("prechecked", {})[customer_id] = str(p)
-                _flush_state()
-            self.log.info(f"C_DONE cid={customer_id} n={len(prechecked)}")
-            stage = "D"
+        self.log.info(f"C_START cid={customer_id}")
+        prechecked = self._precheck_candidates(customer, shortlist_meta, policy=policy)
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "C"
+            p = self._checkpoint_dir(run_id) / f"prechecked_{customer_id}.json"
+            self._dump_json(p, prechecked)
+            checkpoint_state.setdefault("paths", {}).setdefault("prechecked", {})[customer_id] = str(p)
+        self.log.info(f"C_DONE cid={customer_id} n={len(prechecked)}")
 
         # Stage D: origin read + judge
-        if stage == "D":
-            self.log.info(f"D_START cid={customer_id}")
-            origin_candidates = (prechecked or [])[: policy["origin_read_cap_per_customer"]]
-            clean_items = self._process_origin_candidates_parallel(
-                origin_candidates,
-                max_workers=policy.get("d_stage_parallel_workers", 2),
-                timeout_sec=policy.get("d_stage_timeout_sec", 1800),
+        self.log.info(f"D_START cid={customer_id}")
+        origin_candidates = prechecked[: policy["origin_read_cap_per_customer"]]
+        clean_items = self._process_origin_candidates_parallel(
+            origin_candidates,
+            max_workers=policy.get("d_stage_parallel_workers", 2),
+            timeout_sec=policy.get("d_stage_timeout_sec", 1800),
+        )
+        clean_items = self._dedupe_by_title_strict(clean_items)
+        clean_items = self._dedupe_semantic(clean_items)
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "D"
+            p = self._checkpoint_dir(run_id) / f"cleaned_{customer_id}.json"
+            self._dump_json(p, clean_items)
+            checkpoint_state.setdefault("paths", {}).setdefault("cleaned", {})[customer_id] = str(p)
+        self.log.info(f"D_DONE cid={customer_id} n={len(clean_items)}")
+
+        # Stage E: shortage-aware refill loop (need/article/country gaps)
+        self.log.info(f"E_START cid={customer_id}")
+        selected = self._select_for_customer(customer, clean_items, policy=policy, allow_semantic_fallback=True, stage="E")
+        candidate_pool = list(clean_items)
+        coverage_judge_cache: dict[str, dict] = {}
+
+        min_articles = int(policy.get("min_articles_hard", policy.get("min_articles_soft", 8)))
+        min_countries = int(policy.get("min_country_sections_hard", policy.get("min_country_sections_soft", 2)))
+        max_refill_rounds = int(policy.get("refill_max_rounds", 3))
+
+        for rr in range(1, max_refill_rounds + 1):
+            coverage = self._evaluate_need_coverage(customer, selected, policy=policy, judge_cache=coverage_judge_cache)
+            country_count = len(set([it.get("country", "GLOBAL") for it in selected if it.get("country")]))
+            article_gap = max(0, min_articles - len(selected))
+            country_gap = max(0, min_countries - country_count)
+            need_gap = bool(coverage.get("need_gap"))
+
+            self.log.info(
+                f"E_GAP cid={customer_id} round={rr} need_gap={need_gap} article_gap={article_gap} country_gap={country_gap}"
             )
-            clean_items = self._dedupe_by_title_strict(clean_items)
-            clean_items = self._dedupe_semantic(clean_items)
-            if ckpt_state is not None and run_id:
-                ckpt_state["customer_stage"][customer_id] = "D"
-                p = self._checkpoint_dir(run_id) / f"cleaned_{customer_id}.json"
-                self._dump_json(p, clean_items)
-                ckpt_state.setdefault("paths", {}).setdefault("cleaned", {})[customer_id] = str(p)
-                _flush_state()
-            self.log.info(f"D_DONE cid={customer_id} n={len(clean_items)}")
-            stage = "E"
 
-        # Stage E: shortage-aware refill loop (need/article/country gaps) and final shortlist
-        if stage == "E":
-            self.log.info(f"E_START cid={customer_id}")
-            if selected is None:
-                selected = self._select_for_customer(customer, clean_items or [], policy=policy, allow_semantic_fallback=True, stage="E")
+            if not need_gap and article_gap == 0 and country_gap == 0:
+                break
 
-            # 공통 풀을 기준으로 니즈 분산형 상위 구성
-            balanced_target = int(policy.get("daily_news_target", 10))
-            selected = self._rebalance_by_need_overlap(customer, selected, policy=policy, target=balanced_target)
-            for it in selected:
-                # 니즈/동의어 메타를 기사에 고정 태깅
-                self._attach_need_match_info(customer, it)
+            cluster_gaps = list((coverage.get("cluster_gap", {}) or {}).items())
+            # Process each unmet need cluster separately to avoid diluting one weak cluster with others.
+            for c_name, c_data in cluster_gaps:
+                gap_queries = self._build_gap_queries_for_cluster(customer, c_name, c_data)
+                if not gap_queries:
+                    continue
 
-            candidate_pool = list(clean_items or [])
-            coverage_judge_cache: dict[str, dict] = {}
+                unmet_terms = c_data.get("unmet_terms") or gap_queries
+                self.log.info(f"E_CLUSTER_GAP cid={customer_id} round={rr} cluster={c_name} unmet_terms={unmet_terms} terms={gap_queries}")
+                refill_queries = self._build_ko_en_query_pairs(gap_queries)
+                if not refill_queries:
+                    continue
 
-            min_articles = int(policy.get("min_articles_hard", policy.get("min_articles_soft", 8)))
-            min_countries = int(policy.get("min_country_sections_hard", policy.get("min_country_sections_soft", 2)))
-            max_refill_rounds = int(policy.get("refill_max_rounds", 3))
-
-            for rr in range(1, max_refill_rounds + 1):
-                coverage = self._evaluate_need_coverage(customer, selected, policy=policy, judge_cache=coverage_judge_cache)
-                country_count = len(set([it.get("country", "GLOBAL") for it in selected if it.get("country")]))
-                article_gap = max(0, min_articles - len(selected))
-                country_gap = max(0, min_countries - country_count)
-                need_gap = bool(coverage.get("need_gap"))
-
-                self.log.info(
-                    f"E_GAP cid={customer_id} round={rr} need_gap={need_gap} article_gap={article_gap} country_gap={country_gap}"
+                refill_meta = self.news_collector.collect_custom_queries(
+                    refill_queries,
+                    category="CUSTOM_NEEDS",
+                    limit=policy["refill_meta_limit"],
                 )
+                refill_meta = self._dedupe_semantic(refill_meta)
+                refill_origin = refill_meta[: policy["refill_origin_cap_per_customer"]]
+                refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
+                candidate_pool = self._dedupe_semantic(candidate_pool + refill_clean)
+                selected = self._dedupe_semantic(selected + refill_clean)
+                selected = self._select_for_customer(customer, selected, policy=policy, allow_semantic_fallback=True, stage="E")
 
-                if not need_gap and article_gap == 0 and country_gap == 0:
-                    break
+            if country_gap > 0:
+                country_queries = self._build_country_gap_queries(customer, selected, country_gap)
+                if country_queries:
+                    self.log.info(f"E_COUNTRY_GAP cid={customer_id} round={rr} countries={country_queries}")
+                    refill_queries = self._build_ko_en_query_pairs(country_queries)
+                    if refill_queries:
+                        country_meta = self.news_collector.collect_custom_queries(
+                            refill_queries,
+                            category="CUSTOM_NEEDS",
+                            limit=policy["refill_meta_limit"],
+                        )
+                        country_meta = self._dedupe_semantic(country_meta)
+                        country_origin = country_meta[: policy["refill_origin_cap_per_customer"]]
+                        country_clean = self.processor.process_news_batch(country_origin, lang="ko")
+                        candidate_pool = self._dedupe_semantic(candidate_pool + country_clean)
+                        selected = self._dedupe_semantic(selected + country_clean)
+                        selected = self._select_for_customer(customer, selected, policy=policy, allow_semantic_fallback=True, stage="E")
 
-                cluster_gaps = list((coverage.get("cluster_gap", {}) or {}).items())
-                for c_name, c_data in cluster_gaps:
-                    gap_queries = self._build_gap_queries_for_cluster(customer, c_name, c_data)
-                    if not gap_queries:
-                        continue
-
-                    unmet_terms = c_data.get("unmet_terms") or gap_queries
-                    self.log.info(f"E_CLUSTER_GAP cid={customer_id} round={rr} cluster={c_name} unmet_terms={unmet_terms} terms={gap_queries}")
-                    refill_queries = self._build_ko_en_query_pairs(gap_queries)
-                    if not refill_queries:
-                        continue
-
-                    refill_meta = self.news_collector.collect_custom_queries(
-                        refill_queries,
-                        category="CUSTOM_NEEDS",
-                        limit=policy["refill_meta_limit"],
-                    )
-                    refill_meta = self._dedupe_semantic(refill_meta)
-                    refill_origin = refill_meta[: policy["refill_origin_cap_per_customer"]]
-                    refill_clean = self.processor.process_news_batch(refill_origin, lang="ko")
-                    candidate_pool = self._dedupe_semantic(candidate_pool + refill_clean)
-                    selected = self._dedupe_semantic(selected + refill_clean)
-                    selected = self._select_for_customer(customer, selected, policy=policy, allow_semantic_fallback=True, stage="E")
-
-                if country_gap > 0:
-                    country_queries = self._build_country_gap_queries(customer, selected, country_gap)
-                    if country_queries:
-                        self.log.info(f"E_COUNTRY_GAP cid={customer_id} round={rr} countries={country_queries}")
-                        refill_queries = self._build_ko_en_query_pairs(country_queries)
-                        if refill_queries:
-                            country_meta = self.news_collector.collect_custom_queries(
-                                refill_queries,
-                                category="CUSTOM_NEEDS",
-                                limit=policy["refill_meta_limit"],
-                            )
-                            country_meta = self._dedupe_semantic(country_meta)
-                            country_origin = country_meta[: policy["refill_origin_cap_per_customer"]]
-                            country_clean = self.processor.process_news_batch(country_origin, lang="ko")
-                            candidate_pool = self._dedupe_semantic(candidate_pool + country_clean)
-                            selected = self._dedupe_semantic(selected + country_clean)
-                            selected = self._select_for_customer(customer, selected, policy=policy, allow_semantic_fallback=True, stage="E")
-
-            selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
-            selected = self._apply_country_floor(
-                selected=selected,
-                fallback_pool=candidate_pool,
-                country_floor=policy.get("country_floor", {}),
-            )
-            selected = self._fill_minimum_articles(selected, candidate_pool, min_articles=min_articles)
-            if ckpt_state is not None and run_id:
-                ckpt_state["customer_stage"][customer_id] = "E"
-                p = self._checkpoint_dir(run_id) / f"final_{customer_id}.json"
-                self._dump_json(p, selected)
-                ckpt_state.setdefault("paths", {}).setdefault("final_candidates", {})[customer_id] = str(p)
-                _flush_state()
-            self.log.info(f"E_DONE cid={customer_id} n={len(selected)}")
-            stage = "F"
+        selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
+        selected = self._apply_country_floor(
+            selected=selected,
+            fallback_pool=candidate_pool,
+            country_floor=policy.get("country_floor", {}),
+        )
+        selected = self._fill_minimum_articles(selected, candidate_pool, min_articles=min_articles)
+        if checkpoint_state is not None and run_id:
+            checkpoint_state["customer_stage"][customer_id] = "E"
+            p = self._checkpoint_dir(run_id) / f"final_{customer_id}.json"
+            self._dump_json(p, selected)
+            checkpoint_state.setdefault("paths", {}).setdefault("final_candidates", {})[customer_id] = str(p)
+        self.log.info(f"E_DONE cid={customer_id} n={len(selected)}")
 
         # Stage F: render & deliver
         self.log.info(f"F_START cid={customer_id}")
@@ -485,7 +348,7 @@ class CLUEOrchestrator:
         raw_research = self.research_collector.collect(target_count=max(12, research_cfg.get("target_per_newsletter", 2) * 4)) if research_enabled else []
         filtered_research = self._select_research_for_customer(customer, raw_research) if raw_research else []
 
-        scan_by_country = self._group_by_country(selected or [])
+        scan_by_country = self._group_by_country(selected)
         ok, errors = self.builder.validate(
             scan_by_country,
             filtered_research,
@@ -498,6 +361,7 @@ class CLUEOrchestrator:
         max_per_country = self.config["news"]["global_scan"].get("max_per_country", 5)
         processed_scan = {c: items[:max_per_country] for c, items in scan_by_country.items()}
         processed_scan = self._enforce_title_summary_consistency(processed_scan)
+        # Practical implication generation is deferred to final stage after article selection.
         processed_scan = self.processor.generate_practical_implications(processed_scan)
 
         max_research = research_cfg.get("max_items", 0)
@@ -537,7 +401,7 @@ class CLUEOrchestrator:
 
         extraction_stats = {}
         for c, items in processed_scan.items():
-            ok_cnt = sum(1 for i in items if i.get("extraction_status") == "success_full")
+            ok_cnt = sum(1 for i in items if i.get("extraction_status") == "success")
             extraction_stats[c] = {"success": ok_cnt}
 
         result = {
@@ -553,28 +417,16 @@ class CLUEOrchestrator:
             "soft_warnings": soft_warnings,
             "template_path": template_path,
             "template_sha256": template_sha256,
-            "coverage": self._evaluate_need_coverage(customer, selected or [], policy=policy, judge_cache={}),
+            "coverage": self._evaluate_need_coverage(customer, selected, policy=policy, judge_cache=coverage_judge_cache),
             "html": html,
         }
 
         self._append_run_log(customer_id, result)
         self._append_audit_log(customer_id, result)
         self.log.info(f"F_DONE cid={customer_id} status={result.get('status')} gate_ok={result.get('gate_ok')}")
-        if ckpt_state is not None:
-            ckpt_state["customer_stage"][customer_id] = "F"
-            _flush_state()
+        if checkpoint_state is not None:
+            checkpoint_state["customer_stage"][customer_id] = "F"
         return result
-
-    def _load_checkpoint_json(self, path: str | None) -> list | None:
-        if not path:
-            return None
-        try:
-            p = Path(path)
-            if not p.exists():
-                return None
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            return None
 
     def _state_path(self) -> Path:
         return Path(self.base_dir, "..", "newsletter_agent_state.json")
@@ -621,12 +473,6 @@ class CLUEOrchestrator:
             "coverage_judge_on_gap_only": True,
             "coverage_judge_max_score": 0.62,
             "coverage_judge_max_items_per_cluster": 24,
-            "needs_mode": True,
-            "needs_target_per_keyword": 50,
-            "global_candidates_cap": 1200,
-            "daily_news_target": 10,
-            "daily_news_flexible_target": True,
-            "google_news_fallback_weight": 0.8,
             "relevance_require_keyword_match": True,
             "relevance_context_only": True,
             "relevance_context_first": True,
@@ -670,12 +516,6 @@ class CLUEOrchestrator:
             defaults["coverage_judge_on_gap_only"] = bool(judge_cfg.get("coverageOnGapOnly", defaults["coverage_judge_on_gap_only"]))
             defaults["coverage_judge_max_score"] = float(judge_cfg.get("coverageMaxScore", defaults["coverage_judge_max_score"]))
             defaults["coverage_judge_max_items_per_cluster"] = int(judge_cfg.get("coverageMaxItemsPerCluster", defaults["coverage_judge_max_items_per_cluster"]))
-            defaults["needs_mode"] = bool(col.get("needsMode", defaults["needs_mode"]))
-            defaults["needs_target_per_keyword"] = int(col.get("needsTargetPerKeyword", defaults["needs_target_per_keyword"]))
-            defaults["global_candidates_cap"] = int(col.get("globalCandidatesCap", defaults["global_candidates_cap"]))
-            defaults["daily_news_target"] = int(col.get("dailyNewsTarget", defaults["daily_news_target"]))
-            defaults["daily_news_flexible_target"] = bool(col.get("dailyNewsFlexibleTarget", defaults["daily_news_flexible_target"]))
-            defaults["google_news_fallback_weight"] = float(col.get("googleNewsFallbackWeight", defaults["google_news_fallback_weight"]))
 
             rel = col.get("relevanceFiltering", {}) if isinstance(col, dict) else {}
             defaults["relevance_require_keyword_match"] = bool(rel.get("requireKeywordMatch", defaults["relevance_require_keyword_match"]))
@@ -818,105 +658,6 @@ class CLUEOrchestrator:
         if fallback_terms:
             return [{"name": "focus", "minArticles": 2, "weight": 1.0, "terms": fallback_terms[:8]}]
         return [{"name": "keywords", "minArticles": 1, "weight": 1.0, "terms": fallback_keywords[:10]}]
-
-    @staticmethod
-    def _need_alias_map() -> dict[str, list[str]]:
-        return {
-            "데이터센터": [
-                "데이터센터",
-                "데이터 센터",
-                "data center",
-                "data-center",
-                "datacenter",
-                "AI data center",
-                "cloud data center",
-                "hyperscale",
-                "server farm",
-            ],
-            "반도체": ["반도체", "semiconductor", "chip", "AI chip", "HBM", "memory"],
-            "AI 인프라": [
-                "AI 인프라",
-                "AI infrastructure",
-                "AI infra",
-                "cloud infrastructure",
-                "compute infrastructure",
-            ],
-        }
-
-    def _expand_need_terms(self, need_terms: list[str]) -> list[str]:
-        alias_map = self._need_alias_map()
-        out: list[str] = []
-        seen: set[str] = set()
-        for raw in need_terms:
-            if not isinstance(raw, str):
-                continue
-            t = raw.strip()
-            if not t:
-                continue
-            t_low = t.lower()
-            if t_low not in seen:
-                out.append(t)
-                seen.add(t_low)
-
-            need_hit = t_low
-            for key, aliases in alias_map.items():
-                key_l = key.lower()
-                if need_hit == key_l or need_hit in [a.lower() for a in aliases]:
-                    for a in aliases:
-                        a_norm = a.strip()
-                        a_low = a_norm.lower()
-                        if a_norm and a_low not in seen:
-                            out.append(a_norm)
-                            seen.add(a_low)
-                    break
-        return out
-
-    def _build_need_terms(self, customer: dict) -> list[str]:
-        prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
-        clusters = self._extract_need_clusters(customer)
-        raw_terms: list[str] = []
-        for c in clusters:
-            raw_terms.extend([x for x in c.get("terms", []) if isinstance(x, str) and x.strip()])
-        raw_terms.extend([x for x in prefs.get("keywords", []) if isinstance(x, str) and x.strip()])
-        raw_terms.extend([x for x in prefs.get("focus_topics", []) if isinstance(x, str) and x.strip()])
-        expanded = self._expand_need_terms(raw_terms)
-        dedup: list[str] = []
-        seen: set[str] = set()
-        for t in expanded:
-            low = t.lower()
-            if low in seen:
-                continue
-            seen.add(low)
-            dedup.append(t)
-        return dedup
-
-    def _attach_need_match_info(self, customer: dict, item: dict) -> tuple[list[str], list[str], int]:
-        clusters = self._extract_need_clusters(customer)
-        cluster_terms: list[tuple[str, list[str]]] = []
-        for c in clusters:
-            expanded = self._expand_need_terms([x for x in c.get("terms", []) if isinstance(x, str) and x.strip()])
-            cluster_terms.append((str(c.get("name", "cluster")), expanded))
-
-        text = f"{item.get('title','')} {item.get('summary','')} {item.get('description','')} {item.get('article_body','')[:600]}".lower()
-        hit_names: list[str] = []
-        hit_aliases: set[str] = set()
-        score = 0
-        for c_name, terms in cluster_terms:
-            count = 0
-            for t in terms:
-                if t and t.lower() in text:
-                    count += 1
-                    hit_aliases.add(t)
-            if count > 0:
-                hit_names.append(c_name)
-                score += count
-
-        # cluster/alias 매칭 결과 저장
-        item["matched_needs"] = hit_names
-        item["matched_aliases"] = sorted(hit_aliases)
-        item["need_overlap_count"] = len(hit_names)
-        item["need_match_score"] = score
-        return hit_names, sorted(hit_aliases), score
 
     @staticmethod
     def _cluster_term_hits(article: dict, term: str) -> int:
@@ -1485,14 +1226,13 @@ class CLUEOrchestrator:
         cluster_terms = []
         for c in clusters:
             cluster_terms.extend([x for x in c.get("terms", []) if isinstance(x, str) and x.strip()])
-        keywords = [k.lower() for k in prefs.get("keywords", []) if isinstance(k, str)]
+        keywords = [k.lower() for k in prefs.get("keywords", [])]
         keywords = sorted(set([k.lower() for k in keywords + [x.lower() for x in cluster_terms]]))
         watch_companies = [c.lower() for c in prefs.get("watch_companies", []) if isinstance(c, str)]
         cluster_specs = []
         for c in clusters:
             c_name = str(c.get("name", "cluster"))
-            c_terms = self._expand_need_terms([x for x in c.get("terms", []) if isinstance(x, str) and x.strip()])
-            c_terms = [x.lower() for x in c_terms if isinstance(x, str) and x.strip()]
+            c_terms = [x.lower() for x in c.get("terms", []) if isinstance(x, str) and x.strip()]
             c_min = max(1, int(c.get("minArticles", 0) or 1))
             c_weight = float(c.get("weight", 1.0) or 1.0)
             cluster_specs.append((c_name, c_terms, c_min, c_weight))
@@ -1542,27 +1282,12 @@ class CLUEOrchestrator:
             company_hits = sum(1 for c in watch_companies if c and c in text)
             a["_customer_score"] = keyword_score + (company_hits * 3)
             cluster_scores = {}
-            hit_names = []
-            hit_aliases: set[str] = set()
-            need_hit_count = 0
             for c_name, c_terms, _, c_weight in cluster_specs:
                 s = 0
                 for t in c_terms:
-                    if not t:
-                        continue
-                    if t in text:
-                        s += text.count(t)
-                        hit_aliases.add(t)
-                if s > 0:
-                    hit_names.append(c_name)
-                    need_hit_count += 1
+                    s += text.count(t)
                 cluster_scores[c_name] = s * c_weight
             a["_cluster_scores"] = cluster_scores
-            if hit_names:
-                a["matched_needs"] = hit_names
-                a["need_overlap_count"] = need_hit_count
-                a["matched_aliases"] = sorted(hit_aliases)
-                a["need_match_score"] = sum(cluster_scores.values())
 
         # score desc + recency
         scoped.sort(
@@ -1625,79 +1350,6 @@ class CLUEOrchestrator:
                 break
 
         return self._dedupe_similar_items(selected, text_key="title")
-
-    def _rebalance_by_need_overlap(
-        self,
-        customer: dict,
-        items: list[dict],
-        policy: Optional[dict] = None,
-        target: int = 10,
-    ) -> list[dict]:
-        if not items:
-            return []
-
-        policy = policy or {}
-        target = int(target or 0)
-        if target <= 0:
-            return list(items)
-
-        flexible = bool(policy.get("daily_news_flexible_target", True))
-        if len(items) <= target:
-            return list(items)
-
-        clusters = self._extract_need_clusters(customer)
-        if not clusters:
-            return items[:target]
-
-        buckets: dict[str, list[dict]] = {str(c.get("name", "cluster")): [] for c in clusters}
-        for it in items:
-            names = [x for x in it.get("matched_needs", []) if isinstance(x, str)]
-            if not names:
-                # no-match article는 보조 그룹으로 간주
-                continue
-            for n in names:
-                if n in buckets:
-                    buckets[n].append(it)
-
-        used: set[int] = set()
-        selected: list[dict] = []
-
-        # 라운드로빈 배분
-        max_round = max((len(v) for v in buckets.values()), default=0)
-        for _ in range(max_round):
-            for n, bucket in buckets.items():
-                if len(selected) >= target:
-                    break
-                while bucket and len(selected) < target:
-                    cand = bucket.pop(0)
-                    key = id(cand)
-                    if key in used:
-                        continue
-                    selected.append(cand)
-                    used.add(key)
-                    break
-            if len(selected) >= target:
-                break
-
-        # 미충분 시 overlap_score 순 보강
-        if len(selected) < target:
-            leftovers = [it for it in items if id(it) not in used]
-            leftovers.sort(
-                key=lambda x: (
-                    x.get("_customer_score", 0),
-                    x.get("_need_match_score", x.get("need_match_score", 0)),
-                    x.get("published_at", ""),
-                ),
-                reverse=True,
-            )
-            for it in leftovers:
-                if len(selected) >= target:
-                    break
-                selected.append(it)
-
-        if not flexible and len(selected) > target:
-            return selected[:target]
-        return selected
 
     def _semantic_need_signal(
         self,
