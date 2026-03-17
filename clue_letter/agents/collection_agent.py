@@ -8,7 +8,10 @@ from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Callable
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 from pathlib import Path
+import ssl
 
 from .models import CollectedArticle, UserProfile
 from .utils import ensure_dir, safe_filename
@@ -251,7 +254,7 @@ class CollectionAgent:
         self.global_fetch_time_cap = float(global_fetch_time_cap) if global_fetch_time_cap is not None else 0.0
         self.source_fail_rate_circuit = float(source_fail_rate_circuit) if source_fail_rate_circuit is not None else None
         self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
-        self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0, "filtered_stale": 0, "fallback_used": 0, "short_circuit": 0}
+        self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0, "filtered_stale": 0, "filtered_unreachable": 0, "fallback_used": 0, "short_circuit": 0}
 
     def _log(self, msg: str) -> None:
         if self.trace_enabled:
@@ -346,6 +349,34 @@ class CollectionAgent:
             dt = dt.astimezone(now.tzinfo)
         age_h = (now - dt).total_seconds() / 3600.0
         return max(0.0, 1.0 - (age_h / 24.0))
+
+    def _is_url_accessible(self, url: str, timeout: float = 8.0, read_bytes: int = 2048) -> bool:
+        if not _is_candidate_news_url(url):
+            return False
+
+        headers = {"User-Agent": "Mozilla/5.0"}
+        for method in ("HEAD", "GET"):
+            try:
+                req = Request(url, method=method, headers=headers)
+                with urlopen(req, timeout=timeout, context=ssl._create_unverified_context()) as response:
+                    status = getattr(response, "status", 200)
+                    if status >= 400:
+                        continue
+                    if method == "GET":
+                        if not response.read(read_bytes):
+                            continue
+                    return True
+            except HTTPError as e:
+                if method == "HEAD" and e.code in {403, 405}:
+                    continue
+                if method == "HEAD" and 400 <= e.code < 500:
+                    continue
+            except URLError:
+                continue
+            except Exception:
+                return False
+        return False
+
 
     def _collect_need_term_index(self, needs_payload: list[dict]) -> list[str]:
         terms: list[str] = []
@@ -498,6 +529,11 @@ class CollectionAgent:
                     return None
                 url = resolved
                 raw["url"] = resolved
+
+        if not self._is_url_accessible(url):
+            self.stage_counters["filtered_unreachable"] += 1
+            self._log(f"[collect] unreachable url={url[:90]} type={source_type}")
+            return None
 
         self.stage_counters["fetch_calls"] += 1
         self._log(f"[collect] fetch url={url[:90]} type={source_type}")
@@ -800,7 +836,7 @@ class CollectionAgent:
         total_candidates = candidates
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
 
-        self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
+        self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
         self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)
 
         final_selected = selected
@@ -869,6 +905,7 @@ class CollectionAgent:
             "coverage_ok": (len(daily) >= min(min_count, self.daily_news_target)) if daily else False,
             "short_count": self.stage_counters.get("short", 0),
             "fail_count": self.stage_counters.get("fail", 0),
+            "filtered_unreachable_count": self.stage_counters.get("filtered_unreachable", 0),
         }
         metric_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
 
