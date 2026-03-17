@@ -276,6 +276,68 @@ class CollectionAgent:
         out = translate_ko(txt)
         return out[:max_chars] if out else txt[:max_chars]
 
+    def load_daily_news(self, user: UserProfile, issue: str | None = None) -> list[CollectedArticle]:
+        """오늘/특정 일자의 daily_news를 파일로부터 다시 로드한다."""
+        dirs = self._user_dirs(user)
+        if issue is None:
+            issue = datetime.now().strftime("%Y-%m-%d")
+        path = dirs["daily"] / f"{issue}.jsonl"
+        if not path.exists():
+            return []
+
+        items: list[CollectedArticle] = []
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            return []
+
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+
+            record_link = str(row.get("record_link", "")).strip()
+            # record_link may contain pre-composed "url|title"
+            url = record_link.split("|", 1)[0].strip()
+            matched_needs = row.get("matched_needs")
+            if not isinstance(matched_needs, list):
+                matched_needs = []
+            matched_need_ids = row.get("matched_need_ids")
+            if not isinstance(matched_need_ids, list):
+                matched_need_ids = []
+
+            items.append(
+                CollectedArticle(
+                    title=str(row.get("title") or ""),
+                    url=url,
+                    country=str(row.get("country") or "GLOBAL"),
+                    summary=str(row.get("summary") or ""),
+                    body="",
+                    source=str(row.get("source") or "http"),
+                    source_type=str(row.get("source_type") or "direct"),
+                    need_category=row.get("need_category") or row.get("need") or None,
+                    matched_need_ids=matched_need_ids,
+                    matched_needs=matched_needs,
+                    matched_aliases=row.get("matched_aliases") if isinstance(row.get("matched_aliases"), list) else [],
+                    query=str(row.get("query") or ""),
+                    published_at=str(row.get("published_at") or ""),
+                    extraction_status=str(row.get("extraction_status") or "success_full"),
+                    relevance_score=float(row.get("need_match_score") or 0.0),
+                    need_match_score=float(row.get("need_match_score") or 0.0),
+                    source_score=float(row.get("source_score") or 1.0),
+                    relevance_note=str(row.get("relevance_note") or ""),
+                    collected_at=str(row.get("collected_at") or datetime.now().isoformat()),
+                    recency_score=float(row.get("recency_score") or 0.0),
+                    body_len=int(row.get("body_len") or 0),
+                )
+            )
+        return items
+
+
     def _extract_country(self, text: str, title: str) -> str:
         t = f"{title} {text}".lower()
         country_map = {

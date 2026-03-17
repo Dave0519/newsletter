@@ -35,6 +35,7 @@ class SuperAgent:
 
         if use_browser_relay:
             adapter = BrowserRelayAdapter()
+            self.adapter = adapter
             core_urls = self._load_core_feed_urls()
 
             def _core_search(q: str, limit: int = 25):
@@ -60,6 +61,7 @@ class SuperAgent:
             self.collection_mode_reason = "브라우저 릴레이 사용"
         else:
             adapter = HttpNewsAdapter()
+            self.adapter = adapter
             core_urls = self._load_core_feed_urls()
 
             def _core_search(q: str, limit: int = 25):
@@ -84,7 +86,7 @@ class SuperAgent:
             self.collection_mode = "http"
             self.collection_mode_reason = "브라우저 미사용(HTTP) 모드"
 
-        self.writer = WritingAgent(template_path=self.template_path, log_dir=self.logger_root)
+        self.writer = WritingAgent(template_path=self.template_path, log_dir=self.logger_root, fetch_body=adapter.fetch)
         self.delivery = DeliveryManager()
 
     def _log_collect_context(self, user: UserProfile):
@@ -172,8 +174,12 @@ class SuperAgent:
 
         t0 = time.perf_counter()
         self._log_collect_context(user)
-        articles = self.collection.collect(user=user, min_count=min_count)
+        collected = self.collection.collect(user=user, min_count=min_count)
         t1 = time.perf_counter()
+        # writing 단계는 수집된 daily letter 파일을 user 단위로 다시 읽어 작성한다.
+        articles = self.collection.load_daily_news(user=user)
+        if not articles:
+            articles = collected
         issue_no = self._next_issue_no(user.user_code)
         html_path = self.writer.build_and_save(user=user, collected=articles, issue_number=issue_no)
         t2 = time.perf_counter()

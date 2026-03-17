@@ -4,11 +4,12 @@ import hashlib
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Callable
+import re
 
 from .models import CollectedArticle, NewsletterEntry, UserProfile
 from .utils import ensure_dir
-from .llm_text_utils import practical_ko, extract_hashtags
+from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, rewrite_title
 
 
 def _load_template(template_path: Path) -> str:
@@ -38,9 +39,58 @@ def _safe_esc(s: str) -> str:
 class WritingAgent:
     """수집 데이터 -> 공식 템플릿 변환 에이전트."""
 
-    def __init__(self, template_path: Path, log_dir: Path):
+    def __init__(self, template_path: Path, log_dir: Path, fetch_body: Callable[[str], str] | None = None):
         self.template_path = Path(template_path)
         self.log_dir = Path(log_dir)
+        self.fetch_body = fetch_body
+
+    def _clean_title(self, title: str) -> str:
+        t = (title or "").strip()
+        if not t:
+            return t
+
+        # source suffix 제거: e.g. "title | Source" / "title - Source"
+        for sep in [" | ", " - ", " – ", " — ", " : "]:
+            if sep in t:
+                left, right = t.rsplit(sep, 1)
+                # source 후보에는 보통 회사명/매체명이 오므로 길고 짧은 경우만 제거
+                if right and 2 <= len(right) <= 40:
+                    t = left.strip()
+                    break
+        # 괄호/브라켓 뒤쪽 부가 정보 절단
+        for pat in [r"\s*\(.*\)$", r"\s*\[.*\]$"]:
+            t = re.sub(pat, "", t).strip()
+        return t
+
+    def _extract_needs(self, entries: list[NewsletterEntry]) -> list[str]:
+        counts: Counter[str] = Counter()
+        for e in entries:
+            if e.need_category:
+                counts[e.need_category] += 1
+        if not counts:
+            return []
+        return [n for n, _ in counts.most_common(5)]
+
+    def _build_need_hashtags(self, articles: list[CollectedArticle], max_n: int = 5) -> str:
+        counts: Counter[str] = Counter()
+        for a in articles:
+            if a.need_category:
+                counts[a.need_category] += 1
+        if not counts:
+            texts = [x for a in articles for x in (a.title, a.summary) if x]
+            return extract_hashtags(texts, top_n=max_n)
+
+        top_needs = [n for n, _ in counts.most_common(max_n)]
+        return " ".join([f"#{x}" for x in top_needs])
+
+    def _load_remote_body(self, url: str) -> str:
+        if not self.fetch_body or not url:
+            return ""
+        try:
+            text = self.fetch_body(url)
+            return text or ""
+        except Exception:
+            return ""
 
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> list[str]:
         # Summary 카테고리 요약: 토픽/제목 기반 5개 내외 리스트
@@ -61,18 +111,24 @@ class WritingAgent:
         return countries
 
     def _derive_entry(self, c: CollectedArticle) -> NewsletterEntry:
-        practical = practical_ko(c.title, c.summary)
+        body = self._load_remote_body(c.url)
+        raw_title = self._clean_title(c.title)
+
+        rewritten_title = rewrite_title(raw_title, body or c.summary, max_chars=75)
+        title = rewritten_title if rewritten_title else raw_title
+
+        # 원문 본문 기반 4~5줄 요약을 DESCRIPTION으로 사용
+        description = summarize_ko(body or c.summary, title=title, sentence_count=5)
+        if not description:
+            description = c.summary or "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
+
+        practical = practical_ko(title, description, max_sentences=5)
         if not practical:
-            practical = c.summary
-        # 3~5문장 보정
-        lines = [x.strip() for x in practical.replace("\n", " ").split(".") if x.strip()]
-        practical = ". ".join(lines[:5]).strip()
-        if practical and not practical.endswith("."):
-            practical += "."
+            practical = description
 
         return NewsletterEntry(
-            title=c.title,
-            summary=c.summary,
+            title=title,
+            summary=description,
             url=c.url,
             country=c.country,
             practical_implication=practical,
@@ -91,13 +147,20 @@ class WritingAgent:
         template = template.replace("{{ISSUE_NUMBER}}", str(issue_number or 0).zfill(3))
         template = template.replace("{{SERIAL_NUMBER}}", user.user_code)
 
-        hashtags = extract_hashtags([x for e in entries for x in (e.title, e.summary)], top_n=6)
+        # header tags: use top needs directly from collected list
+        # if insufficient needs, fallback to text keyword extraction
+        need_tags = self._build_need_hashtags(collected)
+        template = template.replace("{{NEEDS_HASHTAGS}}", need_tags)
+
+        hashtags = self._build_need_hashtags(collected, max_n=6)
+        if not hashtags:
+            hashtags = extract_hashtags([x for e in entries for x in (e.title, e.summary)], top_n=6)
         template = template.replace("{{NEEDS_HASHTAGS}}", hashtags)
 
-        # Summary block (상단)
+        # summary section
         summary_lines = "<br/>".join(self._build_summary_points(entries))
         summary_block = (
-            '<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#FFFFFF;line-height:1.7">'
+            f'<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#FFFFFF;line-height:1.7">' +
             f"요약: {summary_lines}</p>"
         )
         marker = "{{/ARTICLES}}"
@@ -124,9 +187,19 @@ class WritingAgent:
             rows.append(row)
 
         template = _replace_block(template, "{{#COUNTRIES}}", "{{/COUNTRIES}}", "\n".join(rows))
+
+        # placeholders that may be introduced later
+        template = template.replace("{{CORE_DESCRIPTION}}", "오늘의 핵심 이슈를 니즈 기준으로 정리했습니다.")
+        template = template.replace("{{GLOBAL_SCAN_INTRO}}", "")
         return template
 
-    def build_and_save(self, user: UserProfile, collected: list[CollectedArticle], issue_number: int | None = None, out_root: Path | None = None) -> Path:
+    def build_and_save(
+        self,
+        user: UserProfile,
+        collected: list[CollectedArticle],
+        issue_number: int | None = None,
+        out_root: Path | None = None,
+    ) -> Path:
         html = self.compose_html(user=user, collected=collected, issue_number=issue_number)
 
         out_root = Path(out_root or (self.log_dir / user.name.replace(" ", "_") / "outputs"))
