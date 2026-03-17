@@ -392,6 +392,22 @@ class CollectionAgent:
             "published_at": (getattr(hit, "published_at", "") or "").strip(),
         }
 
+    def _build_time_prefixed_query(self, q: str, source_type: str, max_days: int) -> str:
+        q = (q or "").strip()
+        if not q or source_type != "google":
+            return q
+
+        # Google News 레벨에서 검색 단계부터 최근성 제한을 적용해 불필요 후보를 감소시킵니다.
+        try:
+            d = max(int(max_days), 1)
+            if d <= 1:
+                return f"{q} when:1d" if "when:" not in q.lower() else q
+            if d <= 7:
+                return f"{q} when:{d}d" if "when:" not in q.lower() else q
+        except Exception:
+            pass
+        return q
+
     def _collect_need_hits(
         self,
         text: str,
@@ -669,18 +685,24 @@ class CollectionAgent:
             self.stage_counters["search_calls"] += 1
             preselects = []
             for need_id, q in pairs_in:
-                self._log(f"[collect] stage={source_type} need={need_id} query={q}")
+                q_effective = self._build_time_prefixed_query(q, source_type, max_days)
+                self._log(f"[collect] stage={source_type} need={need_id} query={q_effective}")
                 try:
-                    hits = search_fn(q, limit=max_hits)
+                    hits = search_fn(q_effective, limit=max_hits)
                 except Exception as e:
-                    self._log(f"[collect] stage={source_type} search_error={type(e).__name__} query={q}")
+                    self._log(f"[collect] stage={source_type} search_error={type(e).__name__} query={q_effective}")
                     hits = []
 
                 per_need_added = 0
+                seen_urls = set()
                 for hit in hits[: int(self.global_candidates_cap / max(1, len(needs_payload)) + 4)]:
                     raw = self._normalize_hit(hit)
-                    if not raw["url"] or not _is_candidate_news_url(raw["url"]) or raw["url"] in collected_urls:
+                    raw_url = (raw["url"] or "").strip()
+                    if not raw_url or raw_url in collected_urls or raw_url in seen_urls:
                         continue
+                    if not _is_candidate_news_url(raw_url):
+                        continue
+                    seen_urls.add(raw_url)
                     if not _is_within_last_days(raw.get("published_at") or "", max_days, now):
                         self.stage_counters["filtered_stale"] += 1
                         continue
