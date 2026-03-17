@@ -16,15 +16,34 @@ class NewsCollector:
         self.freshness_hours = freshness_hours
         self.forbidden_domains = {self._normalize_domain(d) for d in (forbidden_domains or set()) if d}
 
-    def collect_all(self, per_category_limit: int = 30) -> list[dict]:
+    def collect_all(
+        self,
+        per_category_limit: int = 30,
+        *,
+        needs_mode: bool = False,
+        needs_terms: list[str] | None = None,
+        needs_target_per_keyword: int = 50,
+        global_candidates_cap: int | None = None,
+    ) -> list[dict]:
+        """Collect candidate articles from RSS/google sources.
+
+        Args:
+            needs_mode: when enabled, apply per-need target cap before downstream pooling.
+            needs_terms: user needs/aliases. If provided and needs_mode=True, only keep matched items.
+            needs_target_per_keyword: per-needs target before global cap.
+            global_candidates_cap: safety cap for all collected candidates.
+        """
+        need_terms = self._normalize_need_terms(needs_terms or [])
         pool = []
         categories = self.sources_cfg.get("categories", {})
+
         for category, cfg in categories.items():
             items = []
             tasks = []
             with ThreadPoolExecutor(max_workers=10) as ex:
                 for url in cfg.get("rss", []):
                     tasks.append(ex.submit(self._fetch_rss, url, category))
+                # google_news는 2차 채널로 취급. needs_mode일 때도 함께 수집하되, 추후 랭킹/필터에서 우선순위 낮춤
                 for q in cfg.get("google_news_queries", []):
                     tasks.append(ex.submit(self._fetch_google_news, q, category))
 
@@ -34,8 +53,24 @@ class NewsCollector:
                     except Exception:
                         continue
 
-            ranked = self._rank_and_limit(items, cfg.get("keywords", []), per_category_limit)
+            # 카테고리 내 상한은 완화해 수집 후 needs-target로 재조정. 너무 무겁지 않게 cap는 policy에서만 강제.
+            rank_limit = max(int(per_category_limit), int(needs_target_per_keyword) if need_terms else int(per_category_limit))
+            if global_candidates_cap:
+                rank_limit = min(rank_limit, int(global_candidates_cap))
+
+            ranked = self._rank_and_limit(
+                items,
+                cfg.get("keywords", []),
+                rank_limit,
+                need_terms=need_terms,
+                needs_mode=bool(needs_mode),
+                needs_target_per_keyword=int(needs_target_per_keyword),
+            )
             pool.extend(ranked)
+
+        # 전체 소스 공용 cap
+        if global_candidates_cap:
+            pool = pool[: int(global_candidates_cap)]
         return self._dedup_pool(pool)
 
     def collect_custom_queries(self, queries: list[str], category: str = "AI_TECH", limit: int = 40) -> list[dict]:
@@ -227,7 +262,41 @@ class NewsCollector:
             return 1.0
         return v
 
-    def _rank_and_limit(self, articles: list[dict], keywords: list[str], limit: int) -> list[dict]:
+    def _normalize_need_terms(self, terms: list[str]) -> list[str]:
+        normalized = []
+        seen = set()
+        for raw in terms or []:
+            if not isinstance(raw, str):
+                continue
+            t = raw.strip().lower()
+            if not t:
+                continue
+            if t in seen:
+                continue
+            seen.add(t)
+            normalized.append(t)
+        return normalized
+
+    def _normalize_candidates_for_term(self, text: str, terms: list[str]) -> dict[str, bool]:
+        lower = (text or "").lower()
+        return {t: (t in lower) for t in terms}
+
+    def _pick_needs_for_item(self, item: dict, need_terms: list[str]) -> list[str]:
+        if not need_terms:
+            return []
+        text = f"{item.get('title','')} {item.get('summary','')}"
+        hits = self._normalize_candidates_for_term(text, need_terms)
+        return [t for t, ok in hits.items() if ok]
+
+    def _rank_and_limit(
+        self,
+        articles: list[dict],
+        keywords: list[str],
+        limit: int,
+        need_terms: list[str] | None = None,
+        needs_mode: bool = False,
+        needs_target_per_keyword: int = 50,
+    ) -> list[dict]:
         seen = set()
         uniq = []
         for a in articles:
@@ -249,7 +318,43 @@ class NewsCollector:
             a["_domain"] = domain
             uniq.append(a)
 
+        need_terms = self._normalize_need_terms(need_terms or [])
         uniq.sort(key=lambda x: (x.get("_score", 0), x.get("published_at", "")), reverse=True)
+
+        if needs_mode and need_terms:
+            # need_mode: needs별 최대치 기반 선별, 2차 소스(google_news)는 낮은 점수로 자동 하향
+            kept = []
+            used_per_need: dict[str, int] = {t: 0 for t in need_terms}
+            total_cap = int(max(1, int(limit)))
+
+            for a in uniq:
+                if len(kept) >= total_cap:
+                    break
+
+                if a.get("source") == "google_news":
+                    # 구글뉴스는 참조 2순위. 필요 시 soft penalty로 반영
+                    pass
+
+                hits = self._pick_needs_for_item(a, need_terms)
+                if not hits:
+                    continue
+
+                for h in hits:
+                    if used_per_need.get(h, 0) < int(needs_target_per_keyword):
+                        kept.append(a)
+                        used_per_need[h] = used_per_need[h] + 1
+                        break
+
+            # 보정: needs 매칭이 너무 적을 경우, 매칭되지 않은 상위 항목도 제한적으로 허용
+            if len(kept) < limit:
+                for a in uniq:
+                    if len(kept) >= int(limit):
+                        break
+                    if a in kept:
+                        continue
+                    kept.append(a)
+
+            uniq = kept[:limit]
 
         # 편중 방지: 단일 도메인 상한
         max_share = self._domain_max_share()
