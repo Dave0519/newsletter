@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import json
 import re
+import html
 import subprocess
 import time
 from dataclasses import dataclass
 from urllib.parse import quote_plus, unquote, urlparse, parse_qs
-from typing import Any, Optional
+
+try:
+    import requests
+except Exception:
+    requests = None
+try:
+    from bs4 import BeautifulSoup
+except Exception:
+    BeautifulSoup = None
 
 
 @dataclass
@@ -15,9 +24,10 @@ class SearchHit:
     url: str
     snippet: str = ""
     source: str = "browser"
+    published_at: str = ""
 
 
-def _run_browser_cmd(*args: str, timeout_ms: int = 40000) -> str:
+def _run_browser_cmd(*args: str, timeout_ms: int = 90000) -> str:
     cmd = ["openclaw", "browser", *args]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_ms / 1000)
@@ -75,13 +85,35 @@ class BrowserRelayAdapter:
         self.open_timeout_ms = open_timeout_ms
         self._last_target: Optional[str] = None
         self._started = False
-        self._ensure_start()
+        # 피드 원문은 쿼리별 재사용을 위해 캐시(동일 실행 내 반복 오픈 최소화)
+        self._rss_cache: dict[str, tuple[float, str]] = {}
+        self._rss_cache_ttl = 180.0
 
     def _ensure_start(self):
         if self._started:
             return
-        _run_browser_cmd("start")
-        self._started = True
+
+        # start may take longer than default timeout on first launch; probe status first,
+        # then launch with a generous timeout and recover from transient waits.
+        try:
+            _run_browser_cmd("status", timeout_ms=5000)
+            self._started = True
+            return
+        except Exception:
+            pass
+
+        try:
+            _run_browser_cmd("start", timeout_ms=180000)
+            self._started = True
+            return
+        except Exception as e:
+            # fallback: if start timed out but gateway/browser booted, continue
+            try:
+                _run_browser_cmd("status", timeout_ms=10000)
+                self._started = True
+                return
+            except Exception:
+                raise
 
     def _refresh_last_target(self) -> Optional[str]:
         try:
@@ -122,6 +154,7 @@ class BrowserRelayAdapter:
                 pass
 
     def _run_with_target(self, script: str, context: str, max_retry: int = 2, eval_timeout_ms: int = 18000) -> Any:
+        self._ensure_start()
         if not self._last_target:
             self._refresh_last_target()
 
@@ -175,6 +208,7 @@ class BrowserRelayAdapter:
         raise RuntimeError(f"browser evaluate failed for {context}")
 
     def _open(self, url: str) -> str:
+        self._ensure_start()
         out = _run_browser_cmd("open", url, "--json", timeout_ms=self.open_timeout_ms)
         data = _json_load_last(out)
         if isinstance(data, dict):
@@ -183,6 +217,16 @@ class BrowserRelayAdapter:
                 self._last_target = tid
                 self._wait_load(tid, "domcontentloaded", timeout_ms=8000)
         return out
+
+    def _is_candidate_article_url(self, url: str) -> bool:
+        if not url:
+            return False
+        u = (url or "").strip().lower()
+        if not u.startswith(("http://", "https://")):
+            return False
+        if u == "#" or u.startswith("javascript:") or u.startswith("mailto:") or u.startswith("tel:"):
+            return False
+        return True
 
     def search(self, query: str, limit: int = 20, min_text_len: int = 12) -> list[SearchHit]:
         q = quote_plus(query)
@@ -224,24 +268,6 @@ class BrowserRelayAdapter:
 
 
 
-def _parse_feed_datetime(raw: str):
-    raw = (raw or '').strip()
-    if not raw:
-        return None
-    s = raw.strip()
-    for fmt in ["%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S"]:
-        try:
-            dt = datetime.strptime(s, fmt)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
-        except Exception:
-            pass
-    # XML feed may include microseconds or no tz
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except Exception:
-        return None
 
     def resolve_google_news_url(self, url: str) -> str | None:
         """Google News RSS 링크(news.google.com/rss/articles/...)를 원문 URL로 변환."""
@@ -276,13 +302,47 @@ def _parse_feed_datetime(raw: str):
     def _extract_google_titles(self, text: str, query: str, limit: int = 50) -> list[dict[str, str]]:
         if not text:
             return []
+
+        def _clean_xml(v: str) -> str:
+            return re.sub(r"<!\[CDATA\[(.*?)\]>", lambda m: m.group(1), v or "", flags=re.S)
+
         out: list[dict[str, str]] = []
         query_low = (query or "").lower()
+        tokens = [x for x in re.split(r"\s+", query_low) if x and len(x) >= 2]
 
-        # RSS item parser (XML)
-        items = re.findall(r"<item>(.*?)</item>", text, flags=re.S | re.I)
-        if items:
-            for item in items:
+        import xml.etree.ElementTree as ET
+        root = None
+        try:
+            root = ET.fromstring(text)
+        except Exception:
+            root = None
+
+        if root is not None:
+            for item in root.findall(".//item")[: limit * 5]:
+                title = _clean_xml((item.findtext("title") or ""))
+                link = _clean_xml((item.findtext("link") or ""))
+                desc = _clean_xml((item.findtext("description") or ""))
+                pub = _clean_xml((item.findtext("pubDate") or item.findtext("{http://purl.org/dc/elements/1.1/}date") or ""))
+                if not title or not link:
+                    continue
+                if not self._is_candidate_article_url(link):
+                    continue
+
+                blob = f"{title} {desc}".lower()
+                if query_low and query_low not in blob and not any(tok in blob for tok in tokens):
+                    continue
+
+                out.append({
+                    "title": re.sub(r"\s+", " ", title).strip(),
+                    "url": re.sub(r"\s+", " ", link).strip(),
+                    "snippet": re.sub(r"\s+", " ", desc).strip(),
+                    "source": "rss",
+                    "published_at": re.sub(r"\s+", " ", pub).strip(),
+                })
+
+        if not out:
+            # fallback regex parser
+            for item in re.findall(r"<item>(.*?)</item>", text, flags=re.S | re.I):
                 title = re.search(r"<title[^>]*>(.*?)</title>", item, flags=re.S | re.I)
                 link = re.search(r"<link[^>]*>(.*?)</link>", item, flags=re.S | re.I)
                 desc = re.search(r"<description[^>]*>(.*?)</description>", item, flags=re.S | re.I)
@@ -290,32 +350,24 @@ def _parse_feed_datetime(raw: str):
                 dt = re.search(r"<dc:date[^>]*>(.*?)</dc:date>", item, flags=re.S | re.I)
                 if not title or not link:
                     continue
-                t = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", title.group(1))).strip()
-                l = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", link.group(1))).strip()
-                d = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", (desc.group(1) if desc else ""))).strip()
-                p = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", (pub.group(1) if pub else (dt.group(1) if dt else "")))).strip()
-                blob = f"{t} {d}".lower()
-                if query and query_low not in blob and all(k not in blob for k in query_low.split()):
-                    continue
-                if l:
-                    out.append({"title": t, "url": l, "snippet": d, "source": "rss", "published_at": p})
-
-        # fallback if xml parse fails
-        if not out:
-            for link, txt in re.findall(r"<a[^>]+href=['\"\']([^'\"]+)['\"\'][^>]*>(.*?)</a>", text, flags=re.S | re.I):
-                t = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", txt)).strip()
-                l = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", link)).strip()
+                t = _clean_xml(title.group(1))
+                l = _clean_xml(link.group(1))
+                d = _clean_xml(desc.group(1) if desc else "")
+                p = _clean_xml(pub.group(1) if pub else (dt.group(1) if dt else ""))
                 if not t or not l:
                     continue
-                if query and query_low not in t.lower() and query_low not in l.lower():
+                if not self._is_candidate_article_url(l):
                     continue
-                out.append({"title": t, "url": l, "snippet": "", "source": "rss"})
+                blob = f"{t} {d}".lower()
+                if query_low and query_low not in blob and not any(tok in blob for tok in tokens):
+                    continue
+                out.append({"title": re.sub(r"\s+", " ", t).strip(), "url": re.sub(r"\s+", " ", l).strip(), "snippet": re.sub(r"\s+", " ", d).strip(), "source": "rss", "published_at": re.sub(r"\s+", " ", p).strip()})
 
         uniq: list[dict[str, str]] = []
         seen = set()
         for item in out[: limit * 4]:
-            u = item.get("url")
-            if not u or not isinstance(u, str) or u in seen:
+            u = (item.get("url") or "").strip()
+            if not u or u in seen:
                 continue
             seen.add(u)
             uniq.append(item)
@@ -324,48 +376,22 @@ def _parse_feed_datetime(raw: str):
         return uniq
 
 
-
-    def search_google_news(self, query: str, limit: int = 20) -> list[SearchHit]:
-        q = (query or "").strip()
-        if not q:
-            return []
-        url = f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=ko&gl=KR&ceid=KR:ko"
-        try:
-            self._open(url)
-        except Exception:
-            return []
-
-        try:
-            data = self._run_with_target('() => ({text:(document.documentElement? document.documentElement.innerHTML:"" )})', context="gnews", max_retry=1, eval_timeout_ms=12000)
-        except Exception:
-            return []
-
-        raw = data.get("result", "") if isinstance(data, dict) else ""
-        if not isinstance(raw, str):
-            return []
-
-        hits = self._extract_google_titles(raw, q, limit=limit*2)
-        return [SearchHit(title=h["title"], url=h["url"], snippet=h["snippet"], source="google-news") for h in hits][:limit]
-
-    def search_core_rss(self, query: str, feed_urls: list[str], limit: int = 20) -> list[SearchHit]:
+    def search_core_rss(self, query: str, feed_urls: list[str], limit: int = 20, per_feed_limit: int = 80, total_limit: int | None = None) -> list[SearchHit]:
         q = (query or "").strip()
         if not q or not feed_urls:
             return []
 
         all_hits: list[dict[str, str]] = []
+        if total_limit is None:
+            total_limit = limit * 5
         for feed_url in feed_urls[:20]:
             try:
-                self._open(feed_url)
+                raw = self._fetch_feed_raw(feed_url, cache_ttl=self._rss_cache_ttl)
             except Exception:
                 continue
-            try:
-                data = self._run_with_target('() => ({text:(document.documentElement? document.documentElement.innerHTML:"" )})', context="core-rss", max_retry=1, eval_timeout_ms=12000)
-            except Exception:
+            if not isinstance(raw, str) or not raw:
                 continue
-            raw = data.get("result", "") if isinstance(data, dict) else ""
-            if not isinstance(raw, str):
-                continue
-            all_hits.extend(self._extract_google_titles(raw, q, limit=limit*3))
+            all_hits.extend(self._extract_google_titles(raw, q, limit=per_feed_limit))
 
         uniq: list[dict[str, str]] = []
         seen=set()
@@ -375,9 +401,9 @@ def _parse_feed_datetime(raw: str):
                 continue
             seen.add(url)
             uniq.append(h)
-            if len(uniq)>=limit:
+            if len(uniq)>=total_limit:
                 break
-        return [SearchHit(title=h["title"], url=h["url"], snippet=h["snippet"], source="core-rss") for h in uniq]
+        return [SearchHit(title=h["title"], url=h["url"], snippet=h["snippet"], source="core-rss", published_at=h.get("published_at", "")) for h in uniq[:total_limit]]
 
 
     def fetch(self, url: str) -> str:
@@ -436,3 +462,173 @@ def _parse_feed_datetime(raw: str):
         if isinstance(result, str):
             return re.sub(r"\s+", " ", result).strip()
         return ""
+
+
+class HttpNewsAdapter:
+    """브라우저 없이 HTTP/requests 기반 수집용 경량 어댑터."""
+
+    def __init__(self, timeout_ms: int = 12000, open_timeout_ms: int | None = None):
+        self.timeout_ms = timeout_ms
+        self.open_timeout_ms = open_timeout_ms or timeout_ms
+        self._rss_cache: dict[str, tuple[float, str]] = {}
+        self._rss_cache_ttl = 180.0
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        }
+
+    def _http_get(self, url: str) -> str:
+        if requests is None:
+            raise RuntimeError("requests가 설치되지 않아 브라우저 없는 모드가 동작하지 않습니다.")
+        resp = requests.get(url, timeout=self.timeout_ms/1000, headers=self._headers(), allow_redirects=True)
+        resp.raise_for_status()
+        return resp.text or ""
+
+    def _strip_text(self, html_text: str) -> str:
+        if BeautifulSoup is not None:
+            soup = BeautifulSoup(html_text or "", "html.parser")
+            return (soup.get_text(" ", strip=True) or "").replace("\xa0", " ")
+        text = re.sub(r"<script[\s\S]*?</script>", " ", html_text or "", flags=re.I)
+        text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+
+    def _is_candidate_article_url(self, url: str) -> bool:
+        if not url:
+            return False
+        u = (url or "").strip().lower()
+        if not u.startswith(("http://", "https://")):
+            return False
+        if u == "#" or u.startswith("javascript:") or u.startswith("mailto:") or u.startswith("tel:"):
+            return False
+        return True
+
+    def _fetch_feed_raw(self, feed_url: str, cache_ttl: float = 180.0) -> str:
+        now = time.time()
+        entry = self._rss_cache.get(feed_url)
+        if entry:
+            ts, cached = entry
+            if now - ts <= cache_ttl:
+                return cached
+        raw = self._http_get(feed_url)
+        self._rss_cache[feed_url] = (now, raw)
+        return raw
+
+    def _extract_google_titles(self, text: str, query: str, limit: int = 50) -> list[dict[str, str]]:
+        if not text:
+            return []
+        out: list[dict[str, str]] = []
+        query_low = (query or "").lower()
+        items = re.findall(r"<item>(.*?)</item>", text, flags=re.S | re.I)
+        if items:
+            tokens = [x for x in query_low.split() if x and len(x) >= 2]
+            for item in items:
+                title = re.search(r"<title[^>]*>(.*?)</title>", item, flags=re.S | re.I)
+                link = re.search(r"<link[^>]*>(.*?)</link>", item, flags=re.S | re.I)
+                desc = re.search(r"<description[^>]*>(.*?)</description>", item, flags=re.S | re.I)
+                pub = re.search(r"<pubDate[^>]*>(.*?)</pubDate>", item, flags=re.S | re.I)
+                dt = re.search(r"<dc:date[^>]*>(.*?)</dc:date>", item, flags=re.S | re.I)
+                if not title or not link:
+                    continue
+                t = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", title.group(1))).strip()
+                if not t:
+                    continue
+                l = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", link.group(1))).strip()
+                d = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", (desc.group(1) if desc else ""))).strip()
+                p = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", (pub.group(1) if pub else (dt.group(1) if dt else "")))).strip()
+                blob = f"{t} {d}".lower()
+                if not self._is_candidate_article_url(l):
+                    continue
+                if query_low and query_low not in blob and not any(tok in blob for tok in tokens):
+                    continue
+                out.append({"title": t, "url": l, "snippet": d, "source": "rss", "published_at": p})
+        if not out:
+            for link, txt in re.findall(r"<a[^>]+href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>", text, flags=re.S | re.I):
+                t = re.sub(r"<[^>]+>", " ", re.sub(r"\s+", " ", txt)).strip()
+                l = re.sub(r"<[^>]+>", " ", re.sub(r"\s+", " ", link)).strip()
+                if not t or not l or not self._is_candidate_article_url(l):
+                    continue
+                tokens = [x for x in query_low.split() if x and len(x) >= 2]
+                if query_low and query_low not in (t + " " + l).lower() and not any(tok in (t + " " + l).lower() for tok in tokens):
+                    continue
+                out.append({"title": t, "url": l, "snippet": "", "source": "rss", "published_at": ""})
+
+        uniq: list[dict[str, str]] = []
+        seen = set()
+        for item in out[: limit * 4]:
+            u = item.get("url")
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            uniq.append(item)
+            if len(uniq) >= limit:
+                break
+        return uniq
+
+    def search_core_rss(self, query: str, feed_urls: list[str], limit: int = 20, per_feed_limit: int = 80, total_limit: int | None = None) -> list[SearchHit]:
+        q = (query or "").strip()
+        if not q or not feed_urls:
+            return []
+        all_hits: list[dict[str, str]] = []
+        if total_limit is None:
+            total_limit = limit * 5
+        for feed_url in feed_urls[:20]:
+            try:
+                raw = self._fetch_feed_raw(feed_url, cache_ttl=self._rss_cache_ttl)
+            except Exception:
+                continue
+            if not isinstance(raw, str) or not raw:
+                continue
+            all_hits.extend(self._extract_google_titles(raw, q, limit=per_feed_limit))
+        uniq: list[dict[str, str]] = []
+        seen=set()
+        for h in all_hits:
+            url=h.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            uniq.append(h)
+            if len(uniq)>=total_limit:
+                break
+        return [SearchHit(title=h["title"], url=h["url"], snippet=h["snippet"], source="core-rss", published_at=h.get("published_at", "")) for h in uniq[:total_limit]]
+
+    def search_google_news(self, query: str, limit: int = 20) -> list[SearchHit]:
+        q = (query or "").strip()
+        if not q:
+            return []
+        url = f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=ko&gl=KR&ceid=KR:ko"
+        try:
+            raw = self._http_get(url)
+        except Exception:
+            return []
+        raw = html.unescape(raw)
+        hits = self._extract_google_titles(raw, q, limit=limit * 2)
+        return [SearchHit(title=h["title"], url=h["url"], snippet=h["snippet"], source="google-news", published_at=h.get("published_at", "")) for h in hits][:limit]
+
+    def fetch(self, url: str) -> str:
+        html_text = self._http_get(url)
+        return self._strip_text(html_text)[:30000]
+
+
+    def resolve_google_news_url(self, url: str) -> str | None:
+        """Google News RSS 링크를 최종 원문 URL로 추적(브라우저 미사용 모드용)."""
+        if not url:
+            return None
+        u = (url or "").strip()
+        if "news.google.com/rss/articles" not in u and "news.google.com" not in u:
+            return u
+
+        try:
+            resp = requests.get(u, timeout=self.timeout_ms/1000, headers=self._headers(), allow_redirects=True) if requests is not None else None
+        except Exception:
+            return u
+
+        if resp is not None:
+            final = (resp.url or "").strip()
+            if final:
+                return final
+
+        return u

@@ -9,7 +9,7 @@ from openclaw.agents.delivery import DeliveryManager
 from .collection_agent import CollectionAgent
 from .needs_agent import NeedsAgent
 from .writing_agent import WritingAgent
-from .browser_adapter import BrowserRelayAdapter
+from .browser_adapter import BrowserRelayAdapter, HttpNewsAdapter
 
 
 class SuperAgent:
@@ -22,6 +22,8 @@ class SuperAgent:
         template_path: Path | None = None,
         use_browser_relay: bool = True,
     ):
+        # execution policy: use_browser_relay=True -> BrowserRelayAdapter(실제 브라우저 기반),
+        # False -> HttpNewsAdapter(요청 기반, 브라우저 비의존 모드)
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.needs_file = needs_file or (self.root / "data" / "users" / "users.json")
@@ -54,17 +56,45 @@ class SuperAgent:
                 search_google=adapter.search_google_news,
                 min_count=8,
             )
+            self.collection_mode = "browser"
+            self.collection_mode_reason = "브라우저 릴레이 사용"
         else:
+            adapter = HttpNewsAdapter()
+            core_urls = self._load_core_feed_urls()
+
+            def _core_search(q: str, limit: int = 25):
+                return adapter.search_core_rss(
+                    q,
+                    core_urls,
+                    limit=limit,
+                    per_feed_limit=40,
+                    total_limit=max(60, limit * 3),
+                )
+
             self.collection = CollectionAgent(
                 data_root=self.root / "data",
                 needs_agent=self.needs,
                 browser_search=None,
-                fetch_body=None,
+                fetch_body=adapter.fetch,
+                resolve_url=adapter.resolve_google_news_url,
+                search_core=_core_search,
+                search_google=adapter.search_google_news,
                 min_count=8,
             )
+            self.collection_mode = "http"
+            self.collection_mode_reason = "브라우저 미사용(HTTP) 모드"
 
         self.writer = WritingAgent(template_path=self.template_path, log_dir=self.logger_root)
         self.delivery = DeliveryManager()
+
+    def _log_collect_context(self, user: UserProfile):
+        if self.collection_mode and self.collection_mode_reason:
+            self._trace(f"collection_mode={self.collection_mode} reason={self.collection_mode_reason}")
+
+    def _trace(self, message: str) -> None:
+        if self.root:
+            # 현재 구조에서는 stdout으로 로그만 출력
+            print(f"[clue_letter] {message}", flush=True)
 
     def register_user(
         self,
@@ -141,6 +171,7 @@ class SuperAgent:
             raise RuntimeError(f"user not active: {user_code}")
 
         t0 = time.perf_counter()
+        self._log_collect_context(user)
         articles = self.collection.collect(user=user, min_count=min_count)
         t1 = time.perf_counter()
         issue_no = self._next_issue_no(user.user_code)

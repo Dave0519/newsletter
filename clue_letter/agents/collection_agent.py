@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -208,7 +209,7 @@ def _trim_summary_prefix(title: str, summary: str) -> str:
 
 
 class CollectionAgent:
-    """브라우저 기반 사용자 맞춤 수집 엔진."""
+    """사용자 맞춤 수집 엔진(주입된 수집/검색 어댑터에 따라 브라우저 모드/HTTP 모드로 동작)."""
 
     def __init__(
         self,
@@ -221,7 +222,13 @@ class CollectionAgent:
         search_google: SearchFn | None = None,
         min_count: int = 8,
         min_ratio: float = 0.008,
-        max_days: int = 2,
+        max_days: int = 1,
+        needs_target_per_keyword: int = 50,
+        global_candidates_cap: int = 1200,
+        source_fallback_weight: float = 0.82,
+        min_success_body_len: int = 1200,
+        daily_news_target: int = 10,
+        daily_news_flexible_target: bool = True,
     ):
         self.data_root = Path(data_root)
         self.needs_agent = needs_agent
@@ -233,6 +240,18 @@ class CollectionAgent:
         self.min_count = min_count
         self.min_ratio = min_ratio
         self.max_days = max_days
+        self.needs_target_per_keyword = needs_target_per_keyword
+        self.global_candidates_cap = global_candidates_cap
+        self.source_fallback_weight = source_fallback_weight
+        self.min_success_body_len = min_success_body_len
+        self.daily_news_target = daily_news_target
+        self.daily_news_flexible_target = daily_news_flexible_target
+        self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
+        self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0}
+
+    def _log(self, msg: str) -> None:
+        if self.trace_enabled:
+            print(msg, flush=True)
 
     def _user_dirs(self, user: UserProfile) -> dict[str, Path]:
         base_name = safe_filename(user.name)
@@ -347,7 +366,40 @@ class CollectionAgent:
             "published_at": (getattr(hit, "published_at", "") or "").strip(),
         }
 
-    def _maybe_build_article(self, raw: dict, source_query: str, interests: list[str], exclusions: list[str], collected_urls: set[str]) -> CollectedArticle | None:
+    def _collect_need_hits(
+        self,
+        text: str,
+        needs_payload: list[dict],
+    ) -> tuple[list[str], list[str], list[str], float]:
+        t = (text or "").lower()
+        matched_need_ids: list[str] = []
+        matched_needs: list[str] = []
+        matched_aliases: list[str] = []
+        need_score = 0.0
+        for item in needs_payload:
+            nid = str(item.get("need_id", "")).strip()
+            aliases = [str(a).strip() for a in item.get("aliases", []) if str(a).strip()]
+            for a in aliases:
+                if a.lower() in t:
+                    if nid and nid not in matched_need_ids:
+                        matched_need_ids.append(nid)
+                    if item.get("need_text") and item.get("need_text") not in matched_needs:
+                        matched_needs.append(str(item.get("need_text")))
+                    if a not in matched_aliases:
+                        matched_aliases.append(a)
+                    need_score += 1.0
+                    break
+        return matched_need_ids, matched_needs, matched_aliases, need_score
+
+    def _maybe_build_article(
+        self,
+        raw: dict,
+        source_query: str,
+        needs_payload: list[dict],
+        exclusions: list[str],
+        collected_urls: set[str],
+        source_type: str = "direct",
+    ) -> CollectedArticle | None:
         url = str(raw.get("url") or "").strip()
         if not url or not _is_candidate_news_url(url) or url in collected_urls:
             return None
@@ -368,22 +420,35 @@ class CollectionAgent:
                     return None
                 url = resolved
                 raw["url"] = resolved
-                raw_title = raw.get("title") or ""
-                raw["title"] = raw_title
 
+        self.stage_counters["fetch_calls"] += 1
+        self._log(f"[collect] fetch url={url[:90]} type={source_type}")
         try:
             body_text = self.fetch_body(url)
-        except Exception:
+        except Exception as e:
+            self.stage_counters["fail"] += 1
+            self._log(f"[collect] fetch_failed url={url[:90]} err={type(e).__name__}")
             return None
         if not body_text:
+            self.stage_counters["fail"] += 1
+            self._log(f"[collect] fetch_empty url={url[:90]}")
             return None
 
         body_ko = self._to_kor(body_text, 20000)
-        raw_title_ko = self._to_kor((raw.get("title") or "").strip())
-        if not raw_title_ko:
+        if not body_ko:
+            self.stage_counters["fail"] += 1
             return None
 
-        # 요약 직전 본문 정제: title/헤더/메타성 반복 문구 제거
+        body_len = len(body_ko)
+        if body_len < int(self.min_success_body_len):
+            self.stage_counters["short"] += 1
+            return None
+
+        raw_title_ko = self._to_kor((raw.get("title") or "").strip())
+        if not raw_title_ko:
+            self.stage_counters["fail"] += 1
+            return None
+
         summary_body = _dedupe_title_in_body(raw_title_ko, body_ko)
         if not summary_body:
             summary_body = body_ko
@@ -392,25 +457,18 @@ class CollectionAgent:
         summary_ko = _trim_summary_prefix(raw_title_ko, summary_ko)
         title_ko = rewrite_title(raw_title_ko, body_ko + "\n" + summary_ko)
         if not title_ko:
-            # fallback to translated original title
             title_ko = raw_title_ko
         if not title_ko:
-            # fallback to translated title
             title_ko = self._to_kor((raw.get("title") or "").strip())
         summary_ko = self._split_sentences(summary_ko, 5)
 
         if not self._build_quality_filter(title_ko, summary_ko, body_ko):
+            self.stage_counters["fail"] += 1
             return None
 
         country = self._extract_country(body_ko, title_ko)
-        merged = f"{title_ko} {summary_ko} {body_ko}".lower()
-        matched_need = None
-        for need in interests:
-            if need and need.lower() in merged:
-                matched_need = need
-                break
-        if matched_need is None:
-            matched_need = (source_query or "").split("|", 1)[0] or None
+        merged = f"{title_ko} {summary_ko} {body_ko}"
+        matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged, needs_payload)
 
         article = CollectedArticle(
             title=title_ko,
@@ -419,117 +477,260 @@ class CollectionAgent:
             summary=summary_ko,
             body=body_ko,
             source="browser",
-            need_category=matched_need,
+            source_type=source_type,
+            need_category=matched_needs[0] if matched_needs else None,
+            matched_need_ids=matched_need_ids,
+            matched_needs=matched_needs,
+            matched_aliases=matched_aliases,
             query=source_query,
+            extracted_at=datetime.now().astimezone().isoformat(),
+            body_len=body_len,
+            extraction_status="success_full",
+            source_score=1.0 if source_type == "direct" else float(self.source_fallback_weight),
         )
 
-        score = self._score_relevance(article, interests, exclusions)
-        article.relevance_score = float(score)
+        score = self._score_relevance(article, [n for n in (matched_needs or []) if n], exclusions)
+        article.relevance_score = float(score + need_hit_score)
+        article.need_match_score = article.relevance_score
         article.relevance_note = f"relevance_score={score:.1f}"
         if score <= 0:
+            self.stage_counters["fail"] += 1
             return None
 
+        if source_type == "google":
+            article.source_score *= float(self.source_fallback_weight)
+
         collected_urls.add(url)
+        self.stage_counters["success_full"] += 1
         return article
+
+
+    def _score_total(self, article: CollectedArticle, now: datetime, needs_payload: list[dict]) -> float:
+        recency = float(article.recency_score or 0.4)
+        src_score = float(article.source_score or 1.0)
+        need_score = float(len(article.matched_need_ids or []))
+        # 니즈/동의어 중복 시 약한 보정
+        return 0.55 * need_score + 0.25 * recency + 0.20 * src_score
+
+    def _rebalance_by_need(self, articles: list[CollectedArticle], needs_payload: list[dict], target: int, flexible: bool = True) -> list[CollectedArticle]:
+        if not articles:
+            return []
+
+        need_names = [it.get("need_id") for it in needs_payload if isinstance(it, dict) and it.get("need_id")]
+        need_buckets: dict[str, list[CollectedArticle]] = {n: [] for n in need_names}
+        unmatched = []
+
+        for it in articles:
+            used = False
+            for nid in it.matched_need_ids:
+                if nid in need_buckets:
+                    need_buckets[nid].append(it)
+                    used = True
+            if not used:
+                unmatched.append(it)
+
+        for lst in need_buckets.values():
+            lst.sort(key=lambda a: a.relevance_score, reverse=True)
+
+        selected: list[CollectedArticle] = []
+        used_urls = set()
+        while True:
+            progressed = False
+            for nid, lst in need_buckets.items():
+                while lst:
+                    cand = lst.pop(0)
+                    if cand.url in used_urls:
+                        continue
+                    selected.append(cand)
+                    used_urls.add(cand.url)
+                    progressed = True
+                    break
+                if len(selected) >= target:
+                    break
+            if len(selected) >= target or not progressed:
+                break
+
+        leftovers = [a for a in articles if a.url not in used_urls]
+        leftovers.sort(key=lambda a: (a.relevance_score, a.body_len), reverse=True)
+        while len(selected) < target and leftovers:
+            cand = leftovers.pop(0)
+            if cand.url in used_urls:
+                continue
+            selected.append(cand)
+            used_urls.add(cand.url)
+
+        if not flexible:
+            return selected[:target]
+        return selected
+
+    def _build_total_news(
+        self,
+        candidates: list[CollectedArticle],
+        needs_payload: list[dict],
+    ) -> tuple[list[CollectedArticle], list[CollectedArticle]]:
+        # 24h+니즈+요약 추출 success_full만 유지
+        total_news = [a for a in candidates if a.extraction_status == "success_full"]
+
+        now = datetime.now().astimezone()
+        for a in total_news:
+            # source_score already set in article constructor
+            a.recency_score = 0.6
+            a.need_match_score = float(len(a.matched_need_ids))
+            if a.matched_need_ids:
+                a.source_score = max(0.1, float(a.source_score))
+            a.relevance_score = self._score_total(a, now, needs_payload)
+
+        total_news.sort(key=lambda x: x.relevance_score, reverse=True)
+        selected = self._rebalance_by_need(total_news, needs_payload, target=int(self.daily_news_target), flexible=self.daily_news_flexible_target)
+
+        # 저장용 total_news는 success_full만
+        return selected, total_news
 
     def collect(self, user: UserProfile, limit: int = 25, min_count: int | None = None) -> list[CollectedArticle]:
         if self.fetch_body is None:
             raise RuntimeError("fetch_body가 주입되어야 수집을 시작할 수 있습니다.")
         if self.search_core is None and self.search_google is None:
-            raise RuntimeError("search_core와 search_google 중 하나는 주입되어야 수집을 시작할 수 있습니다.")
+            raise RuntimeError("search_core와 search_google 중 하나는 주입되어야 수집을 시작할 수 합니다.")
 
         min_count = int(min_count or self.min_count)
-        # NeedsAgent와 직접 동기화해서 최신 니즈 상태 반영
         latest_user = self.needs_agent.get_user(user.user_code)
-        interests = [x.strip() for x in (latest_user.interests or []) if x and x.strip()]
-        # NeedsAgent 기준 최신 인터레스트로 동기화하고, 1차 코어는 니즈당 1개 쿼리만 사용
-        query_pairs = self.needs_agent.build_need_queries(interests, templates=["{}"])
+        needs_payload = self.needs_agent.build_need_list_from_user(latest_user)
+        needs_payload = [x for x in needs_payload if isinstance(x, dict) and x.get("aliases")]
+        # 수집 채널별 니즈당 쿼리(직접/구글)
+        query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=["{}", "{} 뉴스", "{} 업데이트"])
         if not query_pairs:
             raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
 
+        if len(query_pairs) > self.global_candidates_cap:
+            query_pairs = query_pairs[: self.global_candidates_cap]
+
         candidates: list[CollectedArticle] = []
-        bucket_by_need: dict[str, list[CollectedArticle]] = {need: [] for need in interests}
+        collected_urls = set()
         now = datetime.now().astimezone()
         max_days = max(self.max_days, 1)
-        collected_urls = set()
 
-        candidate_target = max(min_count, 8)
-        per_need_prefetch = max(3, (candidate_target // max(len(interests), 1)) + 1)
-        preselect_limit = per_need_prefetch * max(len(interests), 1)
+        # needs target per keyword
+        needs_target = max(1, int(self.needs_target_per_keyword))
+        per_need_cap = max(1, needs_target)
 
-        def stage_preselect(search_fn, query_pairs_in, max_hits: int = 25):
-            preselects: list[dict] = []
-            for need, q in query_pairs_in:
+        self._log(f"[collect] start user_code={user.user_code} needs={len(needs_payload)} min_count={min_count} target={per_need_cap}")
+
+        def stage_preselect(search_fn, pairs_in, source_type="direct", max_hits=18):
+            self.stage_counters["search_calls"] += 1
+            preselects = []
+            for need_id, q in pairs_in:
+                self._log(f"[collect] stage={source_type} need={need_id} query={q}")
                 try:
-                    hits = search_fn(q, limit=max_hits)  # type: ignore[attr-defined]
-                except Exception:
+                    hits = search_fn(q, limit=max_hits)
+                except Exception as e:
+                    self._log(f"[collect] stage={source_type} search_error={type(e).__name__} query={q}")
                     hits = []
 
-                for hit in hits:
+                per_need_added = 0
+                for hit in hits[: int(self.global_candidates_cap / max(1, len(needs_payload)) + 4)]:
                     raw = self._normalize_hit(hit)
                     if not raw["url"] or not _is_candidate_news_url(raw["url"]) or raw["url"] in collected_urls:
                         continue
-                    published_at = raw.get("published_at") or ""
-                    if not _is_within_last_days(published_at, max_days, now):
+                    if not _is_within_last_days(raw.get("published_at") or "", max_days, now):
                         continue
 
-                    raw_score = self._score_preselect_by_metadata(
-                        raw.get("title") or "",
-                        raw.get("snippet") or "",
-                        interests,
-                        preferred_need=need,
-                    )
-                    # 제목 검색어 필터링이 너무 강해지지 않도록 fallback를 보장
-                    if raw_score <= 0 and len(preselects) >= preselect_limit * 2:
+                    score = self._score_preselect_by_metadata(raw.get("title") or "", raw.get("snippet") or "", [x.get("need_text", "") for x in needs_payload], preferred_need=need_id)
+                    if score < self.min_ratio:
                         continue
 
                     preselects.append({
-                        "score": raw_score,
-                        "query": f"{need}|{q}",
-                        "need": need,
+                        "score": score,
+                        "need_id": need_id,
+                        "query": f"{need_id}|{q}",
                         "raw": raw,
+                        "source_type": source_type,
                     })
+                    per_need_added += 1
+                    self.stage_counters["preselected"] += 1
+                    if per_need_added >= per_need_cap:
+                        break
 
-            return sorted(preselects, key=lambda x: x["score"], reverse=True)[:preselect_limit]
+            return sorted(preselects, key=lambda x: x["score"], reverse=True)
 
-        def build_from_preselect(preselects: list[dict]) -> None:
+        def build_from_preselect(preselects: list[dict]):
             for item in preselects:
-                if len(candidates) >= max(min_count, 12):
+                if len(candidates) >= min(self.global_candidates_cap, max(min_count, 12)):
                     break
                 raw = item["raw"]
                 source_query = item["query"]
-                article = self._maybe_build_article(raw, source_query, interests, latest_user.exclusions, collected_urls)
+                src = item.get("source_type", "direct")
+                article = self._maybe_build_article(raw, source_query, needs_payload, latest_user.exclusions, collected_urls, source_type=src)
                 if article is None:
                     continue
-                matched_need = article.need_category
                 candidates.append(article)
-                if matched_need in bucket_by_need:
-                    bucket_by_need[matched_need].append(article)
+                self.stage_counters["built"] += 1
+                self._log(f"[collect] built score={article.relevance_score:.2f} need={article.need_category} src={src} url={article.url[:90]}")
 
-        # 1차: CORE 채널
-        if hasattr(self, "search_core") and callable(getattr(self, "search_core", None)):
-            pre = stage_preselect(self.search_core, query_pairs, max_hits=limit)
+        # core first
+        if callable(getattr(self, "search_core", None)):
+            pre = stage_preselect(self.search_core, query_pairs, source_type="direct", max_hits=limit)
             build_from_preselect(pre)
 
-        # 2차: 부족한 니즈만 Google News 보강
-        if hasattr(self, "search_google") and callable(getattr(self, "search_google", None)):
-            need_min = max(1, (min_count + max(len(interests), 1) - 1) // max(len(interests), 1))
-            deficient_needs = [need for need in interests if len(bucket_by_need.get(need, [])) < need_min]
-
-            # 보강은 부족한 니즈만 진행
-            if deficient_needs:
-                deficit_pairs = [(need, need) for need in deficient_needs]
-                pre = stage_preselect(self.search_google, deficit_pairs, max_hits=limit)
+        # google fallback for deficient needs or if still low
+        if callable(getattr(self, "search_google", None)):
+            current = len(candidates)
+            if current < max(min_count, 12):
+                g_pairs = query_pairs[:]
+                pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(8, limit // 2))
                 build_from_preselect(pre)
 
-        ordered = sorted(candidates, key=lambda x: x.relevance_score, reverse=True)
-        selected = ordered[: max(min_count, 12)]
-        if len(selected) < min_count:
-            raise RuntimeError(f"수집 미달: {len(selected)}건 (요청 24시간 대상 {min_count}건 미만)")
+        total_candidates = candidates
+        selected, total_news = self._build_total_news(total_candidates, needs_payload)
 
-        self._persist_daily_and_history(user, selected)
-        return selected[: max(min_count, 8)]
+        self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']}")
+        self._persist_total_news_and_daily(user, total_news, selected)
 
+        final_selected = selected
+        if len(final_selected) == 0:
+            self._log(f"[collect] fail none selected")
+            raise RuntimeError(f"수집 미달: 0건 (요청 24시간 대상 {min_count}건 미만)")
+
+        # target is soft; 기본 목표 달성 못해도 가용 범위 내에서 반환
+        target_cap = max(min_count, self.daily_news_target, 8)
+        return final_selected[: target_cap]
+
+    def _persist_total_news_and_daily(self, user: UserProfile, total_news: list[CollectedArticle], daily: list[CollectedArticle]) -> None:
+        dirs = self._user_dirs(user)
+        ensure_dir(dirs["daily"])
+        ensure_dir(dirs["history"])
+
+        issue = datetime.now().strftime("%Y-%m-%d")
+        day_file = dirs["daily"] / f"{issue}.jsonl"
+
+        with day_file.open("a", encoding="utf-8") as f:
+            for a in daily:
+                rec = self._make_daily_record(a)
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+        history_file = dirs["history"] / "titles.txt"
+        with history_file.open("a", encoding="utf-8") as f:
+            for a in daily:
+                f.write(f"{a.title}\n")
+
+        total_path = dirs["daily"] / f"total_news_{issue}.jsonl"
+        with total_path.open("w", encoding="utf-8") as f:
+            for a in total_news:
+                rec = {
+                    "url": a.url,
+                    "title": a.title,
+                    "published_at": a.query.split("|", 1)[0] if a.query else "",
+                    "source": a.source,
+                    "source_type": a.source_type,
+                    "matched_needs": a.matched_needs,
+                    "matched_aliases": a.matched_aliases,
+                    "need_match_score": a.need_match_score,
+                    "source_score": a.source_score,
+                    "body_len": a.body_len,
+                    "collected_at": a.collected_at,
+                    "extraction_status": a.extraction_status,
+                    "recency_score": a.recency_score,
+                }
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     def _persist_daily_and_history(self, user: UserProfile, articles: list[CollectedArticle]) -> None:
         dirs = self._user_dirs(user)
         ensure_dir(dirs["daily"])
@@ -570,6 +771,11 @@ class CollectionAgent:
             "country": art.country,
             "query": art.query,
             "need_category": art.need_category,
+            "matched_needs": art.matched_needs,
+            "matched_aliases": art.matched_aliases,
+            "need_keywords": sorted(set((art.matched_needs or []) + (art.matched_aliases or [])), key=lambda x: x),
+            "extraction_status": art.extraction_status,
+            "source_type": art.source_type,
             "collected_at": art.collected_at,
             "relevance_note": art.relevance_note,
             "source": art.source,
