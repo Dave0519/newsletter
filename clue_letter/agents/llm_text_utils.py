@@ -84,20 +84,26 @@ def practical_ko(title: str, summary: str, max_sentences: int = 5) -> str:
     if not title and not summary:
         return ""
     prompt = (
-        "너는 실무 브리핑 작성자다. 아래 기사 요약을 바탕으로,\n"
-        "1) 기사의 주요 사실(출시/수익/계약/정책/리스크)과 연결\n"
-        "2) 기업/팀/개인이 바로 적용 가능한 조치 또는 감시 포인트\n"
-        "3) 해야 할 일/주의/검토를 구체적인 문장으로\n"
-        "4) 기사 근거만 사용, 추측/일반적 상식 금지\n"
-        "5) 3~5문장으로 작성\n\n"
-        f"[제목]\n{title}\n\n[요약]\n{summary}"
+        "실무 시사점 작성 원칙에 따라 작성해줘.\n"
+        "1) 기사의 주요 사실(출시, 수익, 감원, 계약, 정책 등)과 직접 연결된 실무적 영향으로만 구성\n"
+        "2) 기업/팀/개인이 즉시 적용 가능한 조치, 리스크, 전략적 대응 방향을 포함\n"
+        "3) 행동 지향 문장을 허용\n"
+        "4) 기사 본문/요약 근거 외의 일반 상식·추정·추측은 배제\n"
+        "5) 단문 위주 3~5문장 이내\n\n"
+        "[요약본]\n"
+        f"{summary}\n\n"
+        "작성 지침:\n"
+        "- 문장당 짧고 실무용으로 끝맺음\n"
+        "- 모호한 표현(아마, 추정, 것으로 보인다) 최소화\n"
+        "- 조치/모니터링 포인트가 있으면 동사형으로 제시\n"
     )
     out = _llm(prompt, max_tokens=500, temp=0.2)
     if not out:
-        return (summary or "")[:400]
-    # keep 3~5 short lines
+        return (summary or "")[:max_sentences * 80].strip()
+
     chunks = [x.strip() for x in out.replace("\n\n", "\n").split("\n") if x.strip()]
-    return "\n".join(chunks[:min(max_sentences, 5)])
+    chunks = [x for x in chunks if x]
+    return "\n".join(chunks[: min(max_sentences, 5)])
 
 
 def rewrite_title(raw_title: str, body: str, max_chars: int = 70) -> str:
