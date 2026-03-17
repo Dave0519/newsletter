@@ -812,9 +812,9 @@ class CollectionAgent:
 
         metric_path = dirs["daily"] / "total_news_metrics.json"
         need_balance = {
-            nid: 0 for nid in [item.get("need_id") for item in needs_payload] if isinstance(item, dict) and item.get("need_id")
+            nid: 0 for nid in [x.get("need_id") for x in needs_payload if isinstance(x, dict) and x.get("need_id")]
         }
-        for a in selected:
+        for a in daily:
             for nid in a.matched_need_ids:
                 need_balance[nid] = need_balance.get(nid, 0) + 1
         metrics = {
@@ -824,7 +824,7 @@ class CollectionAgent:
             "success_full_rate": (len(total_news) / len(total_candidates)) if total_candidates else 0.0,
             "google_news_ratio": (len([a for a in total_candidates if (a.source_type or "").lower() == "google"]) / len(total_candidates)) if total_candidates else 0.0,
             "daily_news_need_balance": need_balance,
-            "coverage_ok": (len(selected) >= min(min_count, self.daily_news_target)) if selected else False,
+            "coverage_ok": (len(daily) >= min(min_count, self.daily_news_target)) if daily else False,
             "short_count": self.stage_counters.get("short", 0),
             "fail_count": self.stage_counters.get("fail", 0),
         }
