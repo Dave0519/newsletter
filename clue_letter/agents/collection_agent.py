@@ -35,6 +35,31 @@ def _is_noise(text: str) -> bool:
     return False
 
 
+def _is_candidate_news_url(url: str) -> bool:
+    if not url:
+        return False
+    s = (url or "").strip().lower()
+    if not s.startswith(("http://", "https://")):
+        return False
+    bad = {"#", "javascript:", "mailto:", "tel:"}
+    if s in bad or s == "#" or s.startswith("javascript:"):
+        return False
+    try:
+        p = urlparse(s)
+    except Exception:
+        return False
+    path = (p.path or "").lower()
+    if path in ("/", ""):
+        return False
+    # 카테고리/태그/검색 유입성 페이지 제거(필수 article 후보 우선)
+    blocked_parts = ("/tag", "/category", "/categories", "/search", "/about", "/contact", "/login", "/signin")
+    if path.endswith("/tag") or "/tag/" == path.rstrip("/"):
+        return False
+    for part in blocked_parts:
+        if f"/{part.strip('/')}" == path.rstrip("/"):
+            return False
+    return True
+
 
 
 def _to_datetime(value: str | None) -> datetime | None:
@@ -58,7 +83,8 @@ def _to_datetime(value: str | None) -> datetime | None:
         except Exception:
             pass
     try:
-        return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        d = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return d
     except Exception:
         return None
 
@@ -67,7 +93,12 @@ def _is_within_last_days(value: str | None, max_days: int, now: datetime) -> boo
     dt = _to_datetime(value)
     if dt is None:
         return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=now.tzinfo)
+    else:
+        dt = dt.astimezone(now.tzinfo)
     return dt >= now - timedelta(days=max_days)
+
 
 def _korean_ratio(text: str) -> float:
     if not text:
@@ -116,7 +147,7 @@ def _dedupe_title_in_body(title: str, body: str) -> str:
             text = parts[1].strip()
             lower = text.lower()
 
-    # 4) 첫 구간이 완전히 같은 문구로 반복되는 케이스 정리("ABAB ...")
+    # 4) 첫 구간이 완전히 같은 문구로 반복되는 케이스("ABAB ...")
     m = re.match(r"^(.{5,90}?)\s+\1\s+", text)
     if m:
         text = text[m.end():].strip()
@@ -141,7 +172,7 @@ def _trim_summary_prefix(title: str, summary: str) -> str:
         t1,
         t1.strip().strip('"`').strip(),
         re.split(r"\s[-|]\s", t1, maxsplit=1)[0].strip() if t1 else "",
-        re.sub(r"[|\-].*$", "", t1).strip() if t1 else "",
+        re.sub(r"[|-].*$", "", t1).strip() if t1 else "",
     ]
 
     # title-like repeated prefix 제거
@@ -165,7 +196,7 @@ def _trim_summary_prefix(title: str, summary: str) -> str:
             s = s[len(p):].strip()
 
     # 따옴표로 감싼 반복구간 제거(예: "title title")
-    m = re.match(r"^\"([^\"]{6,})\"\\s+", s)
+    m = re.match(r"^\"([^\"]{6,})\"\s+", s)
     if m:
         quoted = m.group(1)
         tail = s[m.end():]
@@ -269,6 +300,22 @@ class CollectionAgent:
             return False
         return True
 
+    def _score_preselect_by_metadata(self, title: str, snippet: str, needs: list[str], preferred_need: str | None = None) -> float:
+        text = f"{title or ''} {snippet or ''}".lower()
+        score = 0.0
+        if preferred_need:
+            p = preferred_need.lower().strip()
+            if p and p in text:
+                score += 1.2
+        for idx, need in enumerate(needs):
+            key = str(need).lower().strip()
+            if not key:
+                continue
+            hits = text.count(key)
+            if hits:
+                score += 2.0 + idx * 0.05 + min(hits, 3) * 0.45
+        return score
+
     def _score_relevance(self, article: CollectedArticle, interests: list[str], exclusions: list[str]) -> float:
         text = f"{article.title} {article.summary} {article.body}".lower()
         score = 0.0
@@ -285,6 +332,106 @@ class CollectionAgent:
                 score -= 100.0
         return score
 
+    def _normalize_hit(self, hit):
+        if isinstance(hit, dict):
+            return {
+                "title": (hit.get("title") or "").strip(),
+                "url": (hit.get("url") or "").strip(),
+                "snippet": (hit.get("snippet") or "").strip(),
+                "published_at": (hit.get("published_at") or hit.get("pubDate") or "").strip(),
+            }
+        return {
+            "title": (getattr(hit, "title", "") or "").strip(),
+            "url": (getattr(hit, "url", "") or "").strip(),
+            "snippet": (getattr(hit, "snippet", "") or "").strip(),
+            "published_at": (getattr(hit, "published_at", "") or "").strip(),
+        }
+
+    def _maybe_build_article(self, raw: dict, source_query: str, interests: list[str], exclusions: list[str], collected_urls: set[str]) -> CollectedArticle | None:
+        url = str(raw.get("url") or "").strip()
+        if not url or not _is_candidate_news_url(url) or url in collected_urls:
+            return None
+        try:
+            p = urlparse(url)
+            if p.scheme not in {"http", "https"}:
+                return None
+        except Exception:
+            return None
+
+        if "news.google.com/rss/articles/" in url and self.resolve_url:
+            try:
+                resolved = self.resolve_url(url)
+            except Exception:
+                resolved = None
+            if resolved:
+                if resolved in collected_urls or not _is_candidate_news_url(resolved):
+                    return None
+                url = resolved
+                raw["url"] = resolved
+                raw_title = raw.get("title") or ""
+                raw["title"] = raw_title
+
+        try:
+            body_text = self.fetch_body(url)
+        except Exception:
+            return None
+        if not body_text:
+            return None
+
+        body_ko = self._to_kor(body_text, 20000)
+        raw_title_ko = self._to_kor((raw.get("title") or "").strip())
+        if not raw_title_ko:
+            return None
+
+        # 요약 직전 본문 정제: title/헤더/메타성 반복 문구 제거
+        summary_body = _dedupe_title_in_body(raw_title_ko, body_ko)
+        if not summary_body:
+            summary_body = body_ko
+
+        summary_ko = summarize_ko(summary_body, sentence_count=5)
+        summary_ko = _trim_summary_prefix(raw_title_ko, summary_ko)
+        title_ko = rewrite_title(raw_title_ko, body_ko + "\n" + summary_ko)
+        if not title_ko:
+            # fallback to translated original title
+            title_ko = raw_title_ko
+        if not title_ko:
+            # fallback to translated title
+            title_ko = self._to_kor((raw.get("title") or "").strip())
+        summary_ko = self._split_sentences(summary_ko, 5)
+
+        if not self._build_quality_filter(title_ko, summary_ko, body_ko):
+            return None
+
+        country = self._extract_country(body_ko, title_ko)
+        merged = f"{title_ko} {summary_ko} {body_ko}".lower()
+        matched_need = None
+        for need in interests:
+            if need and need.lower() in merged:
+                matched_need = need
+                break
+        if matched_need is None:
+            matched_need = (source_query or "").split("|", 1)[0] or None
+
+        article = CollectedArticle(
+            title=title_ko,
+            url=url,
+            country=country,
+            summary=summary_ko,
+            body=body_ko,
+            source="browser",
+            need_category=matched_need,
+            query=source_query,
+        )
+
+        score = self._score_relevance(article, interests, exclusions)
+        article.relevance_score = float(score)
+        article.relevance_note = f"relevance_score={score:.1f}"
+        if score <= 0:
+            return None
+
+        collected_urls.add(url)
+        return article
+
     def collect(self, user: UserProfile, limit: int = 25, min_count: int | None = None) -> list[CollectedArticle]:
         if self.fetch_body is None:
             raise RuntimeError("fetch_body가 주입되어야 수집을 시작할 수 있습니다.")
@@ -292,24 +439,13 @@ class CollectionAgent:
             raise RuntimeError("search_core와 search_google 중 하나는 주입되어야 수집을 시작할 수 있습니다.")
 
         min_count = int(min_count or self.min_count)
-        interests = [x.strip() for x in (user.interests or []) if x and x.strip()]
-
-        # 기본 니즈별 쿼리 맵 재구성(공급부족 니즈 추적용)
-        need_templates = ["{}", "{} news", "{} AI", "{} 업데이트", "{} 현황"]
-        need_query_pairs: list[tuple[str, str]] = []
-        for need in interests:
-            for t in need_templates:
-                need_query_pairs.append((need, t.format(need)))
-        # 중복 제거
-        deduped: list[tuple[str, str]] = []
-        seen_queries = set()
-        for need, q in need_query_pairs:
-            q2 = q.strip()
-            if not q2 or q2 in seen_queries:
-                continue
-            seen_queries.add(q2)
-            deduped.append((need, q2))
-        query_pairs = deduped
+        # NeedsAgent와 직접 동기화해서 최신 니즈 상태 반영
+        latest_user = self.needs_agent.get_user(user.user_code)
+        interests = [x.strip() for x in (latest_user.interests or []) if x and x.strip()]
+        # NeedsAgent 기준 최신 인터레스트로 동기화하고, 1차 코어는 니즈당 1개 쿼리만 사용
+        query_pairs = self.needs_agent.build_need_queries(interests, templates=["{}"])
+        if not query_pairs:
+            raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
 
         candidates: list[CollectedArticle] = []
         bucket_by_need: dict[str, list[CollectedArticle]] = {need: [] for need in interests}
@@ -317,133 +453,74 @@ class CollectionAgent:
         max_days = max(self.max_days, 1)
         collected_urls = set()
 
-        # 1차 기준: 코어 소스 우선 (활성 코어 피드)
-        def add_from_query(hits, stage_name: str, source_query: str):
-            for hit in hits:
-                if len(candidates) >= max(min_count, 12):
-                    return
+        candidate_target = max(min_count, 8)
+        per_need_prefetch = max(3, (candidate_target // max(len(interests), 1)) + 1)
+        preselect_limit = per_need_prefetch * max(len(interests), 1)
 
-                raw = hit if isinstance(hit, dict) else {
-                    "title": getattr(hit, "title", ""),
-                    "url": getattr(hit, "url", ""),
-                    "snippet": getattr(hit, "snippet", ""),
-                }
-                url = str(raw.get("url") or "").strip()
-                if not url or url in collected_urls:
-                    continue
-                p = urlparse(url)
-                if p.scheme not in {"http", "https"}:
-                    continue
-
-                # Google News RSS 링크면 원문 링크로 resolve
-                # 24시간 이내 발행 기사만 허용
-                published_at = (raw.get("published_at") or raw.get("pubDate") or "")
-                if not _is_within_last_days(published_at, max_days, now):
-                    continue
-
-                if "news.google.com/rss/articles/" in url and self.resolve_url:
-                    try:
-                        resolved = self.resolve_url(url)
-                    except Exception:
-                        resolved = None
-                    if resolved:
-                        if resolved in collected_urls:
-                            continue
-                        url = resolved
-                        p = urlparse(url)
-                        if p.scheme not in {"http", "https"}:
-                            continue
-                        raw["url"] = resolved
-
+        def stage_preselect(search_fn, query_pairs_in, max_hits: int = 25):
+            preselects: list[dict] = []
+            for need, q in query_pairs_in:
                 try:
-                    body_text = self.fetch_body(url)
+                    hits = search_fn(q, limit=max_hits)  # type: ignore[attr-defined]
                 except Exception:
+                    hits = []
+
+                for hit in hits:
+                    raw = self._normalize_hit(hit)
+                    if not raw["url"] or not _is_candidate_news_url(raw["url"]) or raw["url"] in collected_urls:
+                        continue
+                    published_at = raw.get("published_at") or ""
+                    if not _is_within_last_days(published_at, max_days, now):
+                        continue
+
+                    raw_score = self._score_preselect_by_metadata(
+                        raw.get("title") or "",
+                        raw.get("snippet") or "",
+                        interests,
+                        preferred_need=need,
+                    )
+                    # 제목 검색어 필터링이 너무 강해지지 않도록 fallback를 보장
+                    if raw_score <= 0 and len(preselects) >= preselect_limit * 2:
+                        continue
+
+                    preselects.append({
+                        "score": raw_score,
+                        "query": f"{need}|{q}",
+                        "need": need,
+                        "raw": raw,
+                    })
+
+            return sorted(preselects, key=lambda x: x["score"], reverse=True)[:preselect_limit]
+
+        def build_from_preselect(preselects: list[dict]) -> None:
+            for item in preselects:
+                if len(candidates) >= max(min_count, 12):
+                    break
+                raw = item["raw"]
+                source_query = item["query"]
+                article = self._maybe_build_article(raw, source_query, interests, latest_user.exclusions, collected_urls)
+                if article is None:
                     continue
-                if not body_text:
-                    continue
-
-                body_ko = self._to_kor(body_text, 20000)
-                raw_title_ko = self._to_kor((raw.get("title") or "").strip())
-                if not raw_title_ko:
-                    continue
-
-                # 요약 직전 본문 정제: title/헤더/메타성 반복 문구 제거
-                summary_body = _dedupe_title_in_body(raw_title_ko, body_ko)
-                if not summary_body:
-                    summary_body = body_ko
-
-                summary_ko = summarize_ko(summary_body, sentence_count=5)
-                summary_ko = _trim_summary_prefix(raw_title_ko, summary_ko)
-                title_ko = rewrite_title(raw_title_ko, body_ko + "\n" + summary_ko)
-                if not title_ko:
-                    # fallback to translated original title
-                    title_ko = raw_title_ko
-                if not title_ko:
-                    # fallback to translated title
-                    title_ko = self._to_kor((raw.get("title") or "").strip())
-                summary_ko = self._split_sentences(summary_ko, 5)
-
-                if not self._build_quality_filter(title_ko, summary_ko, body_ko):
-                    continue
-
-                country = self._extract_country(body_ko, title_ko)
-                matched_need = None
-                merged = f"{title_ko} {summary_ko} {body_ko}".lower()
-                for need in interests:
-                    if need and need.lower() in merged:
-                        matched_need = need
-                        break
-                if matched_need is None:
-                    query_need = source_query.split('|', 1)[0]
-                    matched_need = query_need
-
-                article = CollectedArticle(
-                    title=title_ko,
-                    url=url,
-                    country=country,
-                    summary=summary_ko,
-                    body=body_ko,
-                    source="browser",
-                    need_category=matched_need,
-                    query=source_query,
-                )
-
-                score = self._score_relevance(article, interests, user.exclusions)
-                article.relevance_score = float(score)
-                article.relevance_note = f"relevance_score={score:.1f}"
-                if score <= 0:
-                    continue
-
-                collected_urls.add(url)
+                matched_need = article.need_category
                 candidates.append(article)
                 if matched_need in bucket_by_need:
                     bucket_by_need[matched_need].append(article)
 
         # 1차: CORE 채널
         if hasattr(self, "search_core") and callable(getattr(self, "search_core", None)):
-            for need, q in query_pairs:
-                if len(candidates) >= max(min_count, 12):
-                    break
-                try:
-                    hits = self.search_core(q, limit=limit)  # type: ignore[attr-defined]
-                except Exception:
-                    hits = []
-                add_from_query(hits, "core", f"{need}|{q}")
+            pre = stage_preselect(self.search_core, query_pairs, max_hits=limit)
+            build_from_preselect(pre)
 
         # 2차: 부족한 니즈만 Google News 보강
         if hasattr(self, "search_google") and callable(getattr(self, "search_google", None)):
             need_min = max(1, (min_count + max(len(interests), 1) - 1) // max(len(interests), 1))
-            for need in interests:
-                if len(candidates) >= max(min_count, 12):
-                    break
-                if len(bucket_by_need.get(need, [])) >= need_min:
-                    continue
-                need_query = need
-                try:
-                    hits = self.search_google(need_query, limit=limit)  # type: ignore[attr-defined]
-                except Exception:
-                    hits = []
-                add_from_query(hits, "google-news", need_query)
+            deficient_needs = [need for need in interests if len(bucket_by_need.get(need, [])) < need_min]
+
+            # 보강은 부족한 니즈만 진행
+            if deficient_needs:
+                deficit_pairs = [(need, need) for need in deficient_needs]
+                pre = stage_preselect(self.search_google, deficit_pairs, max_hits=limit)
+                build_from_preselect(pre)
 
         ordered = sorted(candidates, key=lambda x: x.relevance_score, reverse=True)
         selected = ordered[: max(min_count, 12)]

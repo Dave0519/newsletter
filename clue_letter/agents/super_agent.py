@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from openclaw.agents.delivery import DeliveryManager
@@ -35,7 +36,13 @@ class SuperAgent:
             core_urls = self._load_core_feed_urls()
 
             def _core_search(q: str, limit: int = 25):
-                return adapter.search_core_rss(q, core_urls, limit=limit)
+                return adapter.search_core_rss(
+                    q,
+                    core_urls,
+                    limit=limit,
+                    per_feed_limit=40,
+                    total_limit=max(60, limit * 3),
+                )
 
             self.collection = CollectionAgent(
                 data_root=self.root / "data",
@@ -88,14 +95,35 @@ class SuperAgent:
 
 
     def _load_core_feed_urls(self) -> list[str]:
-        cfg = self.root / "core_rss_active.json"
-        if not cfg.exists():
-            return []
-        try:
-            data = json.loads(cfg.read_text(encoding="utf-8"))
-            return [item.get("url") for item in data.get("active", []) if item.get("url")]
-        except Exception:
-            return []
+        candidates = []
+        active_cfg = self.root / "core_rss_active.json"
+        legacy_cfg = self.root / "core_rss_registered.json"
+        legacy_md = self.root / "core_rss_active.md"
+
+        sources = None
+        if active_cfg.exists():
+            try:
+                data = json.loads(active_cfg.read_text(encoding="utf-8"))
+                sources = [item.get("url") for item in data.get("active", []) if item.get("url")]
+            except Exception:
+                sources = None
+
+        if sources is None and legacy_cfg.exists():
+            try:
+                data = json.loads(legacy_cfg.read_text(encoding="utf-8"))
+                sources = [item.get("url") for item in data.get("active", []) if item.get("url")]
+            except Exception:
+                sources = None
+
+        if not sources and legacy_md.exists():
+            for line in legacy_md.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("-") and "http" in line:
+                    url = line.split(" ")[-1]
+                    if url.startswith("http"):
+                        sources.append(url)
+
+        return sources or []
     def _next_issue_no(self, user_code: str) -> int:
         log = self.root / "logs" / "issue_no_tracker.json"
         if not log.exists():
@@ -112,9 +140,12 @@ class SuperAgent:
         if not user.is_active:
             raise RuntimeError(f"user not active: {user_code}")
 
+        t0 = time.perf_counter()
         articles = self.collection.collect(user=user, min_count=min_count)
+        t1 = time.perf_counter()
         issue_no = self._next_issue_no(user.user_code)
         html_path = self.writer.build_and_save(user=user, collected=articles, issue_number=issue_no)
+        t2 = time.perf_counter()
 
         if dry_run:
             return {
@@ -124,9 +155,15 @@ class SuperAgent:
                 "issue_no": issue_no,
                 "article_count": len(articles),
                 "html_path": str(html_path),
+                "timing": {
+                    "collect_sec": round(t1 - t0, 2),
+                    "write_sec": round(t2 - t1, 2),
+                    "total_sec": round(t2 - t0, 2),
+                },
             }
 
         delivery = self.delivery.deliver(html_path.read_text(encoding="utf-8"), f"{datetime_stamp()}", user.email)
+        t3 = time.perf_counter()
         return {
             "ok": True,
             "mode": "mail",
@@ -135,6 +172,12 @@ class SuperAgent:
             "article_count": len(articles),
             "html_path": str(html_path),
             "email": delivery,
+            "timing": {
+                "collect_sec": round(t1 - t0, 2),
+                "write_sec": round(t2 - t1, 2),
+                "delivery_sec": round(t3 - t2, 2),
+                "total_sec": round(t3 - t0, 2),
+            },
         }
 
     def run_all(self, dry_run: bool = False, min_count: int = 8):
