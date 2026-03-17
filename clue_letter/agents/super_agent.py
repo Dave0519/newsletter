@@ -20,7 +20,7 @@ class SuperAgent:
         root: Path,
         needs_file: Path | None = None,
         template_path: Path | None = None,
-        use_browser_relay: bool = True,
+        use_browser_relay: bool = False,
     ):
         # execution policy: use_browser_relay=True -> BrowserRelayAdapter(실제 브라우저 기반),
         # False -> HttpNewsAdapter(요청 기반, 브라우저 비의존 모드)

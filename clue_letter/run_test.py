@@ -13,7 +13,7 @@ ROOT = Path('/Users/davechoi/.openclaw/workspace/clue_letter')
 
 
 def main():
-    svc = SuperAgent(root=ROOT, use_browser_relay=True)
+    svc = SuperAgent(root=ROOT, use_browser_relay=False)
     # default user registration (idempotent)
     user = svc.register_user(
         name="lcs",

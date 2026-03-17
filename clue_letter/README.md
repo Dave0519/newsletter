@@ -11,7 +11,7 @@
 5. 슈퍼 에이전트가 Needs/Collection/Writing/Delivery 조율
 
 ## 핵심 특징
-- `collection`은 실행 모드에 따라 다름: `browser` 모드면 `BrowserRelayAdapter`, `--no-browser`면 `HttpNewsAdapter`(요청 기반 HTTP/requests) 사용.
+- `collection`은 실행 모드에 따라 다름: `browser` 모드면 `BrowserRelayAdapter`, `--no-browser`면 `HttpNewsAdapter`(요청 기반 HTTP/requests) 사용; 기본값은 `--no-browser`입니다.
 - 기사 본문은 공통 수집 로직에서 선별 후 주입된 적절한 fetch 어댑터(`BrowserRelayAdapter.fetch` 또는 `HttpNewsAdapter.fetch`)로 추출합니다.
 - 제목/요약은 한국어 정제(LLM 우선, API 미설정 시 폴백).
 - 사용자 폴더 규격:
@@ -34,7 +34,7 @@ python3 clue_letter/service.py interests --user-code <USER_CODE> --interests "AI
 ### 단일 사용자 실행
 ```bash
 python3 clue_letter/service.py run --user-code <USER_CODE> --dry
-python3 clue_letter/service.py run --user-code <USER_CODE> --dry --no-browser  # 브라우저 없이 HTTP 모드
+python3 clue_letter/service.py run --user-code <USER_CODE> --dry --no-browser  # 기본값: 브라우저 없이 HTTP 모드
 python3 clue_letter/service.py run --user-code <USER_CODE>
 ```
 

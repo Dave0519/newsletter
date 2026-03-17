@@ -39,10 +39,12 @@ def main(argv=None):
     parser.add_argument("--countries", nargs="*", default=[], help="preferred countries")
     parser.add_argument("--exclusions", nargs="*", default=[], help="exclusions")
     parser.add_argument("--dry", action="store_true", help="dry-run only")
-    parser.add_argument("--no-browser", action="store_true", help="do not use browser relay; use HTTP/requests fetch path")
+    parser.add_argument("--browser", action="store_true", help="use browser relay explicitly (default is HTTP/requests)")
+    parser.add_argument("--no-browser", action="store_true", help="explicitly force no-browser; use HTTP/requests fetch path")
 
     args = parser.parse_args(argv)
-    svc = SuperAgent(root=ROOT, use_browser_relay=not args.no_browser)
+    use_browser_relay = bool(args.browser and not args.no_browser)
+    svc = SuperAgent(root=ROOT, use_browser_relay=use_browser_relay)
 
     if args.action == "register":
         if not args.name:
