@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote_plus
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from pathlib import Path
@@ -254,7 +254,7 @@ class CollectionAgent:
         self.global_fetch_time_cap = float(global_fetch_time_cap) if global_fetch_time_cap is not None else 0.0
         self.source_fail_rate_circuit = float(source_fail_rate_circuit) if source_fail_rate_circuit is not None else None
         self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
-        self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0, "filtered_stale": 0, "filtered_unreachable": 0, "fallback_used": 0, "short_circuit": 0}
+        self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0, "filtered_stale": 0, "filtered_unreachable": 0, "fallback_used": 0, "short_circuit": 0, "normalized_total": 0}
 
     def _log(self, msg: str) -> None:
         if self.trace_enabled:
@@ -438,6 +438,82 @@ class CollectionAgent:
             except Exception:
                 return False
         return False
+
+    def _canonicalize_url(self, url: str) -> str:
+        s = (url or "").strip()
+        if not s:
+            return ""
+        try:
+            p = urlparse(s)
+            if not p.scheme or not p.netloc:
+                return s
+            drop_prefixes = ("utm_", "utm", "fbclid", "gclid", "ref", "oc", "ref_src")
+            q = parse_qs(p.query, keep_blank_values=False)
+            cleaned = []
+            for key, values in q.items():
+                lk = key.lower()
+                if lk in drop_prefixes or any(lk.startswith(pref) for pref in drop_prefixes):
+                    continue
+                for v in values:
+                    cleaned.append((key, v))
+            return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(cleaned, doseq=True), "")).rstrip("?")
+        except Exception:
+            return s
+
+    def _normalize_article_url(self, url: str) -> str:
+        resolved = (url or "").strip()
+        if not resolved:
+            return ""
+
+        # Google 래퍼 링크/유사 링크는 원문 URL로 해석 시도
+        if "news.google.com/rss/articles" in resolved.lower():
+            try:
+                parsed = urlparse(resolved)
+                q = parse_qs(parsed.query)
+                candidates = []
+                for key in ("url", "u", "rurl"):
+                    for v in q.get(key, []):
+                        if v:
+                            candidates.append(v)
+                for v in candidates:
+                    cand = unquote_plus(v).strip()
+                    if cand:
+                        resolved = cand
+                        break
+            except Exception:
+                pass
+
+        if self.resolve_url:
+            try:
+                out = self.resolve_url(resolved)
+                if out:
+                    resolved = out
+            except Exception:
+                pass
+
+        resolved = self._canonicalize_url(resolved)
+        return resolved
+
+    def _normalize_urls_for_total(self, articles: list[CollectedArticle]) -> list[CollectedArticle]:
+        seen = set()
+        out: list[CollectedArticle] = []
+        for a in articles:
+            if not isinstance(a, CollectedArticle):
+                out.append(a)
+                continue
+            raw = (a.url or "").strip()
+            normalized = self._normalize_article_url(raw)
+            if normalized:
+                a.url = normalized
+            if not _is_candidate_news_url(a.url):
+                self.stage_counters["normalized_total"] += 1
+                continue
+            if a.url in seen:
+                self.stage_counters["normalized_total"] += 1
+                continue
+            seen.add(a.url)
+            out.append(a)
+        return out
 
 
     def _collect_need_term_index(self, needs_payload: list[dict]) -> list[str]:
@@ -884,8 +960,11 @@ class CollectionAgent:
 
         total_candidates = candidates
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
+        # total_news 입력 전에 링크 정규화: google 래퍼/추적 파라미터 정리로 공통 저장 포맷 정합성 강화
+        total_news = self._normalize_urls_for_total(total_news)
+        selected = self._normalize_urls_for_total(selected)
 
-        self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
+        self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} normalized_total={self.stage_counters['normalized_total']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
         self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)
 
         final_selected = selected
@@ -955,6 +1034,7 @@ class CollectionAgent:
             "short_count": self.stage_counters.get("short", 0),
             "fail_count": self.stage_counters.get("fail", 0),
             "filtered_unreachable_count": self.stage_counters.get("filtered_unreachable", 0),
+            "normalized_total_count": self.stage_counters.get("normalized_total", 0),
         }
         metric_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
 
