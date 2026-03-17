@@ -18,7 +18,7 @@ FetchFn = Callable[[str], str]
 NOISE_KEYWORDS = {
     "window.", "CQ_Analytics", "adobeDataLayer", "script", "function(", "style",
     "copyright", "cookie", "newsletter", "privacy", "personal", "navigation",
-    "subscribe", "로그인", "로그아웃", "sign in", "sign up"
+    "subscribe", "로그인", "로그아웃", "sign in", "sign up", "개인정보 처리방침"
 }
 
 
@@ -42,6 +42,103 @@ def _korean_ratio(text: str) -> float:
         return 0.0
     kor = len(re.findall(r"[가-힣]", text))
     return kor / float(total)
+
+
+def _dedupe_title_in_body(title: str, body: str) -> str:
+    """요약 단계에서 제목/헤더 중복이 summary로 들어가는 걸 최소화한다."""
+    if not body:
+        return ""
+
+    text = re.sub(r"\s+", " ", (body or "")).strip()
+    if not text:
+        return ""
+
+    # 1) 번역 본문 시작부에서 자주 나오는 메타/쿠키 블록 제거
+    lower = text.lower()
+    meta_marks = ["본 사이트의 쿠키 정보", "쿠키 정보", "개인정보", "privacy", "필수사항", "로그인", "로그아웃", "url 복사", "다음", "이전", "보러가기"]
+    for mark in meta_marks:
+        i = lower.find(mark)
+        if 0 <= i <= 120:
+            text = text[i + len(mark):].strip()
+            lower = text.lower()
+
+    # 2) 제목 기준 선두 제거(원문 제목과 닮은 prefix)
+    t = (title or "").strip()
+    t2 = re.split(r"\s[-|]\s", t, maxsplit=1)[0].strip()
+    for cand in [t, t2, re.sub(r"\s+[|\-].*$", "", t2)]:
+        cand = (cand or "").strip()
+        if not cand:
+            continue
+        cl = cand.lower()
+        if lower.startswith(cl):
+            text = text[len(cand):].strip()
+            lower = text.lower()
+
+    # 3) 사이트명+타이틀이 함께 붙은 패턴("TITLE | SITE")
+    if "|" in lower[:160]:
+        parts = re.split(r"\s\|\s", text, maxsplit=1)
+        if len(parts) > 1 and parts[0].strip().lower() in [p.lower() for p in [t, t2]]:
+            text = parts[1].strip()
+            lower = text.lower()
+
+    # 4) 첫 구간이 완전히 같은 문구로 반복되는 케이스 정리("ABAB ...")
+    m = re.match(r"^(.{5,90}?)\s+\\1\s+", text)
+    if m:
+        text = text[m.end():].strip()
+
+    # 5) 과도한 반복문자 정리
+    text = re.sub(r"([\w가-힣])\\1{10,}", r"\\1", text)
+    return text[:18000]
+
+
+def _trim_summary_prefix(title: str, summary: str) -> str:
+    if not summary:
+        return ""
+    s = summary.strip()
+    if not title:
+        return s
+
+    def _compact(t: str) -> str:
+        return re.sub(r"[^가-힣a-zA-Z0-9]", "", t).lower()
+
+    t1 = (title or "").strip()
+    raw_parts = [
+        t1,
+        t1.strip().strip('"`').strip(),
+        re.split(r"\s[-|]\s", t1, maxsplit=1)[0].strip() if t1 else "",
+        re.sub(r"[|\-].*$", "", t1).strip() if t1 else "",
+    ]
+
+    # title-like repeated prefix 제거
+    for c in raw_parts:
+        if not c:
+            continue
+        if s.startswith(c):
+            s = s[len(c):].lstrip(" -|:/—–")
+            break
+        lc = c.lower()
+        if s.lower().startswith(lc):
+            s = s[len(lc):].lstrip(" -|:/—–")
+            break
+        if _compact(s).startswith(_compact(c)) and len(_compact(c)) >= 10:
+            s = s[len(c):].lstrip(" -|:/—–")
+            break
+
+    # 앞부분 헤더 접두어 제거
+    for p in ("Learn/", "기사보기 ", "기사입력", "다음 기사보기", "이전 기사보기"):
+        if s.startswith(p):
+            s = s[len(p):].strip()
+
+    # 따옴표로 감싼 반복구간 제거(예: "title title")
+    m = re.match(r"^\"([^\"]{6,})\"\\s+", s)
+    if m:
+        quoted = m.group(1)
+        tail = s[m.end():]
+        ql = len(quoted)
+        if tail.startswith(quoted):
+            s = tail[ql:].strip()
+
+    return s.strip()
 
 
 class CollectionAgent:
@@ -223,11 +320,21 @@ class CollectionAgent:
                     continue
 
                 body_ko = self._to_kor(body_text, 20000)
-                title_ko = self._to_kor((raw.get("title") or "").strip())
-                if not title_ko:
+                raw_title_ko = self._to_kor((raw.get("title") or "").strip())
+                if not raw_title_ko:
                     continue
-                summary_ko = summarize_ko(body_ko, sentence_count=5)
-                title_ko = rewrite_title(title_ko, body_ko + "\n" + summary_ko)
+
+                # 요약 직전 본문 정제: title/헤더/메타성 반복 문구 제거
+                summary_body = _dedupe_title_in_body(raw_title_ko, body_ko)
+                if not summary_body:
+                    summary_body = body_ko
+
+                summary_ko = summarize_ko(summary_body, sentence_count=5)
+                summary_ko = _trim_summary_prefix(raw_title_ko, summary_ko)
+                title_ko = rewrite_title(raw_title_ko, body_ko + "\n" + summary_ko)
+                if not title_ko:
+                    # fallback to translated original title
+                    title_ko = raw_title_ko
                 if not title_ko:
                     # fallback to translated title
                     title_ko = self._to_kor((raw.get("title") or "").strip())
