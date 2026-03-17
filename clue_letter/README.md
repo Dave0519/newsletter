@@ -48,3 +48,17 @@ python3 clue_letter/service.py run-all
 - 동작 전 `openclaw browser start` 또는 스크립트 최초 호출 시 자동 `start`.
 - 수집 최소 건수 기본 8개.
 - 템플릿은 `templates/CLUE_TEMPLATE_OFFICIAL.html` 사용.
+
+## 빠른 자동 커밋/푸시
+
+정책/실행 구조 코드만 변경될 때는 아래로 즉시 반영 가능:
+
+```bash
+cd /Users/davechoi/.openclaw/workspace/clue_letter
+./auto_sync_clue.sh "chore(clue_letter): ..."
+```
+
+- 변경 감지 대상: `clue_letter/` 하위 정책·실행 파일(agents/service/템플릿/core_rss/런처/테스트 스크립트)
+- 제외 대상: `clue_letter/data/`, `clue_letter/logs/` (런타임 산출물)
+- 기본 동작: 변경 있으면 `git add` → `git commit` → `git push origin main`
+- 변경 없으면 `No clue_letter policy/runtime changes to sync.`로 종료

@@ -226,7 +226,7 @@ class CollectionAgent:
                 title_ko = self._to_kor((raw.get("title") or "").strip())
                 if not title_ko:
                     continue
-                summary_ko = summarize_ko(body_ko, title=title_ko, sentence_count=5)
+                summary_ko = summarize_ko(body_ko, sentence_count=5)
                 title_ko = rewrite_title(title_ko, body_ko + "\n" + summary_ko)
                 if not title_ko:
                     # fallback to translated title

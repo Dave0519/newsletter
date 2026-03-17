@@ -65,10 +65,11 @@ def summarize_ko(body: str, title: str = "", sentence_count: int = 4) -> str:
     if not body:
         return ""
     count = max(1, min(sentence_count, 6))
+    # 요약은 제목이 아니라 원문 텍스트만으로 생성한다.
     prompt = (
-        "너는 뉴스 분석 에디터다. 주어진 원문에서 외부 추측 없이 핵심만 추출해 한국어로 4~5줄 요약해줘.\n"
-        f"반드시 기사 제목/핵심 수치/사실 관계를 근거로 작성. 제목은 아래와 같음: {title}\n"
-        "문장 당 1~2문장, 불필요한 수식어 없이 핵심만.\n\n"
+        '너는 뉴스 분석 에디터다. 아래 원문에서 외부 추측 없이 핵심만 추출해 한국어로 4~5줄 요약해줘.\n'
+        '원문에 없는 내용은 절대 넣지 말고, 숫자/사실/행위 중심으로 가독성 있게 정리해.\n'
+        '문장 당 1~2문장, 불필요한 수식어 없이 핵심만.\n\n'
         f"원문:\n{body}"
     )
     out = _llm(prompt, max_tokens=900, temp=0.2)
@@ -78,7 +79,6 @@ def summarize_ko(body: str, title: str = "", sentence_count: int = 4) -> str:
     # fallback: heuristic 1st lines
     cleaned = " ".join((body or "").split())
     return "\n".join([s.strip() + ("." if not s.strip().endswith(".") else "") for s in cleaned.split(".")[:count] if s.strip()])
-
 
 def practical_ko(title: str, summary: str, max_sentences: int = 5) -> str:
     if not title and not summary:
