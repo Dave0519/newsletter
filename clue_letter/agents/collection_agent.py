@@ -790,10 +790,12 @@ class CollectionAgent:
             pre = stage_preselect(self.search_core, query_pairs, source_type="direct", max_hits=core_limit)
             build_from_preselect(pre, "direct", start_t, source_stats)
 
-        # 사용자 요청 반영: RSS(core) 경로 중심으로만 처리
-        # (원문 URL 접근 및 800자 필터 이후 success_full 판단)
-        # 기존 Google fallback은 사용하지 않음
-        # google fallback disabled intentionally
+        # google fallback: direct(core) 건수 미달 시 보완 검색
+        if callable(getattr(self, "search_google", None)) and len(candidates) < max(min_count, 12):
+            self.stage_counters["fallback_used"] += 1
+            g_pairs = query_pairs[:]
+            pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(25, limit // 2))
+            build_from_preselect(pre, "google", start_t, source_stats)
 
         total_candidates = candidates
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
