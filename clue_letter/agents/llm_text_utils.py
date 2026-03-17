@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+import json
+import os
+from typing import List
+
+import requests
+
+
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+
+
+def _api_key() -> str:
+    return os.getenv("OPENAI_API_KEY", "") or ""
+
+
+def _base_payload(prompt: str, max_tokens: int = 500, temp: float = 0.2) -> dict:
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temp,
+    }
+    if model.lower().startswith("gpt-5"):
+        payload["max_completion_tokens"] = max_tokens
+    else:
+        payload["max_tokens"] = max_tokens
+    return payload
+
+
+def _llm(prompt: str, max_tokens: int = 600, temp: float = 0.2) -> str:
+    key = _api_key()
+    if not key:
+        return ""
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    try:
+        r = requests.post(OPENAI_API_URL, headers=headers, json=_base_payload(prompt, max_tokens=max_tokens, temp=temp), timeout=60)
+        if r.status_code != 200:
+            return ""
+        data = r.json()
+        return ((data.get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip())
+    except Exception:
+        return ""
+
+
+def translate_ko(text: str) -> str:
+    if not text:
+        return ""
+    prompt = (
+        "너는 번역 편집자다. 주어진 텍스트를 자연스러운 한국어로 번역해줘.\n"
+        "직역이 아닌, 한국어 문장으로 원문의 의미를 훼손하지 않게 정리.\n"
+        "기술명, 기업명, 통화 단위, 숫자는 최대한 보존해줘.\n\n"
+        f"[원문]\n{text}"
+    )
+    out = _llm(prompt, max_tokens=1200, temp=0.15)
+    return out.strip() if out else text
+
+
+def summarize_ko(body: str, title: str = "", sentence_count: int = 4) -> str:
+    if not body:
+        return ""
+    count = max(1, min(sentence_count, 6))
+    prompt = (
+        "너는 뉴스 분석 에디터다. 주어진 원문에서 외부 추측 없이 핵심만 추출해 한국어로 4~5줄 요약해줘.\n"
+        f"반드시 기사 제목/핵심 수치/사실 관계를 근거로 작성. 제목은 아래와 같음: {title}\n"
+        "문장 당 1~2문장, 불필요한 수식어 없이 핵심만.\n\n"
+        f"원문:\n{body}"
+    )
+    out = _llm(prompt, max_tokens=900, temp=0.2)
+    if out:
+        lines = [x.strip() for x in out.splitlines() if x.strip()]
+        return "\n".join(lines[:count])
+    # fallback: heuristic 1st lines
+    cleaned = " ".join((body or "").split())
+    return "\n".join([s.strip() + ("." if not s.strip().endswith(".") else "") for s in cleaned.split(".")[:count] if s.strip()])
+
+
+def practical_ko(title: str, summary: str, max_sentences: int = 5) -> str:
+    if not title and not summary:
+        return ""
+    prompt = (
+        "너는 실무 브리핑 작성자다. 아래 기사 요약을 바탕으로,\n"
+        "1) 기사의 주요 사실(출시/수익/계약/정책/리스크)과 연결\n"
+        "2) 기업/팀/개인이 바로 적용 가능한 조치 또는 감시 포인트\n"
+        "3) 해야 할 일/주의/검토를 구체적인 문장으로\n"
+        "4) 기사 근거만 사용, 추측/일반적 상식 금지\n"
+        "5) 3~5문장으로 작성\n\n"
+        f"[제목]\n{title}\n\n[요약]\n{summary}"
+    )
+    out = _llm(prompt, max_tokens=500, temp=0.2)
+    if not out:
+        return (summary or "")[:400]
+    # keep 3~5 short lines
+    chunks = [x.strip() for x in out.replace("\n\n", "\n").split("\n") if x.strip()]
+    return "\n".join(chunks[:min(max_sentences, 5)])
+
+
+def extract_hashtags(texts: List[str], top_n: int = 6) -> str:
+    if not texts:
+        return ""
+    from collections import Counter
+    # very simple keyword extraction: high-frequency noun-like tokens
+    tokens: list[str] = []
+    for t in texts:
+        for w in (t.replace("/", " ").replace("(", " ").replace(")", " ").split()):
+            w = w.strip(" .,;:!?#\"')(").replace("\n", "")
+            if len(w) >= 2:
+                tokens.append(w)
+    c = Counter(tokens)
+    items = [k for k, _ in c.most_common(top_n)]
+    return " ".join([f"#{x}" for x in items])

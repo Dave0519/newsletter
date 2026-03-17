@@ -1,0 +1,82 @@
+{
+  "version": "2026-03-17",
+  "active": [
+    {
+      "name": "Ars Technica AI",
+      "url": "https://arstechnica.com/tag/ai/feed/",
+      "status": "ok"
+    },
+    {
+      "name": "VentureBeat AI",
+      "url": "https://www.venturebeat.com/category/ai/feed/",
+      "status": "ok"
+    },
+    {
+      "name": "Wccftech",
+      "url": "https://www.wccftech.com/feed/",
+      "status": "ok"
+    },
+    {
+      "name": "Azure Blog",
+      "url": "https://azure.microsoft.com/en-us/blog/feed/",
+      "status": "ok"
+    },
+    {
+      "name": "WSJ World",
+      "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
+      "status": "ok"
+    }
+  ],
+  "inactive": [
+    {
+      "name": "TechCrunch AI",
+      "url": "https://techcrunch.com/tag/ai/feed/",
+      "reason": "항목 추출 불안정(구조/응답 지연 의심)"
+    },
+    {
+      "name": "The Verge AI",
+      "url": "https://www.theverge.com/ai/rss/index.xml",
+      "reason": "RSS 경로로 보이지 않음(웹 페이지/404 응답)"
+    },
+    {
+      "name": "MIT Tech Review AI",
+      "url": "https://www.technologyreview.com/feed/",
+      "reason": "항목 추출 실패"
+    },
+    {
+      "name": "Electronic Design",
+      "url": "https://www.electronicdesign.com/feed/",
+      "reason": "항목 추출 실패"
+    },
+    {
+      "name": "AnandTech news",
+      "url": "https://www.anandtech.com/rss/news/",
+      "reason": "항목 추출 실패"
+    },
+    {
+      "name": "Google Cloud Blog",
+      "url": "https://cloud.google.com/blog/rss",
+      "reason": "항목 추출 실패"
+    },
+    {
+      "name": "AWS What's New",
+      "url": "https://aws.amazon.com/about-aws/whats-new/recent/feed/",
+      "reason": "항목 추출 실패"
+    },
+    {
+      "name": "CNBC Tech",
+      "url": "https://www.cnbc.com/id/10000113/device/rss/rss.html",
+      "reason": "항목 추출 실패"
+    },
+    {
+      "name": "Reuters Tech",
+      "url": "https://www.reuters.com/arc/outboundfeeds/sitemap/?output=atom",
+      "reason": "항목 추출 실패"
+    },
+    {
+      "name": "FT",
+      "url": "https://www.ft.com/?format=rss",
+      "reason": "항목 추출 실패"
+    }
+  ]
+}
