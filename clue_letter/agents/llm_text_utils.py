@@ -100,6 +100,29 @@ def practical_ko(title: str, summary: str, max_sentences: int = 5) -> str:
     return "\n".join(chunks[:min(max_sentences, 5)])
 
 
+def rewrite_title(raw_title: str, body: str, max_chars: int = 70) -> str:
+    """원문 제목을 그대로 쓰지 않고 70자 이내 브리핑형 제목으로 다시 작성."""
+    if not raw_title:
+        return ""
+
+    prompt = (
+        '너는 뉴스 헤드라인 편집자다. 아래 기사 내용을 바탕으로, 출처/매체명 없이 공백과 기호 정리를 해서 '
+        '"행동/사실" 중심의 짧은 제목 하나만 한국어로 작성해줘.\n'
+        '원문 제목은 그대로 반복하지 말고, 핵심 결론을 압축해 다시 쓰기.\n\n'
+        f"[원문 제목]\n{raw_title}\n\n"
+        f"[본문 일부]\n{body[:1200]}"
+    )
+    out = _llm(prompt, max_tokens=80, temp=0.2)
+    if not out:
+        return raw_title[:max_chars]
+
+    s = (out or "").strip().replace("\n", " ")
+    # 한두 줄 정도 길이로 정리
+    while "  " in s:
+        s = s.replace("  ", " ")
+    return s[:max_chars]
+
+
 def extract_hashtags(texts: List[str], top_n: int = 6) -> str:
     if not texts:
         return ""

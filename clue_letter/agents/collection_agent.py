@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .models import CollectedArticle, UserProfile
 from .utils import ensure_dir, safe_filename
-from .llm_text_utils import summarize_ko, translate_ko
+from .llm_text_utils import summarize_ko, translate_ko, rewrite_title
 
 SearchFn = Callable[[str, int], list]
 FetchFn = Callable[[str], str]
@@ -227,6 +227,10 @@ class CollectionAgent:
                 if not title_ko:
                     continue
                 summary_ko = summarize_ko(body_ko, title=title_ko, sentence_count=5)
+                title_ko = rewrite_title(title_ko, body_ko + "\n" + summary_ko)
+                if not title_ko:
+                    # fallback to translated title
+                    title_ko = self._to_kor((raw.get("title") or "").strip())
                 summary_ko = self._split_sentences(summary_ko, 5)
 
                 if not self._build_quality_filter(title_ko, summary_ko, body_ko):
