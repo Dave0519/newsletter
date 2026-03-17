@@ -517,8 +517,8 @@ class CollectionAgent:
         except Exception:
             return None
 
-        # RSS 검색 전개: title+snippet만으로 니즈 매칭,
-        # 본문은 길이 필터(최소 800자) 용도로만 사용
+        # RSS 검색 전개: title+snippet로만 니즈 매칭
+        # 원문 URL 접근성(HTTP/HEAD+GET)만 확인하고, 본문 길이 확인 단계는 생략
         if "news.google.com/rss/articles/" in url and self.resolve_url:
             try:
                 resolved = self.resolve_url(url)
@@ -535,22 +535,9 @@ class CollectionAgent:
             self._log(f"[collect] unreachable url={url[:90]} type={source_type}")
             return None
 
-        self.stage_counters["fetch_calls"] += 1
-        self._log(f"[collect] fetch url={url[:90]} type={source_type}")
-        try:
-            body_text = self.fetch_body(url)
-        except Exception as e:
-            self.stage_counters["fail"] += 1
-            self._log(f"[collect] fetch_failed url={url[:90]} err={type(e).__name__}")
-            return None
-        if not body_text:
-            self.stage_counters["fail"] += 1
-            return None
-
-        body_len = len(body_text)
-        if body_len < int(self.min_success_body_len):
-            self.stage_counters["short"] += 1
-            return None
+        # 본문 확인은 URL 접근성 검증으로 축소
+        body_text = ""
+        body_len = 0
 
         raw_title = (raw.get("title") or "").strip()
         raw_snippet = (raw.get("snippet") or "").strip()
@@ -826,8 +813,8 @@ class CollectionAgent:
             pre = stage_preselect(self.search_core, query_pairs, source_type="direct", max_hits=core_limit)
             build_from_preselect(pre, "direct", start_t, source_stats)
 
-        # google fallback: direct(core) 건수 미달 시 보완 검색
-        if callable(getattr(self, "search_google", None)) and len(candidates) < max(min_count, 12):
+        # google fallback: direct 검색 후 항상 보완 검색 수행
+        if callable(getattr(self, "search_google", None)):
             self.stage_counters["fallback_used"] += 1
             g_pairs = query_pairs[:]
             pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(25, limit // 2))
