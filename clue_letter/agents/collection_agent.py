@@ -4,6 +4,7 @@ import json
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Callable
 from urllib.parse import urlparse
 from pathlib import Path
@@ -33,6 +34,40 @@ def _is_noise(text: str) -> bool:
         return True
     return False
 
+
+
+
+def _to_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    v = (value or "").strip()
+    if not v:
+        return None
+    try:
+        dt = parsedate_to_datetime(v)
+        if dt:
+            return dt
+    except Exception:
+        pass
+    for fmt in ["%a, %d %b %Y %H:%M:%S %z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]:
+        try:
+            d = datetime.strptime(v, fmt)
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=datetime.now().astimezone().tzinfo)
+            return d
+        except Exception:
+            pass
+    try:
+        return datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _is_within_last_days(value: str | None, max_days: int, now: datetime) -> bool:
+    dt = _to_datetime(value)
+    if dt is None:
+        return False
+    return dt >= now - timedelta(days=max_days)
 
 def _korean_ratio(text: str) -> float:
     if not text:
@@ -82,7 +117,7 @@ def _dedupe_title_in_body(title: str, body: str) -> str:
             lower = text.lower()
 
     # 4) 첫 구간이 완전히 같은 문구로 반복되는 케이스 정리("ABAB ...")
-    m = re.match(r"^(.{5,90}?)\s+\\1\s+", text)
+    m = re.match(r"^(.{5,90}?)\s+\1\s+", text)
     if m:
         text = text[m.end():].strip()
 
@@ -251,12 +286,13 @@ class CollectionAgent:
         return score
 
     def collect(self, user: UserProfile, limit: int = 25, min_count: int | None = None) -> list[CollectedArticle]:
-        if self.browser_search is None or self.fetch_body is None:
-            raise RuntimeError("browser_search와 fetch_body가 모두 주입되어야 수집을 시작할 수 있습니다.")
+        if self.fetch_body is None:
+            raise RuntimeError("fetch_body가 주입되어야 수집을 시작할 수 있습니다.")
+        if self.search_core is None and self.search_google is None:
+            raise RuntimeError("search_core와 search_google 중 하나는 주입되어야 수집을 시작할 수 있습니다.")
 
         min_count = int(min_count or self.min_count)
         interests = [x.strip() for x in (user.interests or []) if x and x.strip()]
-        base_queries = self.needs_agent.ensure_queries_by_interests(interests)
 
         # 기본 니즈별 쿼리 맵 재구성(공급부족 니즈 추적용)
         need_templates = ["{}", "{} news", "{} AI", "{} 업데이트", "{} 현황"]
@@ -277,6 +313,8 @@ class CollectionAgent:
 
         candidates: list[CollectedArticle] = []
         bucket_by_need: dict[str, list[CollectedArticle]] = {need: [] for need in interests}
+        now = datetime.now().astimezone()
+        max_days = max(self.max_days, 1)
         collected_urls = set()
 
         # 1차 기준: 코어 소스 우선 (활성 코어 피드)
@@ -298,6 +336,11 @@ class CollectionAgent:
                     continue
 
                 # Google News RSS 링크면 원문 링크로 resolve
+                # 24시간 이내 발행 기사만 허용
+                published_at = (raw.get("published_at") or raw.get("pubDate") or "")
+                if not _is_within_last_days(published_at, max_days, now):
+                    continue
+
                 if "news.google.com/rss/articles/" in url and self.resolve_url:
                     try:
                         resolved = self.resolve_url(url)
@@ -387,15 +430,6 @@ class CollectionAgent:
                     hits = []
                 add_from_query(hits, "core", f"{need}|{q}")
 
-        # 1차 실패시 기존 검색으로 보완
-        if len(candidates) < max(min_count, 12):
-            fallback_queries = base_queries[:limit]
-            for q in fallback_queries:
-                if len(candidates) >= max(min_count, 12):
-                    break
-                hits = self.browser_search(q, limit=limit)
-                add_from_query(hits, "fallback", q)
-
         # 2차: 부족한 니즈만 Google News 보강
         if hasattr(self, "search_google") and callable(getattr(self, "search_google", None)):
             need_min = max(1, (min_count + max(len(interests), 1) - 1) // max(len(interests), 1))
@@ -411,15 +445,8 @@ class CollectionAgent:
                     hits = []
                 add_from_query(hits, "google-news", need_query)
 
-        # 24h 미만로 제한되더라도 최신성 판단은 저장시각 컬럼으로 정렬
-        now = datetime.now()
-        cutoff = now - timedelta(hours=24 * max(self.max_days, 1))
-        recent = [c for c in candidates if c.collected_at >= cutoff.isoformat()]
-
         ordered = sorted(candidates, key=lambda x: x.relevance_score, reverse=True)
-        selected = recent if len(recent) >= min_count else ordered
-
-        selected = selected[: max(min_count, 12)]
+        selected = ordered[: max(min_count, 12)]
         if len(selected) < min_count:
             raise RuntimeError(f"수집 미달: {len(selected)}건 (요청 24시간 대상 {min_count}건 미만)")
 

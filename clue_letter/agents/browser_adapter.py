@@ -222,6 +222,27 @@ class BrowserRelayAdapter:
 
         return _dedupe_keep_order(hits)[:limit]
 
+
+
+def _parse_feed_datetime(raw: str):
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    s = raw.strip()
+    for fmt in ["%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S"]:
+        try:
+            dt = datetime.strptime(s, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            pass
+    # XML feed may include microseconds or no tz
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
     def resolve_google_news_url(self, url: str) -> str | None:
         """Google News RSS 링크(news.google.com/rss/articles/...)를 원문 URL로 변환."""
         self._open(url)
@@ -265,16 +286,19 @@ class BrowserRelayAdapter:
                 title = re.search(r"<title[^>]*>(.*?)</title>", item, flags=re.S | re.I)
                 link = re.search(r"<link[^>]*>(.*?)</link>", item, flags=re.S | re.I)
                 desc = re.search(r"<description[^>]*>(.*?)</description>", item, flags=re.S | re.I)
+                pub = re.search(r"<pubDate[^>]*>(.*?)</pubDate>", item, flags=re.S | re.I)
+                dt = re.search(r"<dc:date[^>]*>(.*?)</dc:date>", item, flags=re.S | re.I)
                 if not title or not link:
                     continue
                 t = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", title.group(1))).strip()
                 l = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", link.group(1))).strip()
                 d = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", (desc.group(1) if desc else ""))).strip()
+                p = re.sub(r"\s+", " ", re.sub(r"<!\[CDATA\[(.*?)\]>", r"\1", (pub.group(1) if pub else (dt.group(1) if dt else "")))).strip()
                 blob = f"{t} {d}".lower()
                 if query and query_low not in blob and all(k not in blob for k in query_low.split()):
                     continue
                 if l:
-                    out.append({"title": t, "url": l, "snippet": d, "source": "rss"})
+                    out.append({"title": t, "url": l, "snippet": d, "source": "rss", "published_at": p})
 
         # fallback if xml parse fails
         if not out:
