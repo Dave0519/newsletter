@@ -86,7 +86,7 @@ class SuperAgent:
             self.collection_mode = "http"
             self.collection_mode_reason = "브라우저 미사용(HTTP) 모드"
 
-        self.writer = WritingAgent(template_path=self.template_path, log_dir=self.logger_root, fetch_body=adapter.fetch)
+        self.writer = WritingAgent(template_path=self.template_path, log_dir=self.logger_root, fetch_body=adapter.fetch, resolve_url=getattr(adapter, "resolve_google_news_url", None))
         self.delivery = DeliveryManager()
 
     def _log_collect_context(self, user: UserProfile):
