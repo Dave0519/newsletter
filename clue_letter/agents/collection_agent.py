@@ -622,7 +622,7 @@ class CollectionAgent:
             else:
                 topic = self._llm_judge_topic(art.title, art.summary)
                 if not topic:
-                    topic = self._normalize_title_signature(art.title or "")
+                    topic = _normalize_title_signature(art.title or "")
                 cache[cache_key] = topic
 
             topic_key = self._normalize_topic_key(topic)
