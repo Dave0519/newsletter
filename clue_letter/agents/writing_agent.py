@@ -426,7 +426,7 @@ class WritingAgent:
             countries.setdefault(a.country or "GLOBAL", []).append(a)
         return countries
 
-    def _derive_entry(self, c: CollectedArticle) -> NewsletterEntry:
+    def _derive_entry_payload(self, c: CollectedArticle) -> tuple[NewsletterEntry, dict[str, str]]:
         resolved_url = self._resolve_url(c.url)
         body_html = self._load_remote_body(resolved_url)
         if not body_html and resolved_url != c.url:
@@ -446,7 +446,7 @@ class WritingAgent:
         rewritten_title = self._force_korean(rewritten_title or raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
         title = rewritten_title if rewritten_title and self._contains_korean(rewritten_title) else self._force_korean(raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
 
-        # 요약: 본문 기반 4~5줄 + 검수 재시도 1회
+        # 요약: 본문 기반 5~7줄 + 검수 재시도 1회
         description = self._llm_summary_from_body(title, summary_source, line_count=7)
         if description:
             ok, reason = self._llm_judge_summary(title, summary_source, description)
@@ -467,27 +467,81 @@ class WritingAgent:
         description = self._ensure_korean_summary_lines(description, max_lines=7)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
 
-        practical_input = f"{description}\n\n{summary_source}"
-        practical = practical_ko(title, practical_input, max_sentences=5)
-        practical = self._force_korean(practical, fallback_on_fail=description)
-        if not practical:
-            practical = description
-
-        return NewsletterEntry(
+        entry = NewsletterEntry(
             title=title,
             summary=description,
             url=resolved_url,
             country=c.country,
-            practical_implication=practical,
+            practical_implication="",
             need_category=c.need_category,
             topic=c.need_category or "AI/반도체 동향",
         )
+        ctx = {
+            "summary_source": summary_source,
+            "readable_body": readable_body,
+            "raw_title": raw_title,
+            "input_summary": c.summary or "",
+        }
+        return entry, ctx
+
+    def _openclaw_style_practical(self, title: str, summary: str, body: str) -> str:
+        if not title and not summary:
+            return ""
+
+
+        body_snippet = (body or "")[:8000]
+        prompt = (
+            "아래 기사 제목/요약/본문을 바탕으로 실무 시사점을 한국어로 작성해라.\n"
+            "작성 원칙:\n"
+            "1) 기사 본문 근거 중심으로만 작성, 외부 추측 최소화\n"
+            "2) 해당 이슈에 대한 실무 액션/리스크/대응 방향을 3~5문장으로 제시\n"
+            "3) 단정이 아닌 실행 관점 중심 문장으로 마무리\n"
+            "4) 문장당 짧고 즉시 참고 가능한 수준\n\n"
+            f"[제목]\n{title}\n\n"
+            f"[요약]\n{summary}\n\n"
+            f"[본문]\n{body_snippet}"
+        )
+        out = self._llm_request(prompt, max_tokens=420, temperature=0.2)
+        out = (out or "").strip()
+        if not out:
+            return ""
+        return self._ensure_korean_summary_lines(out, max_lines=5)
+
+
+
+    def _attach_practical_implications(self, entries: list[NewsletterEntry], contexts: list[dict[str, str]]) -> list[NewsletterEntry]:
+        out: list[NewsletterEntry] = []
+        for e, ctx in zip(entries, contexts):
+            practical_source = (ctx.get("summary_source") or "").strip()
+            practical_body = (ctx.get("readable_body") or "").strip()
+
+            practical = self._openclaw_style_practical(
+                title=e.title,
+                summary=e.summary,
+                body=(practical_body or practical_source),
+            )
+            if not practical:
+                practical = practical_ko(
+                    e.title,
+                    f"{e.summary}\n\n{practical_source}",
+                    max_sentences=5,
+                )
+            e.practical_implication = practical or e.summary
+            out.append(e)
+        return out
+
+    def _derive_entry(self, c: CollectedArticle) -> NewsletterEntry:
+        entry, _ = self._derive_entry_payload(c)
+        return entry
+
 
     def compose_html(self, user: UserProfile, collected: list[CollectedArticle], issue_number: int | None = None) -> str:
         if not collected:
             raise ValueError("No collected article")
 
-        entries = [self._derive_entry(c) for c in collected]
+        entries_payload = [self._derive_entry_payload(c) for c in collected]
+        entries = [entry for entry, _ in entries_payload]
+        entries = self._attach_practical_implications(entries, [ctx for _, ctx in entries_payload])
 
         template = _load_template(self.template_path)
         template = template.replace("{{ISSUE_DATE}}", datetime.now().strftime("%Y. %m. %d"))
