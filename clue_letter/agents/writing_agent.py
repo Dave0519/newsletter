@@ -440,7 +440,7 @@ class WritingAgent:
             text = parts[0]
             if len(parts) > 1:
                 text = f"{parts[0]} {parts[1]}"
-            lines.append(f"• {idx}. {text}")
+            lines.append(f"• {text}")
 
             if len(lines) >= 6:
                 break
