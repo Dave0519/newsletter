@@ -4,6 +4,7 @@ import json
 import re
 import html
 import subprocess
+import os
 import time
 from dataclasses import dataclass
 from urllib.parse import quote_plus, unquote, urlparse, parse_qs
@@ -16,6 +17,11 @@ try:
     from bs4 import BeautifulSoup
 except Exception:
     BeautifulSoup = None
+
+try:
+    from googlenewsdecoder import gnewsdecoder as _gnewsdecoder
+except Exception:  # optional dependency
+    _gnewsdecoder = None
 
 
 @dataclass
@@ -678,6 +684,24 @@ class HttpNewsAdapter:
         return self._strip_text(html_text)[:30000]
 
 
+    def _decode_google_news_with_decoder(self, url: str, interval: int | None = None) -> str | None:
+        if not _gnewsdecoder:
+            return None
+        if interval is None:
+            try:
+                interval = int(os.getenv("GOOGLE_NEWS_DECODER_INTERVAL", "1").strip())
+            except Exception:
+                interval = 1
+        try:
+            r = _gnewsdecoder(url, interval=interval)  # type: ignore[operator]
+            if isinstance(r, dict) and r.get("status"):
+                decoded = (r.get("decoded_url") or "").strip()
+                if decoded.startswith(("http://", "https://")):
+                    return decoded
+        except Exception:
+            return None
+        return None
+
     def resolve_google_news_url(self, url: str) -> str | None:
         """Google News RSS 링크를 최종 원문 URL로 추적(브라우저 미사용 모드용)."""
         if not url:
@@ -687,7 +711,12 @@ class HttpNewsAdapter:
         if "news.google.com/rss/articles" not in u and "news.google.com" not in u:
             return u
 
-        # google 래퍼는 단순 redirect만으로 원문이 안 떨어질 수 있어 본문 HTML에서 canonical/og/url을 더 탐색
+        # 1) 공개 라이브러리 기반 디코더 우선 시도
+        decoded = self._decode_google_news_with_decoder(u)
+        if decoded:
+            return decoded
+
+        # 2) google 래퍼는 단순 redirect만으로 원문이 안 떨어질 수 있어 본문 HTML에서 canonical/og/url을 더 탐색
         if requests is None:
             return u
 
