@@ -467,7 +467,8 @@ class WritingAgent:
         description = self._ensure_korean_summary_lines(description, max_lines=7)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
 
-        practical = practical_ko(title, description, max_sentences=5)
+        practical_input = f"{description}\n\n{summary_source}"
+        practical = practical_ko(title, practical_input, max_sentences=5)
         practical = self._force_korean(practical, fallback_on_fail=description)
         if not practical:
             practical = description
