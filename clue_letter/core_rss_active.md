@@ -24,3 +24,19 @@
 2. TechCrunch: 사이트 정책/리디렉션 의심. `https://techcrunch.com/category/artificial-intelligence/feed/` 형태로 대체 후보 점검 필요.
 3. Google Cloud / AWS / CNBC / FT / Reuters: 직접 브라우저 페이지 렌더링에서 XML 항목 추출 실패가 섞여 있어, RSS가 아닌 구조 또는 클라우드플레어/차단/헤더 의존일 가능성 큼.
 4. AnandTech / Electronic Design: 피드가 존재해도 렌더링/포맷이 브라우저 추출기에 맞지 않을 수 있어, raw URL fetch(XML 파서) 경로 추가 시 회복 가능성 있음.
+
+## 2026-03-18 신규 확장 제안 반영
+- 추가 활성화(확장):
+  - TechCrunch AI (category): https://techcrunch.com/category/artificial-intelligence/feed/
+  - The Verge: https://www.theverge.com/rss/index.xml
+  - MIT Tech Review: https://www.technologyreview.com/feed/
+  - Wired: https://www.wired.com/feed/category/gear/latest/rss
+  - ZDNet: https://www.zdnet.com/topic/technology/news/rss.xml
+  - CNET Tech: https://www.cnet.com/rss/news/
+  - 연합뉴스: https://www.yna.co.kr/rss/all.xml
+  - 전자신문: https://www.etnews.com/rss/all.xml
+
+- 이전 실패 후보 중 대체 URL/정상 후보로 이동 시도:
+  - TechCrunch tag feed(기존) -> category feed로 교체
+  - The Verge ai feed(기존 실패) -> 공용 RSS 경로로 교체
+  - MIT TechReview 기존 실패 경로 -> /feed/ 경로로 교체

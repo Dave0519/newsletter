@@ -460,6 +460,15 @@ class CollectionAgent:
                 return False
         return False
 
+    def _is_resolved_news_url(self, url: str) -> bool:
+        u = (url or "").strip().lower()
+        if not u:
+            return False
+        # Google News 래퍼 잔존 링크는 아직 원문으로 보지 않음
+        if "news.google.com/rss/articles" in u or "news.google.com/articles" in u:
+            return False
+        return _is_candidate_news_url(url)
+
     def _canonicalize_url(self, url: str) -> str:
         s = (url or "").strip()
         if not s:
@@ -578,7 +587,7 @@ class CollectionAgent:
         return selected
 
 
-    def _normalize_urls_for_total(self, articles: list[CollectedArticle]) -> list[CollectedArticle]:
+    def _normalize_urls_for_total(self, articles: list[CollectedArticle], filter_unresolved: bool = False) -> list[CollectedArticle]:
         seen = set()
         out: list[CollectedArticle] = []
         for a in articles:
@@ -589,7 +598,11 @@ class CollectionAgent:
             normalized = self._normalize_article_url(raw)
             if normalized:
                 a.url = normalized
+
             if not _is_candidate_news_url(a.url):
+                self.stage_counters["normalized_total"] += 1
+                continue
+            if filter_unresolved and not self._is_resolved_news_url(a.url):
                 self.stage_counters["normalized_total"] += 1
                 continue
             if a.url in seen:
@@ -1047,8 +1060,8 @@ class CollectionAgent:
         total_candidates = candidates
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
         # total_news 입력 전에 링크 정규화: google 래퍼/추적 파라미터 정리로 공통 저장 포맷 정합성 강화
-        total_news = self._normalize_urls_for_total(total_news)
-        selected = self._normalize_urls_for_total(selected)
+        total_news = self._normalize_urls_for_total(total_news, filter_unresolved=True)
+        selected = self._normalize_urls_for_total(selected, filter_unresolved=False)
 
         # 최종 반환/저장 전에 제목 시그니처까지 반영해 같은 내용 중복을 1건으로 압축
         total_news = self._dedupe_articles(total_news)

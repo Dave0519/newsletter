@@ -25,24 +25,49 @@
       "name": "WSJ World",
       "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
       "status": "ok"
+    },
+    {
+      "name": "TechCrunch AI (category)",
+      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "status": "ok"
+    },
+    {
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "status": "ok"
+    },
+    {
+      "name": "MIT Tech Review",
+      "url": "https://www.technologyreview.com/feed/",
+      "status": "ok"
+    },
+    {
+      "name": "Wired",
+      "url": "https://www.wired.com/feed/category/gear/latest/rss",
+      "status": "ok"
+    },
+    {
+      "name": "ZDNet",
+      "url": "https://www.zdnet.com/topic/technology/news/rss.xml",
+      "status": "ok"
+    },
+    {
+      "name": "CNET Tech",
+      "url": "https://www.cnet.com/rss/news/",
+      "status": "ok"
+    },
+    {
+      "name": "연합뉴스",
+      "url": "https://www.yna.co.kr/rss/all.xml",
+      "status": "ok"
+    },
+    {
+      "name": "전자신문",
+      "url": "https://www.etnews.com/rss/all.xml",
+      "status": "ok"
     }
   ],
   "inactive": [
-    {
-      "name": "TechCrunch AI",
-      "url": "https://techcrunch.com/tag/ai/feed/",
-      "reason": "항목 추출 불안정(구조/응답 지연 의심)"
-    },
-    {
-      "name": "The Verge AI",
-      "url": "https://www.theverge.com/ai/rss/index.xml",
-      "reason": "RSS 경로로 보이지 않음(웹 페이지/404 응답)"
-    },
-    {
-      "name": "MIT Tech Review AI",
-      "url": "https://www.technologyreview.com/feed/",
-      "reason": "항목 추출 실패"
-    },
     {
       "name": "Electronic Design",
       "url": "https://www.electronicdesign.com/feed/",
@@ -61,11 +86,6 @@
     {
       "name": "AWS What's New",
       "url": "https://aws.amazon.com/about-aws/whats-new/recent/feed/",
-      "reason": "항목 추출 실패"
-    },
-    {
-      "name": "CNBC Tech",
-      "url": "https://www.cnbc.com/id/10000113/device/rss/rss.html",
       "reason": "항목 추출 실패"
     },
     {
