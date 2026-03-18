@@ -661,6 +661,18 @@ class CollectionAgent:
         if not articles:
             return []
 
+        def _token_set(a: CollectedArticle) -> set[str]:
+            base = f"{a.title or ''} {a.summary or ''}".lower()
+            # 2글자 이상 토큰만
+            return set(re.findall(r"[가-힣a-z0-9]{2,}", base))
+
+        def _jaccard(sa: set[str], sb: set[str]) -> float:
+            if not sa or not sb:
+                return 0.0
+            inter = len(sa & sb)
+            union = len(sa | sb)
+            return inter / float(union) if union else 0.0
+
         cache: dict[str, str] = {}
         selected: list[CollectedArticle] = []
         topic_buckets: dict[str, list[CollectedArticle]] = {}
@@ -693,6 +705,15 @@ class CollectionAgent:
                     if self._llm_is_same_topic(art, prev):
                         duplicate = True
                         break
+            else:
+                # topic_key가 달라서 버킷이 다르면 기존엔 비교가 안 돼 중복이 남았음.
+                # 텍스트 겹침이 큰 경우에만 교차 버킷에서 1회 더 비교
+                cur_tokens = _token_set(art)
+                for prev in selected[-8:]:
+                    if _jaccard(cur_tokens, _token_set(prev)) >= 0.55:
+                        if self._llm_is_same_topic(art, prev):
+                            duplicate = True
+                            break
 
             if duplicate:
                 continue
