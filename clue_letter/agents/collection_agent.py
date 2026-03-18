@@ -584,33 +584,28 @@ class CollectionAgent:
         t = re.sub(r"\s+", " ", t).strip().lower()
         return t[:60]
 
-    def _extract_topic_tokens(self, text: str) -> set[str]:
-        t = (text or "").replace("\r", " ").replace("\n", " ").lower()
-        stop_words = {
-            "또는", "그리고", "대한", "것", "있는", "있고", "있어", "있을", "있다", "있으며", "있다고", "것으로", "관련", "현재", "이번", "이번에", "이후", "최근", "최근에는", "현재는", "기업", "회사", "기자", "내용", "뉴스", "보도", "발표", "출시", "확대", "강조", "돌입", "마감", "국내", "해외", "시장", "기술", "글로벌"
-        }
-        toks = re.findall(r"[가-힣A-Za-z0-9']+", t)
-        out = set()
-        for tok in toks:
-            tok = tok.strip()
-            if len(tok) < 2:
-                continue
-            if tok in stop_words:
-                continue
-            out.add(tok)
-        return out
+    def _llm_is_same_topic(self, left: CollectedArticle, right: CollectedArticle) -> bool:
+        l_body = (left.body or "").replace("\n", " ").strip()[:500]
+        r_body = (right.body or "").replace("\n", " ").strip()[:500]
+        if not l_body:
+            l_body = (left.summary or "").replace("\n", " ").strip()[:500]
+        if not r_body:
+            r_body = (right.summary or "").replace("\n", " ").strip()[:500]
 
-    def _is_similar_topic_signature(self, a: str, b: str) -> bool:
-        if not a or not b:
+        prompt = (
+            "역할 : 뉴스레터 에디터\n"
+            "작업 : 아래 두 기사의 주제가 동일 기사군(동일 사/건, 동일 사건·동일 핵심 인물/기술/기관)인지 판단하세요.\n"
+            "정답은 'SAME' 또는 'DIFFERENT' 중 하나만 출력하세요.\n"
+            "동일 주제 기준: 핵심 주제, 핵심 사건, 핵심 대상이 본질적으로 동일하면 SAME.\n\n"
+            f"기사A\n제목: {left.title or ''}\n요약: {left.summary or ''}\n본문: {l_body}\n\n"
+            f"기사B\n제목: {right.title or ''}\n요약: {right.summary or ''}\n본문: {r_body}"
+        )
+        out = self._llm_request(prompt).strip().lower()
+        if not out:
             return False
-        ta = set((a or "").split())
-        tb = set((b or "").split())
-        if not ta or not tb:
-            return False
-        inter = ta & tb
-        if len(inter) >= 5:
+        if out.startswith("same") or out.startswith("duplicate"):
             return True
-        if len(inter) >= 3 and len(inter) >= 0.45 * min(len(ta), len(tb)):
+        if "same" in out.split() and "different" not in out:
             return True
         return False
 
@@ -656,8 +651,7 @@ class CollectionAgent:
 
         cache: dict[str, str] = {}
         selected: list[CollectedArticle] = []
-        seen_topics: set[str] = set()
-        seen_signatures: list[set[str]] = []
+        topic_buckets: dict[str, list[CollectedArticle]] = {}
         for art in articles:
             if not isinstance(art, CollectedArticle):
                 continue
@@ -680,21 +674,18 @@ class CollectionAgent:
                 selected.append(art)
                 continue
 
-            sig = self._extract_topic_tokens(f"{art.title} {art.summary} {body_snip}")
+            # 1차: 1문장 토픽 키(LLM 요약) 동일성 + 2차: 같은 주제 후보 간 LLM 직접 비교
             duplicate = False
-            for prev_sig in seen_signatures:
-                if self._is_similar_topic_signature(" ".join(sig), " ".join(prev_sig)):
-                    duplicate = True
-                    break
-
-            if not duplicate and topic_key in seen_topics:
-                duplicate = True
+            if topic_key in topic_buckets:
+                for prev in topic_buckets[topic_key]:
+                    if self._llm_is_same_topic(art, prev):
+                        duplicate = True
+                        break
 
             if duplicate:
                 continue
 
-            seen_topics.add(topic_key)
-            seen_signatures.append(sig)
+            topic_buckets.setdefault(topic_key, []).append(art)
             selected.append(art)
 
         return selected
