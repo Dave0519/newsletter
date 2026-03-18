@@ -402,17 +402,49 @@ class WritingAgent:
             return []
         return [n for n, _ in counts.most_common(5)]
 
-    def _build_need_hashtags(self, articles: list[CollectedArticle], max_n: int = 5) -> str:
+    def _build_need_hashtags(self, articles: list[CollectedArticle | NewsletterEntry], max_n: int = 5) -> str:
         counts: Counter[str] = Counter()
-        for a in articles:
-            if a.need_category:
-                counts[a.need_category] += 1
-        if not counts:
-            texts = [x for a in articles for x in (a.title, a.summary) if x]
-            return extract_hashtags(texts, top_n=max_n)
+        stopwords = {
+            "있다", "있으며", "있어", "있을", "있습니다", "있을", "때", "등", "및", "하고", "한다", "할", "을", "를", "의", "가", "이", "에", "와", "과", "은", "는", "들", "이슈", "기사", "오늘", "기자" , "공지"
+        }
 
-        top_needs = [n for n, _ in counts.most_common(max_n)]
-        return " ".join([f"#{x}" for x in top_needs])
+        # 1) 기사별로 설정된 니즈/토픽을 우선 반영
+        for a in articles:
+            if a.need_category and a.need_category.strip():
+                counts[a.need_category.strip()] += 2
+            if a.topic and a.topic.strip():
+                counts[a.topic.strip()] += 1
+
+        # 2) 보조 키워드 추출 (제목/요약)
+        texts = [x for a in articles for x in (a.title, a.summary) if x]
+        for t in texts:
+            for token in re.findall(r"[가-힣A-Za-z0-9]+", t):
+                token = token.strip()
+                if not token:
+                    continue
+                if token in stopwords:
+                    continue
+                if len(token) < 2:
+                    continue
+                if token in counts:
+                    counts[token] += 1
+                elif len(counts) < max_n * 6:
+                    counts[token] += 1
+
+        if not counts:
+            return ""
+
+        ordered = [k for k, _ in counts.most_common(max_n)]
+        ordered_unique = []
+        for x in ordered:
+            x = x.strip()
+            if x and x not in ordered_unique:
+                ordered_unique.append(x)
+            if len(ordered_unique) >= max_n:
+                break
+        return " ".join([f"#{x}" for x in ordered_unique])
+
+
 
     def _load_remote_body(self, url: str) -> str:
         if not self.fetch_body or not url:
@@ -579,13 +611,8 @@ class WritingAgent:
 
         # header tags: use top needs directly from collected list
         # if insufficient needs, fallback to text keyword extraction
-        need_tags = self._build_need_hashtags(collected)
+        need_tags = self._build_need_hashtags(entries, max_n=5)
         template = template.replace("{{NEEDS_HASHTAGS}}", need_tags)
-
-        hashtags = self._build_need_hashtags(collected, max_n=6)
-        if not hashtags:
-            hashtags = extract_hashtags([x for e in entries for x in (e.title, e.summary)], top_n=6)
-        template = template.replace("{{NEEDS_HASHTAGS}}", hashtags)
 
         # summary section (global scan 핵심 5개 기반)
         summary_lines = self._build_summary_points(entries)
