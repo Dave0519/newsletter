@@ -308,22 +308,25 @@ class WritingAgent:
         s = " ".join((out or "").strip().split())
         return s
 
-    def _llm_summary_from_body(self, title: str, body: str, regenerate_hint: str = "") -> str:
+    def _llm_summary_from_body(self, title: str, body: str, regenerate_hint: str = "", line_count: int = 6) -> str:
         if not body:
             return ""
         hint = f"\n[추가 교정 지시] {regenerate_hint}" if regenerate_hint else ""
+        lc = max(5, int(line_count))
         prompt = (
-            "너는 한국어 뉴스레터 에디터다. 기사 본문을 근거로 4~5줄로만 요약해줘.\n"
+            "너는 한국어 뉴스레터 에디터다. 기사 본문을 근거로 5~7줄 내외로 요약해줘.\n"
             "규칙:\n"
             "1) 본문 근거만 사용\n"
             "2) 추측/과장/메타문구 금지\n"
             "3) 핵심 사실-수치-영향 순으로 짧은 문장으로 정리\n"
             "4) 출력을 요약 본문만 출력\n"
+            "5) 불필요한 소개/결론 문구 없이 핵심만 정리\n"
             f"{hint}\n\n"
-            f"[제목] {title}\n\n"
+            f"[제목] {title}\n"
+            f"[요약 줄 수] 대략 {lc}줄\n\n"
             f"[본문] {body[:12000]}"
         )
-        return self._llm_request(prompt, max_tokens=800, temperature=0.2)
+        return self._llm_request(prompt, max_tokens=950, temperature=0.2)
 
     def _llm_judge_summary(self, title: str, body: str, summary: str) -> tuple[bool, str]:
         if not title or not summary:
@@ -444,11 +447,11 @@ class WritingAgent:
         title = rewritten_title if rewritten_title and self._contains_korean(rewritten_title) else self._force_korean(raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
 
         # 요약: 본문 기반 4~5줄 + 검수 재시도 1회
-        description = self._llm_summary_from_body(title, summary_source)
+        description = self._llm_summary_from_body(title, summary_source, line_count=7)
         if description:
             ok, reason = self._llm_judge_summary(title, summary_source, description)
             if not ok:
-                description = self._llm_summary_from_body(title, summary_source, regenerate_hint=reason)
+                description = self._llm_summary_from_body(title, summary_source, regenerate_hint=reason, line_count=7)
 
         if not description:
             description = summarize_ko(summary_source, title=title, sentence_count=5)
@@ -461,7 +464,7 @@ class WritingAgent:
         if not description:
             description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
 
-        description = self._ensure_korean_summary_lines(description, max_lines=5)
+        description = self._ensure_korean_summary_lines(description, max_lines=7)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
 
         practical = practical_ko(title, description, max_sentences=5)
