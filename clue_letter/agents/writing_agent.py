@@ -245,16 +245,22 @@ class WritingAgent:
             return ""
 
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> list[str]:
-        # Summary 카테고리 요약: 토픽/제목 기반 5개 내외 리스트
-        buckets: dict[str, list[str]] = {}
-        for e in entries:
-            topic = e.topic or "기타"
-            buckets.setdefault(topic, []).append(e.title)
-
+        """Global scan 핵심 5개를 제목+요약 기반으로 정렬해 반환."""
         out = []
-        for topic, titles in buckets.items():
-            out.append(f"• {topic}: " + ", ".join(titles[:2]))
-        return out[:6]
+        for idx, e in enumerate(entries[:5], 1):
+            title = (e.title or "").strip()
+            sum_txt = (e.summary or "").strip()
+            if not sum_txt:
+                sum_txt = title
+            row = f"{idx}. {title}"
+            if sum_txt:
+                # 너무 길면 축약
+                short = sum_txt.replace("\n", " ").strip()
+                if len(short) > 150:
+                    short = short[:147].rstrip() + "..."
+                row = f"{row} — {short}"
+            out.append(row)
+        return out
 
     def _grouped_country_blocks(self, articles: list[NewsletterEntry]):
         countries: dict[str, list[NewsletterEntry]] = {}
@@ -318,6 +324,7 @@ class WritingAgent:
         template = template.replace("{{ISSUE_DATE}}", datetime.now().strftime("%Y. %m. %d"))
         template = template.replace("{{ISSUE_NUMBER}}", str(issue_number or 0).zfill(3))
         template = template.replace("{{SERIAL_NUMBER}}", user.user_code)
+        template = template.replace("{{BRAND_MARK}}", "SK HYNIX")
 
         # header tags: use top needs directly from collected list
         # if insufficient needs, fallback to text keyword extraction
@@ -329,16 +336,10 @@ class WritingAgent:
             hashtags = extract_hashtags([x for e in entries for x in (e.title, e.summary)], top_n=6)
         template = template.replace("{{NEEDS_HASHTAGS}}", hashtags)
 
-        # summary section
-        summary_lines = "<br/>".join(self._build_summary_points(entries))
-        summary_block = (
-            f'<p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#FFFFFF;line-height:1.7">'
-            + f"요약: {summary_lines}</p>"
-        )
-        marker = "{{/ARTICLES}}"
-        idx = template.find(marker)
-        if idx != -1:
-            template = template[:idx + len(marker)] + "\n" + summary_block + template[idx + len(marker):]
+        # summary section (global scan 핵심 5개 기반)
+        summary_lines = self._build_summary_points(entries)
+        summary_block = "요약: " + "<br/>".join(summary_lines)
+        template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
         # Country/article blocks
         countries = self._grouped_country_blocks(entries)
@@ -361,7 +362,6 @@ class WritingAgent:
         template = _replace_block(template, "{{#COUNTRIES}}", "{{/COUNTRIES}}", "\n".join(rows))
 
         # placeholders that may be introduced later
-        template = template.replace("{{CORE_DESCRIPTION}}", "오늘의 핵심 이슈를 니즈 기준으로 정리했습니다.")
         template = template.replace("{{GLOBAL_SCAN_INTRO}}", "")
         return template
 
