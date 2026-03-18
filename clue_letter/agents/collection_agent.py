@@ -580,9 +580,21 @@ class CollectionAgent:
         t = (topic or "").strip()
         if not t:
             return ""
+        # (1) 문자 정리
         t = re.sub(r"[^가-힣A-Za-z0-9\s]", " ", t)
         t = re.sub(r"\s+", " ", t).strip().lower()
-        return t[:60]
+
+        # (2) 너무 다양한 표현을 줄이기 위한 stopword 제거 + 앞 토큰 위주로 키를 거칠게 만들기
+        stop = {
+            "관련", "동향", "이슈", "업데이트", "뉴스", "브리핑", "정리", "요약",
+            "발표", "추진", "검토", "확대", "강화", "협력", "계획", "전망",
+            "report", "news", "update", "briefing"
+        }
+        tokens = [x for x in t.split(" ") if x and x not in stop]
+        # 핵심 토큰 일부만 사용(키를 coarse하게 만들어 같은 사건이 같은 버킷으로 들어오게 함)
+        tokens = tokens[:6]
+        key = " ".join(tokens).strip()
+        return key[:60]
 
     def _llm_is_same_topic(self, left: CollectedArticle, right: CollectedArticle) -> bool:
         l_body = (left.body or "").replace("\n", " ").strip()[:500]
