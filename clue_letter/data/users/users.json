@@ -109,17 +109,87 @@
     "email": "bonggyu1.choi@sk.com",
     "user_code": "FPIVGPWG",
     "interests": [
+      "팔란티어",
+      "온톨로지",
       "제조 AI",
       "HBM",
       "경쟁사 제조 동향",
       "삼성 동향",
       "마이크론 동향",
       "스마트 팩토리",
-      "팔란티어",
-      "온톨로지",
       "Database"
     ],
     "needs_list": [
+      {
+        "need_id": "팔란티어",
+        "need_text": "팔란티어",
+        "aliases": [
+          "팔란티어",
+          "Palantir",
+          "팔란티어 플랫폼",
+          "팔란티어foundry",
+          "Foundry",
+          "Gotham",
+          "AIP",
+          "Palantir Foundry",
+          "팔란티어 가트홈",
+          "Palantir Gotham"
+        ],
+        "aliases_flat": [
+          "팔란티어",
+          "Palantir",
+          "팔란티어 플랫폼",
+          "팔란티어foundry",
+          "Foundry",
+          "Gotham",
+          "AIP",
+          "Palantir Foundry",
+          "팔란티어 가트홈",
+          "Palantir Gotham"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "온톨로지",
+        "need_text": "온톨로지",
+        "aliases": [
+          "온톨로지",
+          "ontology",
+          "지식그래프",
+          "지식 그래프",
+          "지식 표현",
+          "지식 모델링",
+          "온톨로지 엔진",
+          "시맨틱",
+          "Semantic",
+          "RDF",
+          "OWL",
+          "SKOS",
+          "OWL 2",
+          "지식 베이스",
+          "개념 계층"
+        ],
+        "aliases_flat": [
+          "온톨로지",
+          "ontology",
+          "지식그래프",
+          "지식 그래프",
+          "지식 표현",
+          "지식 모델링",
+          "온톨로지 엔진",
+          "시맨틱",
+          "Semantic",
+          "RDF",
+          "OWL",
+          "SKOS",
+          "OWL 2",
+          "지식 베이스",
+          "개념 계층"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
       {
         "need_id": "제조ai",
         "need_text": "제조 AI",
@@ -202,30 +272,6 @@
         ],
         "aliases_flat": [
           "스마트 팩토리"
-        ],
-        "is_active": true,
-        "is_valid": true
-      },
-      {
-        "need_id": "팔란티어",
-        "need_text": "팔란티어",
-        "aliases": [
-          "팔란티어"
-        ],
-        "aliases_flat": [
-          "팔란티어"
-        ],
-        "is_active": true,
-        "is_valid": true
-      },
-      {
-        "need_id": "온톨로지",
-        "need_text": "온톨로지",
-        "aliases": [
-          "온톨로지"
-        ],
-        "aliases_flat": [
-          "온톨로지"
         ],
         "is_active": true,
         "is_valid": true
