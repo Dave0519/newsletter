@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from pathlib import Path
 import ssl
+import hashlib
 
 from .models import CollectedArticle, UserProfile
 from .utils import ensure_dir, safe_filename
@@ -200,7 +201,7 @@ def _trim_summary_prefix(title: str, summary: str) -> str:
             s = s[len(p):].strip()
 
     # 따옴표로 감싼 반복구간 제거(예: "title title")
-    m = re.match(r"^\"([^\"]{6,})\"\s+", s)
+    m = re.match(r'^"([^"]{6,})"\s+', s)
     if m:
         quoted = m.group(1)
         tail = s[m.end():]
@@ -209,6 +210,26 @@ def _trim_summary_prefix(title: str, summary: str) -> str:
             s = tail[ql:].strip()
 
     return s.strip()
+
+
+def _normalize_title_signature(text: str) -> str:
+    t = (text or "").strip().lower()
+    if not t:
+        return ""
+    t = re.sub(r"[^가-힣a-z0-9]+", " ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[:90]
+
+
+
+def _make_article_key(title: str, url: str) -> str:
+    sig = _normalize_title_signature(title)
+    if sig:
+        sig_hash = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:10]
+    else:
+        sig_hash = ""
+    u = (url or "").strip().lower()
+    return f"{u}::{sig_hash}"
 
 
 class CollectionAgent:
@@ -447,7 +468,20 @@ class CollectionAgent:
             p = urlparse(s)
             if not p.scheme or not p.netloc:
                 return s
-            drop_prefixes = ("utm_", "utm", "fbclid", "gclid", "ref", "oc", "ref_src")
+
+            netloc = (p.netloc or "").strip().lower()
+            if netloc.startswith("www."):
+                netloc = netloc[4:]
+
+            path = (p.path or "").strip()
+            # 모바일/AMP/트래커 경로 패턴 정리
+            path = re.sub(r"/amp/?$", "/", path, flags=re.I)
+            path = re.sub(r"/m/?$", "/", path, flags=re.I)
+            path = re.sub(r"/index\.html$", "/", path, flags=re.I)
+            path = re.sub(r"/+", "/", path or "/")
+
+            # 추적 파라미터 제거 (강화)
+            drop_prefixes = ("utm_", "utm", "fbclid", "gclid", "ref", "oc", "ref_src", "amp", "__cf_chl_tk", "session", "sid", "igsh", "mc_cid", "mc_eid", "sp", "sp_a", "sp_k", "sp_r")
             q = parse_qs(p.query, keep_blank_values=False)
             cleaned = []
             for key, values in q.items():
@@ -455,8 +489,16 @@ class CollectionAgent:
                 if lk in drop_prefixes or any(lk.startswith(pref) for pref in drop_prefixes):
                     continue
                 for v in values:
+                    # 빈 값이더라도 구조 동일성 유지하려면 유지
+                    if v is None:
+                        v = ""
                     cleaned.append((key, v))
-            return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(cleaned, doseq=True), "")).rstrip("?")
+
+            # google news wrapper는 파라미터 제거 후 url 자체를 더 이상 붙잡지 않는다
+            if "news.google.com" in p.netloc.lower() and not p.path.lower().startswith("/url"):
+                path = p.path
+
+            return urlunparse((p.scheme.lower(), netloc, path, p.params, urlencode(cleaned, doseq=True), "")).rstrip("?")
         except Exception:
             return s
 
@@ -466,15 +508,16 @@ class CollectionAgent:
             return ""
 
         # Google 래퍼 링크/유사 링크는 원문 URL로 해석 시도
-        if "news.google.com/rss/articles" in resolved.lower():
+        if "news.google.com/rss/articles" in resolved.lower() or "news.google.com" in resolved.lower():
             try:
                 parsed = urlparse(resolved)
                 q = parse_qs(parsed.query)
                 candidates = []
-                for key in ("url", "u", "rurl"):
+                for key in ("url", "u", "rurl", "ru", "aurl"):
                     for v in q.get(key, []):
                         if v:
                             candidates.append(v)
+                # google 내부 추적 파라미터가 있을 때만 추출
                 for v in candidates:
                     cand = unquote_plus(v).strip()
                     if cand:
@@ -493,6 +536,47 @@ class CollectionAgent:
 
         resolved = self._canonicalize_url(resolved)
         return resolved
+
+    def _dedupe_articles(self, articles: list[CollectedArticle]) -> list[CollectedArticle]:
+        """기사 URL + 제목 시그니처를 함께 사용해 최종 중복을 제거한다."""
+        if not articles:
+            return []
+
+        selected: list[CollectedArticle] = []
+        seen_urls: set[str] = set()
+        seen_signatures: dict[str, int] = {}
+
+        def _score(a: CollectedArticle) -> float:
+            return (a.relevance_score or 0.0) * 1000.0 + (a.body_len or 0) + ((a.recency_score or 0.0) * 100.0)
+
+        for a in articles:
+            if not isinstance(a, CollectedArticle):
+                continue
+            url = (a.url or "").strip()
+            sig_key = _normalize_title_signature(a.title)
+            if not url:
+                continue
+
+            if url in seen_urls:
+                continue
+
+            # 제목 시그니처가 동일한 경우, 점수 높은 항목만 유지(문장 변형/중복 제목 노이즈 완화)
+            if sig_key:
+                prev_idx = seen_signatures.get(sig_key)
+                if prev_idx is not None:
+                    prev = selected[prev_idx]
+                    if _score(a) > _score(prev):
+                        selected[prev_idx] = a
+                    continue
+
+            seen_urls.add(url)
+            seen_signatures[sig_key] = len(selected)
+            selected.append(a)
+
+        # 2차 정렬: 중요도 순 정렬 후 반환
+        selected.sort(key=lambda x: (x.relevance_score or 0.0, x.body_len or 0), reverse=True)
+        return selected
+
 
     def _normalize_urls_for_total(self, articles: list[CollectedArticle]) -> list[CollectedArticle]:
         seen = set()
@@ -513,7 +597,9 @@ class CollectionAgent:
                 continue
             seen.add(a.url)
             out.append(a)
-        return out
+
+        # URL 정규화 이후 제목-시그니처 레벨 2차 중복도 함께 제거
+        return self._dedupe_articles(out)
 
 
     def _collect_need_term_index(self, needs_payload: list[dict]) -> list[str]:
@@ -963,6 +1049,10 @@ class CollectionAgent:
         # total_news 입력 전에 링크 정규화: google 래퍼/추적 파라미터 정리로 공통 저장 포맷 정합성 강화
         total_news = self._normalize_urls_for_total(total_news)
         selected = self._normalize_urls_for_total(selected)
+
+        # 최종 반환/저장 전에 제목 시그니처까지 반영해 같은 내용 중복을 1건으로 압축
+        total_news = self._dedupe_articles(total_news)
+        selected = self._dedupe_articles(selected)
 
         self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} normalized_total={self.stage_counters['normalized_total']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
         self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)
