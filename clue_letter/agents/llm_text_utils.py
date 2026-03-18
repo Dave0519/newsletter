@@ -93,17 +93,23 @@ def practical_ko(title: str, summary: str, max_sentences: int = 5) -> str:
         "[요약본]\n"
         f"{summary}\n\n"
         "작성 지침:\n"
-        "- 문장당 짧고 실무용으로 끝맺음\n"
         "- 모호한 표현(아마, 추정, 것으로 보인다) 최소화\n"
         "- 조치/모니터링 포인트가 있으면 동사형으로 제시\n"
+        "- 항목 번호(1), 2), 첫째, 둘째, • 등 번호/리스트 형식 사용 금지\n"
     )
     out = _llm(prompt, max_tokens=500, temp=0.2)
     if not out:
         return (summary or "")[:max_sentences * 80].strip()
 
     chunks = [x.strip() for x in out.replace("\n\n", "\n").split("\n") if x.strip()]
-    chunks = [x for x in chunks if x]
-    return "\n".join(chunks[: min(max_sentences, 5)])
+    cleaned = []
+    import re
+    for c in chunks:
+        c2 = re.sub(r"^\\s*(?:[0-9]+[\\)\.]|[가-힣]+\\)|첫째|둘째|셋째|넷째|다섯째|여섯째)[\\s:\,-]*", "", c).strip()
+        c2 = re.sub(r"\\s+", " ", c2)
+        if c2:
+            cleaned.append(c2)
+    return "\n".join(cleaned[: min(max_sentences, 5)])
 
 
 def rewrite_title(raw_title: str, body: str, max_chars: int = 70) -> str:

@@ -159,6 +159,23 @@ class WritingAgent:
                 break
         return "\n".join(out)
 
+    def _normalize_practical_lines(self, text: str, max_lines: int = 5) -> str:
+        if not text:
+            return text
+        lines = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            line = re.sub(r"^\s*(?:[0-9]+[\)\.]|[가-힣]+\)|[①-⑳]|[#•\-*]\s*|첫째|둘째|셋째|넷째|다섯째|여섯째)\s*[:\-]?\s*", "", line)
+            line = re.sub(r"\s+", " ", line).strip()
+            if not line:
+                continue
+            lines.append(line)
+            if len(lines) >= max_lines:
+                break
+        return "\n".join(lines)
+
     def _force_korean(self, text: str, fallback_on_fail: str | None = None) -> str:
         src = (text or "").strip()
         if not src:
@@ -496,7 +513,8 @@ class WritingAgent:
             "1) 기사 본문 근거 중심으로만 작성, 외부 추측 최소화\n"
             "2) 해당 이슈에 대한 실무 액션/리스크/대응 방향을 3~5문장으로 제시\n"
             "3) 단정이 아닌 실행 관점 중심 문장으로 마무리\n"
-            "4) 문장당 짧고 즉시 참고 가능한 수준\n\n"
+            "4) 문장당 짧고 즉시 참고 가능한 수준\n"
+            "5) 번호/리스트(1), 첫째, 둘째, • 등) 형식 사용 금지\n\n"
             f"[제목]\n{title}\n\n"
             f"[요약]\n{summary}\n\n"
             f"[본문]\n{body_snippet}"
@@ -505,7 +523,7 @@ class WritingAgent:
         out = (out or "").strip()
         if not out:
             return ""
-        return self._ensure_korean_summary_lines(out, max_lines=5)
+        return self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=5), max_lines=5)
 
 
 
