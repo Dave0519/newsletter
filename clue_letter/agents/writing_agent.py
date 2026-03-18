@@ -718,6 +718,23 @@ class WritingAgent:
         return entry
 
 
+    def _build_trace_id(self, user: UserProfile, issue_number: int | None, article_count: int) -> str:
+        issue = str(issue_number or 0).zfill(3)
+        t = datetime.now().strftime("%Y%m%d%H%M%S")
+        base = f"{t}|{user.user_code}|{issue}|{article_count}"
+        digest = hashlib.sha1(base.encode("utf-8")).hexdigest()[:8]
+        return f"clue_{t}_{user.user_code}_{issue}_{digest}"
+
+    def _inject_trace_comment(self, html: str, user: UserProfile, issue_number: int | None, article_count: int) -> str:
+        trace_id = self._build_trace_id(user, issue_number, article_count)
+        marker = (
+            f"<!-- CLUE_INTERNAL_TRACE user_code={user.user_code} user={user.name} "
+            f"issue={issue_number or 0} articles={article_count} trace_id={trace_id} -->"
+        )
+        if "</body>" in html:
+            return html.replace("</body>", marker + "\n</body>")
+        return html + marker
+
     def compose_html(self, user: UserProfile, collected: list[CollectedArticle], issue_number: int | None = None) -> str:
         if not collected:
             raise ValueError("No collected article")
@@ -768,7 +785,7 @@ class WritingAgent:
 
         # placeholders that may be introduced later
         template = template.replace("{{GLOBAL_SCAN_INTRO}}", "")
-        return template
+        return self._inject_trace_comment(template, user=user, issue_number=issue_number, article_count=len(entries))
 
     def build_and_save(
         self,
@@ -797,6 +814,7 @@ class WritingAgent:
             "issue_date": datetime.now().strftime("%Y.%m.%d"),
             "count": len(collected),
             "sha1": digest,
+            "trace_id": self._build_trace_id(user, issue_number, len(collected)),
         }
         (out_root / "meta.json").write_text(json_export(meta), encoding="utf-8")
         return out
