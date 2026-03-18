@@ -253,6 +253,7 @@ class CollectionAgent:
         min_success_body_len: int = 1200,
         daily_news_target: int = 10,
         daily_news_flexible_target: bool = True,
+        query_batch_size: int = 12,
         global_fetch_time_cap: float = 90.0,
         source_fail_rate_circuit: float | None = 0.85,
     ):
@@ -272,6 +273,7 @@ class CollectionAgent:
         self.min_success_body_len = min_success_body_len
         self.daily_news_target = daily_news_target
         self.daily_news_flexible_target = daily_news_flexible_target
+        self.query_batch_size = max(0, int(query_batch_size))
         self.global_fetch_time_cap = float(global_fetch_time_cap) if global_fetch_time_cap is not None else 0.0
         self.source_fail_rate_circuit = float(source_fail_rate_circuit) if source_fail_rate_circuit is not None else None
         self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
@@ -1042,20 +1044,36 @@ class CollectionAgent:
                 self._log(f"[collect] built score={article.relevance_score:.2f} need={article.need_category} src={src} url={article.url[:90]}")
 
         source_stats: dict[str, dict[str, int]] = {}
-        start_t = datetime.now().astimezone()
         core_limit = limit
 
-        # core first
-        if callable(getattr(self, "search_core", None)):
-            pre = stage_preselect(self.search_core, query_pairs, source_type="direct", max_hits=core_limit)
-            build_from_preselect(pre, "direct", start_t, source_stats)
+        # query 배치 모드로 처리
+        q_batches: list[list[tuple[str, str]]] = []
+        if self.query_batch_size > 0 and len(query_pairs) > self.query_batch_size:
+            for i in range(0, len(query_pairs), self.query_batch_size):
+                q_batches.append(query_pairs[i : i + self.query_batch_size])
+        else:
+            q_batches = [query_pairs]
 
-        # google fallback: direct 검색 후 항상 보완 검색 수행
-        if callable(getattr(self, "search_google", None)):
-            self.stage_counters["fallback_used"] += 1
-            g_pairs = query_pairs[:]
-            pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(25, limit // 2))
-            build_from_preselect(pre, "google", start_t, source_stats)
+        for batch_i, q_batch in enumerate(q_batches, start=1):
+            if len(candidates) >= min(self.global_candidates_cap, max(min_count, 12)):
+                break
+
+            self._log(f"[collect] batch start idx={batch_i}/{len(q_batches)} source=all size={len(q_batch)}")
+            start_t = datetime.now().astimezone()
+
+            # core first
+            if callable(getattr(self, "search_core", None)):
+                pre = stage_preselect(self.search_core, q_batch, source_type="direct", max_hits=core_limit)
+                build_from_preselect(pre, "direct", start_t, source_stats)
+
+            # google fallback: direct 검색 후 항상 보완 검색 수행
+            if callable(getattr(self, "search_google", None)):
+                self.stage_counters["fallback_used"] += 1
+                g_pairs = q_batch[:]
+                pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(25, limit // 2))
+                build_from_preselect(pre, "google", start_t, source_stats)
+
+            self._log(f"[collect] batch done idx={batch_i}/{len(q_batches)} total={len(candidates)}")
 
         total_candidates = candidates
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
