@@ -424,18 +424,24 @@ class WritingAgent:
             return ""
 
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> list[str]:
-        """Global scan 핵심 5개를 제목 없이 문장형으로 요약."""
-        out = []
-        for idx, e in enumerate(entries[:5], 1):
-            sum_txt = (e.summary or "").strip().replace("\n", " ").strip()
-            if not sum_txt and e.title:
-                sum_txt = f"핵심 이슈 {idx}번은 {e.title}에 대한 보도입니다."
-            if not sum_txt:
+        """Openclaw 스타일 Summary 블록 빌더(기사당 최대 2문장, 총 5개 항목)."""
+        bullets: list[str] = []
+        for e in entries:
+            d = " ".join((e.summary or "").split())
+            if not d and e.title:
+                d = f"{e.title}에 대한 보도입니다."
+            if not d:
                 continue
-            if len(sum_txt) > 140:
-                sum_txt = sum_txt[:137].rstrip() + "..."
-            out.append(f"• {sum_txt}")
-        return out
+
+            parts = [p.strip() for p in re.split(r"(?<=[.!?다])\s+", d) if p.strip()]
+            for part in parts[:2]:
+                if len(part) < 15:
+                    continue
+                bullets.append(f"• {part}")
+                if len(bullets) >= 5:
+                    return bullets
+
+        return bullets
 
     def _grouped_country_blocks(self, articles: list[NewsletterEntry]):
         countries: dict[str, list[NewsletterEntry]] = {}
@@ -579,7 +585,7 @@ class WritingAgent:
 
         # summary section (global scan 핵심 5개 기반)
         summary_lines = self._build_summary_points(entries)
-        summary_block = "요약: " + "<br/>".join(summary_lines)
+        summary_block = "<br/><br/>".join(summary_lines) if summary_lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
         template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
         # Country/article blocks
