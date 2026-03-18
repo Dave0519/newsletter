@@ -54,7 +54,7 @@ class SuperAgent:
                 fetch_body=adapter.fetch,
                 resolve_url=adapter.resolve_google_news_url,
                 search_core=_core_search,
-                search_google=adapter.search_google_news,
+                search_google=adapter.search_google_news if hasattr(adapter, "search_google_news") else adapter.search,
                 min_count=8,
             )
             self.collection_mode = "browser"
@@ -80,7 +80,7 @@ class SuperAgent:
                 fetch_body=adapter.fetch,
                 resolve_url=adapter.resolve_google_news_url,
                 search_core=_core_search,
-                search_google=adapter.search_google_news,
+                search_google=adapter.search_google_news if hasattr(adapter, "search_google_news") else adapter.search,
                 min_count=8,
             )
             self.collection_mode = "http"
