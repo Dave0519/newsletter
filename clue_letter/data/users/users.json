@@ -6,7 +6,6 @@
     "interests": [
       "제조 AI",
       "HBM",
-      "경쟁사 제조 동향",
       "삼성 동향",
       "마이크론 동향",
       "스마트 팩토리"
@@ -30,34 +29,16 @@
         "aliases": [
           "반도체",
           "semiconductor",
-          "chip",
-          "AI chip",
           "HBM",
-          "memory",
           "반도체 장비",
           "반도체 소재"
         ],
         "aliases_flat": [
           "반도체",
           "semiconductor",
-          "chip",
-          "AI chip",
           "HBM",
-          "memory",
           "반도체 장비",
           "반도체 소재"
-        ],
-        "is_active": true,
-        "is_valid": true
-      },
-      {
-        "need_id": "경쟁사제조동향",
-        "need_text": "경쟁사 제조 동향",
-        "aliases": [
-          "경쟁사 제조 동향"
-        ],
-        "aliases_flat": [
-          "경쟁사 제조 동향"
         ],
         "is_active": true,
         "is_valid": true
@@ -113,7 +94,6 @@
       "온톨로지",
       "제조 AI",
       "HBM",
-      "경쟁사 제조 동향",
       "삼성 동향",
       "마이크론 동향",
       "스마트 팩토리",
@@ -208,34 +188,16 @@
         "aliases": [
           "반도체",
           "semiconductor",
-          "chip",
-          "AI chip",
           "HBM",
-          "memory",
           "반도체 장비",
           "반도체 소재"
         ],
         "aliases_flat": [
           "반도체",
           "semiconductor",
-          "chip",
-          "AI chip",
           "HBM",
-          "memory",
           "반도체 장비",
           "반도체 소재"
-        ],
-        "is_active": true,
-        "is_valid": true
-      },
-      {
-        "need_id": "경쟁사제조동향",
-        "need_text": "경쟁사 제조 동향",
-        "aliases": [
-          "경쟁사 제조 동향"
-        ],
-        "aliases_flat": [
-          "경쟁사 제조 동향"
         ],
         "is_active": true,
         "is_valid": true
@@ -625,18 +587,12 @@
         "aliases": [
           "반도체",
           "semiconductor",
-          "chip",
-          "AI chip",
-          "HBM",
-          "memory"
+          "HBM"
         ],
         "aliases_flat": [
           "반도체",
           "semiconductor",
-          "chip",
-          "AI chip",
-          "HBM",
-          "memory"
+          "HBM"
         ],
         "is_active": true,
         "is_valid": true
