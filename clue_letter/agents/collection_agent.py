@@ -1279,7 +1279,31 @@ class CollectionAgent:
 
         issue = datetime.now().strftime("%Y-%m-%d")
         day_file = dirs["daily"] / f"{issue}.jsonl"
+        # topic dedupe (LLM 기반 동일 사건 중복 제거)
+        daily_before_topic = list(daily)
         daily = self._dedupe_daily_by_topic(daily)
+
+        # ✅ 언더필 가드: topic dedupe로 daily가 min_count 밑으로 내려가면,
+        # 기존 daily 후보에서 URL/제목시그니처 중복만 막고 다시 채운다.
+        if len(daily) < int(min_count):
+            existing_urls = {str(a.url or "").strip() for a in daily}
+            existing_sigs = {_normalize_title_signature(a.title or "") for a in daily if (a.title or "").strip()}
+
+            for cand in daily_before_topic:
+                url = str(cand.url or "").strip()
+                if not url or url in existing_urls:
+                    continue
+                sig = _normalize_title_signature(cand.title or "")
+                if sig and sig in existing_sigs:
+                    continue
+
+                daily.append(cand)
+                existing_urls.add(url)
+                if sig:
+                    existing_sigs.add(sig)
+
+                if len(daily) >= int(min_count):
+                    break
 
         with day_file.open("w", encoding="utf-8") as f:
             for a in daily:
