@@ -13,6 +13,7 @@ from urllib.error import URLError, HTTPError
 from pathlib import Path
 import ssl
 import hashlib
+import requests
 
 from .models import CollectedArticle, UserProfile
 from .utils import ensure_dir, safe_filename
@@ -299,6 +300,33 @@ class CollectionAgent:
         out = translate_ko(txt)
         return out[:max_chars] if out else txt[:max_chars]
 
+    def _llm_request(self, prompt: str, max_tokens: int = 240, temperature: float = 0.0) -> str:
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            return ""
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+        }
+        if str(model).lower().startswith("gpt-5"):
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["max_tokens"] = max_tokens
+        try:
+            r = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=60,
+            )
+            if r.status_code != 200:
+                return ""
+            return ((r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip())
+        except Exception:
+            return ""
+
     def load_daily_news(self, user: UserProfile, issue: str | None = None) -> list[CollectedArticle]:
         """오늘/특정 일자의 daily_news를 파일로부터 다시 로드한다."""
         dirs = self._user_dirs(user)
@@ -547,6 +575,67 @@ class CollectionAgent:
 
         resolved = self._canonicalize_url(resolved)
         return resolved
+
+    def _normalize_topic_key(self, topic: str) -> str:
+        t = (topic or "").strip()
+        if not t:
+            return ""
+        t = re.sub(r"[^가-힣A-Za-z0-9\s]", " ", t)
+        t = re.sub(r"\s+", " ", t).strip().lower()
+        return t[:60]
+
+    def _llm_judge_topic(self, title: str, summary: str) -> str:
+        base = f"제목: {title or ''}\n요약: {summary or ''}".strip()
+        if not base:
+            return ""
+
+        prompt = (
+            "다음 기사 제목/요약에서 핵심 주제를 한 단어(또는 짧은 구)로 추출해줘.\\n"
+            "중요: 동일한 맥락의 기사이면 같은 주제명으로만 출력해야 함.\\n"
+            "형식: 주제명 한 줄만 출력(설명 불필요).\\n\\n"
+            f"{base}"
+        )
+        out = self._llm_request(prompt).strip()
+        if not out:
+            return ""
+        out = re.sub(r"\s+", " ", out).strip()
+        # 한 줄 + 첫 토막만 사용
+        out = out.replace("\n", " ").strip()
+        if len(out) > 40:
+            out = out[:40]
+        return out
+
+    def _dedupe_daily_by_topic(self, articles: list[CollectedArticle]) -> list[CollectedArticle]:
+        if not articles:
+            return []
+
+        cache: dict[str, str] = {}
+        selected: list[CollectedArticle] = []
+        seen_topics: set[str] = set()
+        for art in articles:
+            if not isinstance(art, CollectedArticle):
+                continue
+
+            cache_key = f"{(art.title or '').strip()}|{(art.summary or '').strip()}"
+            if cache_key in cache:
+                topic = cache[cache_key]
+            else:
+                topic = self._llm_judge_topic(art.title, art.summary)
+                if not topic:
+                    topic = self._normalize_title_signature(art.title or "")
+                cache[cache_key] = topic
+
+            topic_key = self._normalize_topic_key(topic)
+            if not topic_key:
+                selected.append(art)
+                continue
+
+            if topic_key in seen_topics:
+                continue
+            seen_topics.add(topic_key)
+            selected.append(art)
+
+        return selected
 
     def _dedupe_articles(self, articles: list[CollectedArticle]) -> list[CollectedArticle]:
         """기사 URL + 제목 시그니처를 함께 사용해 최종 중복을 제거한다."""
@@ -1104,6 +1193,7 @@ class CollectionAgent:
 
         issue = datetime.now().strftime("%Y-%m-%d")
         day_file = dirs["daily"] / f"{issue}.jsonl"
+        daily = self._dedupe_daily_by_topic(daily)
 
         with day_file.open("w", encoding="utf-8") as f:
             for a in daily:
