@@ -473,12 +473,65 @@ class WritingAgent:
             t = t.replace("nbsp", "").replace("&", "").strip()
             t = re.sub(r"\s+", " ", t).strip()
             tl = t.lower()
+
+            # --- R&D / 내부 분류 태그 정규화 ---
+            tl_compact = re.sub(r"[^a-z0-9]", "", tl)
+
+            # (1) 브랜드/조직명 기반 장문 태그는 제외 (예: SKHYNIXGLOBALRD)
+            if "skhynix" in tl_compact or ("sk" in tl_compact and "hynix" in tl_compact):
+                return
+
+            # (2) R&D 변형 감지: r&d, r and d, rnd, researchdevelopment 등
+            is_rd_variant = (
+                tl_compact in {"rd", "rnd", "researchdevelopment"} or
+                "researchdevelopment" in tl_compact
+            )
+
+            # (3) 내부 분류형(특히 영문+GLOBAL/PRODUCT+RD)은 제외
+            ascii_only = bool(re.fullmatch(r"[A-Za-z0-9&\-\s]+", t))
+            if ascii_only:
+                # ProductRD / GlobalRD / ...GLOBALRD 류는 내부 분류로 보고 제외
+                if (("product" in tl_compact) or ("global" in tl_compact)) and (tl_compact.endswith("rd") or "rnd" in tl_compact):
+                    return
+                # 대문자 장문 태그는 제외 (브랜딩/조직코드일 확률 큼)
+                if t.isupper() and len(t) >= 10:
+                    return
+
+            # (4) R&D는 "살린다": 단, 뒤에 붙는 조직/역량/요소기술 같은 꼬리는 잘라서 깔끔하게 만든다.
+            if is_rd_variant:
+                # 표준 표기 선택: 원하면 "RnD"로 바꿔도 됨
+                RD_CANON = "R&D"
+
+                # 케이스 A: 순수 R&D라면 그대로
+                if tl_compact in {"rd", "rnd", "researchdevelopment"} and len(t.strip()) <= 12:
+                    t = RD_CANON
+                    tl = t.lower()
+                else:
+                    # 케이스 B: 한글 prefix + R&D + (꼬리) 형태면 "prefix+R&D"까지만 살림
+                    # 예: "메모리R&D핵심역량" -> "메모리R&D"
+                    # 우선 흔한 변형들을 R&D로 치환
+                    norm = re.sub(r"(?i)r\s*&\s*d", RD_CANON, t)
+                    norm = re.sub(r"(?i)\br\s*and\s*d\b", RD_CANON, norm)
+                    norm = re.sub(r"(?i)\brnd\b", RD_CANON, norm)
+
+                    idx = norm.upper().find("R&D")
+                    if idx != -1:
+                        prefix = norm[:idx].strip()
+                        # prefix가 너무 길거나 영문 위주면 내부 분류 가능성이 있어 제한
+                        if prefix and len(prefix) > 16 and not re.search(r"[가-힣]", prefix):
+                            return
+                        t = f"{prefix}{RD_CANON}" if prefix else RD_CANON
+                        tl = t.lower()
+                    else:
+                        # 못 찾으면 그냥 표준 R&D로 통일
+                        t = RD_CANON
+
             if not t or len(t) < 2 or t in stopwords or tl in stopwords:
                 return
             # URL/도메인/트래킹 성격 토큰 강제 제외
             if any(x in tl for x in ("http://", "https://", "www.", ".com", ".net", ".io", ".co", "utm_", "fbclid", "gclid")):
                 return
-            if any(x in t for x in ("/", "?", "=", "&")):
+            if any(x in t for x in ("/", "?", "=")):
                 return
 
             # 공백 포함 태그 처리:
