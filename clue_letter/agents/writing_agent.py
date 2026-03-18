@@ -339,6 +339,7 @@ class WritingAgent:
             "3) 핵심 사실-수치-영향 순으로 짧은 문장으로 정리\n"
             "4) 출력을 요약 본문만 출력\n"
             "5) 불필요한 소개/결론 문구 없이 핵심만 정리\n"
+            "6) 본문에 등장한 숫자/단위(예: %, 조/억/만, $, €, $, 달러, USD, 원, 위안, 위안화, KB, %)는 절대 임의 변환하지 말고 본문과 동일한 숫자/단위로 작성\n"
             f"{hint}\n\n"
             f"[제목] {title}\n"
             f"[요약 줄 수] 대략 {lc}줄\n\n"
@@ -346,13 +347,43 @@ class WritingAgent:
         )
         return self._llm_request(prompt, max_tokens=950, temperature=0.2)
 
+    def _extract_number_unit_tokens(self, text: str) -> set[str]:
+        if not text:
+            return set()
+
+        pattern = re.compile(
+            r"\b(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:%|□)?\b(?:\s*(?:조|억|만|천|백만|만개|개|명|개국|개사|억달러|조원|억원|만원|원|달러|달러\)|USD|US\$|\$|KRW|원화|위안|위안화|유로|EUR|엔|JPY))?"
+        )
+        # Fallback: capture percent and money patterns like 12.3%, $1.2조
+        tokens = set()
+        for m in pattern.findall(text or ""):
+            t = re.sub(r"\s+", "", m)
+            if t:
+                tokens.add(t)
+        return tokens
+
+    def _normalize_num_token(self, token: str) -> str:
+        return re.sub(r"[\s,]", "", token).replace("억원", "")
+
     def _llm_judge_summary(self, title: str, body: str, summary: str) -> tuple[bool, str]:
         if not title or not summary:
             return False, "empty_input"
 
+        body_nums = self._extract_number_unit_tokens(body or "")
+        summary_nums = self._extract_number_unit_tokens(summary or "")
+        bad_nums: list[str] = []
+        norm_body = {self._normalize_num_token(x): x for x in body_nums}
+        for s in summary_nums:
+            ns = self._normalize_num_token(s)
+            if ns and ns not in norm_body:
+                bad_nums.append(s)
+
+        if bad_nums:
+            return False, f"summary_has_unmatched_numbers:{','.join(sorted(set(bad_nums)))}"
+
         prompt = (
             "너는 요약 검수자다. 아래 요약이 본문 근거에 충실한지 판정해줘.\n"
-            "조건: 1) 본문 근거 기반, 2) 한국어, 3) 과장/추측 없음, 4) 메타 문구 없음\n"
+            "조건: 1) 본문 근거 기반, 2) 한국어, 3) 과장/추측 없음, 4) 메타 문구 없음, 5) 본문에 등장한 숫자/단위는 요약에 동일 표기로만 사용\n"
             "출력은 JSON 한 줄: {\"pass\": true|false, \"reason\": \"...\"}\n\n"
             f"[제목]\n{title}\n\n"
             f"[본문]\n{body[:8000]}\n\n"
