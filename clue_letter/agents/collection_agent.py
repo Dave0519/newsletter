@@ -1279,31 +1279,142 @@ class CollectionAgent:
 
         issue = datetime.now().strftime("%Y-%m-%d")
         day_file = dirs["daily"] / f"{issue}.jsonl"
-        # topic dedupe (LLM 기반 동일 사건 중복 제거)
-        daily_before_topic = list(daily)
-        daily = self._dedupe_daily_by_topic(daily)
+        # ==========================================================
+        # DAILY FINALIZER (A안)
+        # - total_news -> daily 전환 시점에서 LLM 2단계로 동일 사건 제거
+        # - 중복 제거로 빠진 자리는 daily_before_topic이 아니라 total_news 풀에서 채움
+        # ==========================================================
 
-        # ✅ 언더필 가드: topic dedupe로 daily가 min_count 밑으로 내려가면,
-        # 기존 daily 후보에서 URL/제목시그니처 중복만 막고 다시 채운다.
-        if len(daily) < int(min_count):
-            existing_urls = {str(a.url or "").strip() for a in daily}
-            existing_sigs = {_normalize_title_signature(a.title or "") for a in daily if (a.title or "").strip()}
+        def _rank(a: CollectedArticle) -> float:
+            # 기존 점수체계를 뒤집지 않고, 이미 계산된 필드만 사용
+            return float(
+                (a.relevance_score or 0.0) * 1000.0
+                + (a.recency_score or 0.0) * 100.0
+                + (a.source_score or 1.0) * 10.0
+                + (a.body_len or 0)
+            )
 
-            for cand in daily_before_topic:
-                url = str(cand.url or "").strip()
-                if not url or url in existing_urls:
+        def _topic_cache_get(a: CollectedArticle) -> str:
+            body_snip = ((a.body or "").replace("\n", " ").strip()[:500])
+            key = f"{(a.title or '').strip()}|{(a.summary or '').strip()}|{body_snip}"
+            if not hasattr(_topic_cache_get, "_cache"):
+                _topic_cache_get._cache = {}
+            cache = _topic_cache_get._cache  # type: ignore[attr-defined]
+            if key in cache:
+                return cache[key]
+            t = self._llm_judge_topic(a.title, a.summary, body_snip)
+            if not t:
+                t = _normalize_title_signature(a.title or "")
+            cache[key] = t
+            return t
+
+        def _token_set(a: CollectedArticle) -> set[str]:
+            text = f"{a.title or ''} {a.summary or ''}"
+            low = text.lower()
+            tokens = set(re.findall(r"[가-힣a-z0-9]{2,}", low))
+            # "젠슨 황" 같은 인명/2단어 구를 붙여 토큰으로 추가 (게이트 강화)
+            for m in re.findall(r"[가-힣]{2,4}\s[가-힣]{1,2}", text):
+                tokens.add(re.sub(r"\s+", "", m).lower())
+            for m in re.findall(r"[A-Za-z]{2,}\s[A-Za-z]{2,}", text):
+                tokens.add(re.sub(r"\s+", "", m).lower())
+            return tokens
+
+        def _jaccard(sa: set[str], sb: set[str]) -> float:
+            if not sa or not sb:
+                return 0.0
+            inter = len(sa & sb)
+            union = len(sa | sb)
+            return inter / float(union) if union else 0.0
+
+        def _build_daily_from_pool(pool: list[CollectedArticle], target_n: int) -> list[CollectedArticle]:
+            # 0) 우선 점수순 정렬
+            pool_sorted = sorted([x for x in pool if isinstance(x, CollectedArticle)], key=_rank, reverse=True)
+
+            # 1) Stage-1: LLM topic label -> coarse bucket key
+            buckets: dict[str, list[CollectedArticle]] = {}
+            for a in pool_sorted:
+                topic = _topic_cache_get(a)
+                if topic == "정치기사제외":
                     continue
-                sig = _normalize_title_signature(cand.title or "")
-                if sig and sig in existing_sigs:
-                    continue
+                topic_key = self._normalize_topic_key(topic) or _normalize_title_signature(a.title or "")
+                buckets.setdefault(topic_key, []).append(a)
 
-                daily.append(cand)
-                existing_urls.add(url)
-                if sig:
-                    existing_sigs.add(sig)
+            # 2) Stage-2: SAME/DIFFERENT로 중복 제거하며 target_n까지 채움
+            selected: list[CollectedArticle] = []
+            seen_urls: set[str] = set()
+            seen_sigs: set[str] = set()
 
-                if len(daily) >= int(min_count):
-                    break
+            # 버킷 순서도 점수 기반으로 (대표 후보가 좋은 버킷 먼저)
+            bucket_keys = sorted(
+                buckets.keys(),
+                key=lambda k: _rank(sorted(buckets[k], key=_rank, reverse=True)[0]),
+                reverse=True,
+            )
+
+            for k in bucket_keys:
+                items = sorted(buckets[k], key=_rank, reverse=True)
+                reps: list[CollectedArticle] = []
+                for cand in items:
+                    u = (cand.url or "").strip()
+                    if not u:
+                        continue
+                    sig = _normalize_title_signature(cand.title or "")
+                    if u in seen_urls:
+                        continue
+                    if sig and sig in seen_sigs:
+                        continue
+
+                    dup = False
+
+                    # 2-1) 같은 버킷 내: 대표들과 LLM SAME/DIFF
+                    for rep in reps[:3]:
+                        if self._llm_is_same_topic(cand, rep):
+                            dup = True
+                            break
+
+                    # 2-2) 교차 버킷(놓치는 케이스 방지): 토큰 겹침이 큰 경우만 LLM SAME/DIFF
+                    if not dup and selected:
+                        ct = _token_set(cand)
+                        for prev in selected[-10:]:
+                            shared = ct & _token_set(prev)
+                            sim = _jaccard(ct, _token_set(prev))
+                            if sim >= 0.40 or len(shared) >= 3:
+                                if self._llm_is_same_topic(cand, prev):
+                                    dup = True
+                                    break
+
+                    if dup:
+                        continue
+
+                    reps.append(cand)
+                    selected.append(cand)
+                    seen_urls.add(u)
+                    if sig:
+                        seen_sigs.add(sig)
+
+                    if len(selected) >= target_n:
+                        return selected[:target_n]
+
+            return selected[:target_n]
+
+        # (A) 후보 풀: daily(선정 후보) + total_news(전체 풀)
+        # - daily를 앞에 둬서 기존 리밸런싱 결과를 우선 반영
+        pool: list[CollectedArticle] = []
+        seen_pool: set[str] = set()
+        for x in (list(daily) + list(total_news)):
+            if not isinstance(x, CollectedArticle):
+                continue
+            u = (x.url or "").strip()
+            if not u:
+                continue
+            key = f"{u}::{_normalize_title_signature(x.title or '')}"
+            if key in seen_pool:
+                continue
+            seen_pool.add(key)
+            pool.append(x)
+
+        target_n = max(int(min_count), int(self.daily_news_target or 8))
+        daily = _build_daily_from_pool(pool, target_n)
 
         with day_file.open("w", encoding="utf-8") as f:
             for a in daily:
