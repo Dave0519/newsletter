@@ -460,7 +460,7 @@ class WritingAgent:
         # 공통 stopword
         stopwords = {
             "있다", "있으며", "있어", "있을", "있습니다", "있을", "때", "등", "및", "하고", "한다", "할", "을", "를", "의", "가", "이", "에", "와", "과", "은", "는", "들", "이슈", "기사", "오늘", "기자", "공지",
-            "nbsp", "nbsp;", "font", "style", "color", "width", "height", "class", "table", "tr", "td", "div", "span", "meta", "href", "src", "id", "body", "html", "head", "link", "script", "title", "http", "https", "amp", "news", "amp;",
+            "nbsp", "nbsp;", "font", "style", "color", "width", "height", "class", "table", "tr", "td", "div", "span", "meta", "href", "src", "id", "body", "html", "head", "link", "script", "title", "http", "https", "amp", "news", "amp;", "업데이트", "브리핑", "요약", "정리", "리포트", "scan", "summary", "view", "report",
             "in", "to", "on", "of", "for", "the", "a", "an", "and", "or", "with", "is", "it", "as", "at", "by", "from", "that", "this", "be", "are"
         }
 
@@ -474,6 +474,11 @@ class WritingAgent:
             t = re.sub(r"\s+", " ", t).strip()
             tl = t.lower()
             if not t or len(t) < 2 or t in stopwords or tl in stopwords:
+                return
+            # URL/도메인/트래킹 성격 토큰 강제 제외
+            if any(x in tl for x in ("http://", "https://", "www.", ".com", ".net", ".io", ".co", "utm_", "fbclid", "gclid")):
+                return
+            if any(x in t for x in ("/", "?", "=", "&")):
                 return
             if not re.fullmatch(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9\s#&+\-_/\.]*", t):
                 return
@@ -506,15 +511,20 @@ class WritingAgent:
             for need in getattr(a, "matched_needs", []) or []:
                 add_tag(str(need), weight=3)
 
-        # 2) 부족분은 제목/요약에서 보조 추출
+        # 2) 부족분 채우기: 기사 제목/요약 토큰에서 뽑지 말고, 사용자 니즈에서만 보충 (노이즈 방지)
         if len(counts) < 2:
-            texts = [x for a in articles for x in (a.title, a.summary) if x]
-            for t in texts:
-                for token in re.findall(r"[가-힣A-Za-z0-9]+", t):
-                    token = token.strip()
-                    if not token:
+            if user and getattr(user, "needs_list", None):
+                for item in user.needs_list:
+                    if not isinstance(item, dict):
                         continue
-                    add_tag(token, weight=1)
+                    nt = str(item.get("need_text", "")).strip()
+                    if nt:
+                        add_tag(nt, weight=2)
+            elif user and getattr(user, "interests", None):
+                for it in user.interests:
+                    it = str(it).strip()
+                    if it:
+                        add_tag(it, weight=2)
 
         if not counts:
             return ""
