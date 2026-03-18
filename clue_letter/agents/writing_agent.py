@@ -245,19 +245,17 @@ class WritingAgent:
             return ""
 
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> list[str]:
-        """Global scan 핵심 5개를 줄글 리스트로 요약."""
+        """Global scan 핵심 5개를 제목 없이 문장형으로 요약."""
         out = []
         for idx, e in enumerate(entries[:5], 1):
-            title = (e.title or "").strip()
             sum_txt = (e.summary or "").strip().replace("\n", " ").strip()
-            if not title:
-                title = "핵심 이슈"
+            if not sum_txt and e.title:
+                sum_txt = f"핵심 이슈 {idx}번은 {e.title}에 대한 보도입니다."
             if not sum_txt:
-                out.append(f"• {idx}. {title}")
                 continue
             if len(sum_txt) > 140:
                 sum_txt = sum_txt[:137].rstrip() + "..."
-            out.append(f"• {idx}. {title}: {sum_txt}")
+            out.append(f"• {sum_txt}")
         return out
 
     def _grouped_country_blocks(self, articles: list[NewsletterEntry]):
