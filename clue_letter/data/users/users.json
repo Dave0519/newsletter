@@ -1,0 +1,777 @@
+[
+  {
+    "name": "lcs",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "2K47LE37",
+    "interests": [
+      "AI 인프라",
+      "반도체",
+      "데이터센터"
+    ],
+    "exclusions": [],
+    "countries": [],
+    "is_active": true,
+    "created_at": "2026-03-16T22:29:55.863431"
+  },
+  {
+    "name": "test_daily_user",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "BB9I4QVQ",
+    "interests": [
+      "AI 인프라",
+      "반도체",
+      "데이터센터",
+      "클라우드"
+    ],
+    "needs_list": [
+      {
+        "need_id": "ai인프라",
+        "need_text": "AI 인프라",
+        "aliases": [
+          "AI 인프라",
+          "AI infrastructure",
+          "AI infra",
+          "cloud infrastructure",
+          "compute infrastructure"
+        ],
+        "aliases_flat": [
+          "AI 인프라",
+          "AI infrastructure",
+          "AI infra",
+          "cloud infrastructure",
+          "compute infrastructure"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "반도체",
+        "need_text": "반도체",
+        "aliases": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory"
+        ],
+        "aliases_flat": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "데이터센터",
+        "need_text": "데이터센터",
+        "aliases": [
+          "데이터센터",
+          "데이터 센터",
+          "data center",
+          "data-center",
+          "datacenter",
+          "AI data center",
+          "cloud data center",
+          "hyperscale",
+          "server farm"
+        ],
+        "aliases_flat": [
+          "데이터센터",
+          "데이터 센터",
+          "data center",
+          "data-center",
+          "datacenter",
+          "AI data center",
+          "cloud data center",
+          "hyperscale",
+          "server farm"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "클라우드",
+        "need_text": "클라우드",
+        "aliases": [
+          "클라우드"
+        ],
+        "aliases_flat": [
+          "클라우드"
+        ],
+        "is_active": true,
+        "is_valid": true
+      }
+    ],
+    "exclusions": [],
+    "countries": [],
+    "is_active": true,
+    "created_at": "2026-03-18T02:14:31.110106"
+  },
+  {
+    "name": "권재순",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "1JT9LJG",
+    "interests": [
+      "제조 AI",
+      "HBM",
+      "경쟁사 제조 동향",
+      "삼성 동향",
+      "마이크론 동향",
+      "스마트 팩토리"
+    ],
+    "needs_list": [
+      {
+        "need_id": "제조ai",
+        "need_text": "제조 AI",
+        "aliases": [
+          "제조 AI"
+        ],
+        "aliases_flat": [
+          "제조 AI"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "반도체",
+        "need_text": "HBM",
+        "aliases": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory",
+          "반도체 장비",
+          "반도체 소재"
+        ],
+        "aliases_flat": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory",
+          "반도체 장비",
+          "반도체 소재"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "경쟁사제조동향",
+        "need_text": "경쟁사 제조 동향",
+        "aliases": [
+          "경쟁사 제조 동향"
+        ],
+        "aliases_flat": [
+          "경쟁사 제조 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "삼성동향",
+        "need_text": "삼성 동향",
+        "aliases": [
+          "삼성 동향"
+        ],
+        "aliases_flat": [
+          "삼성 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "마이크론동향",
+        "need_text": "마이크론 동향",
+        "aliases": [
+          "마이크론 동향"
+        ],
+        "aliases_flat": [
+          "마이크론 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "스마트팩토리",
+        "need_text": "스마트 팩토리",
+        "aliases": [
+          "스마트 팩토리"
+        ],
+        "aliases_flat": [
+          "스마트 팩토리"
+        ],
+        "is_active": true,
+        "is_valid": true
+      }
+    ],
+    "exclusions": [],
+    "countries": [],
+    "is_active": true,
+    "created_at": "2026-03-18T09:20:38.638369"
+  },
+  {
+    "name": "주재욱",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "FPIVGPWG",
+    "interests": [
+      "제조 AI",
+      "HBM",
+      "경쟁사 제조 동향",
+      "삼성 동향",
+      "마이크론 동향",
+      "스마트 팩토리",
+      "팔란티어",
+      "온톨로지",
+      "Database"
+    ],
+    "needs_list": [
+      {
+        "need_id": "제조ai",
+        "need_text": "제조 AI",
+        "aliases": [
+          "제조 AI"
+        ],
+        "aliases_flat": [
+          "제조 AI"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "반도체",
+        "need_text": "HBM",
+        "aliases": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory",
+          "반도체 장비",
+          "반도체 소재"
+        ],
+        "aliases_flat": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory",
+          "반도체 장비",
+          "반도체 소재"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "경쟁사제조동향",
+        "need_text": "경쟁사 제조 동향",
+        "aliases": [
+          "경쟁사 제조 동향"
+        ],
+        "aliases_flat": [
+          "경쟁사 제조 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "삼성동향",
+        "need_text": "삼성 동향",
+        "aliases": [
+          "삼성 동향"
+        ],
+        "aliases_flat": [
+          "삼성 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "마이크론동향",
+        "need_text": "마이크론 동향",
+        "aliases": [
+          "마이크론 동향"
+        ],
+        "aliases_flat": [
+          "마이크론 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "스마트팩토리",
+        "need_text": "스마트 팩토리",
+        "aliases": [
+          "스마트 팩토리"
+        ],
+        "aliases_flat": [
+          "스마트 팩토리"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "팔란티어",
+        "need_text": "팔란티어",
+        "aliases": [
+          "팔란티어"
+        ],
+        "aliases_flat": [
+          "팔란티어"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "온톨로지",
+        "need_text": "온톨로지",
+        "aliases": [
+          "온톨로지"
+        ],
+        "aliases_flat": [
+          "온톨로지"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "database",
+        "need_text": "Database",
+        "aliases": [
+          "Database"
+        ],
+        "aliases_flat": [
+          "Database"
+        ],
+        "is_active": true,
+        "is_valid": true
+      }
+    ],
+    "exclusions": [],
+    "countries": [],
+    "is_active": true,
+    "created_at": "2026-03-18T09:20:38.640809"
+  },
+  {
+    "name": "김재범",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "XJCRZVA",
+    "interests": [
+      "메모리 요소기술",
+      "메모리 Tech 개발",
+      "경쟁사 R&D 동향",
+      "메모리 R&D 핵심역량",
+      "Product R&D",
+      "SK hynix Global R&D",
+      "R&D 방향성",
+      "AI 기반 R&D",
+      "R&D AI 기술",
+      "미래기술연구원 로드맵",
+      "AI 기술 활용",
+      "GTC"
+    ],
+    "needs_list": [
+      {
+        "need_id": "메모리요소기술",
+        "need_text": "메모리 요소기술",
+        "aliases": [
+          "메모리 요소기술"
+        ],
+        "aliases_flat": [
+          "메모리 요소기술"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "메모리tech개발",
+        "need_text": "메모리 Tech 개발",
+        "aliases": [
+          "메모리 Tech 개발"
+        ],
+        "aliases_flat": [
+          "메모리 Tech 개발"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "경쟁사r&d동향",
+        "need_text": "경쟁사 R&D 동향",
+        "aliases": [
+          "경쟁사 R&D 동향"
+        ],
+        "aliases_flat": [
+          "경쟁사 R&D 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "메모리r&d핵심역량",
+        "need_text": "메모리 R&D 핵심역량",
+        "aliases": [
+          "메모리 R&D 핵심역량"
+        ],
+        "aliases_flat": [
+          "메모리 R&D 핵심역량"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "productr&d",
+        "need_text": "Product R&D",
+        "aliases": [
+          "Product R&D"
+        ],
+        "aliases_flat": [
+          "Product R&D"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "skhynixglobalr&d",
+        "need_text": "SK hynix Global R&D",
+        "aliases": [
+          "SK hynix Global R&D"
+        ],
+        "aliases_flat": [
+          "SK hynix Global R&D"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "r&d방향성",
+        "need_text": "R&D 방향성",
+        "aliases": [
+          "R&D 방향성"
+        ],
+        "aliases_flat": [
+          "R&D 방향성"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "ai기반r&d",
+        "need_text": "AI 기반 R&D",
+        "aliases": [
+          "AI 기반 R&D"
+        ],
+        "aliases_flat": [
+          "AI 기반 R&D"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "r&dai기술",
+        "need_text": "R&D AI 기술",
+        "aliases": [
+          "R&D AI 기술"
+        ],
+        "aliases_flat": [
+          "R&D AI 기술"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "미래기술연구원로드맵",
+        "need_text": "미래기술연구원 로드맵",
+        "aliases": [
+          "미래기술연구원 로드맵"
+        ],
+        "aliases_flat": [
+          "미래기술연구원 로드맵"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "ai기술활용",
+        "need_text": "AI 기술 활용",
+        "aliases": [
+          "AI 기술 활용"
+        ],
+        "aliases_flat": [
+          "AI 기술 활용"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "gtc",
+        "need_text": "GTC",
+        "aliases": [
+          "GTC"
+        ],
+        "aliases_flat": [
+          "GTC"
+        ],
+        "is_active": true,
+        "is_valid": true
+      }
+    ],
+    "exclusions": [],
+    "countries": [],
+    "is_active": true,
+    "created_at": "2026-03-18T09:20:38.642723"
+  },
+  {
+    "name": "김현중",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "LASRIM0I",
+    "interests": [
+      "AI Agent",
+      "Agentic AI",
+      "Claude",
+      "Gemini",
+      "Grok",
+      "ChatGPT",
+      "Genspark",
+      "Cursor",
+      "Top-tier AI 동향",
+      "AI 모델 비교"
+    ],
+    "needs_list": [
+      {
+        "need_id": "aiagent",
+        "need_text": "AI Agent",
+        "aliases": [
+          "AI Agent"
+        ],
+        "aliases_flat": [
+          "AI Agent"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "agenticai",
+        "need_text": "Agentic AI",
+        "aliases": [
+          "Agentic AI"
+        ],
+        "aliases_flat": [
+          "Agentic AI"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "claude",
+        "need_text": "Claude",
+        "aliases": [
+          "Claude"
+        ],
+        "aliases_flat": [
+          "Claude"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "gemini",
+        "need_text": "Gemini",
+        "aliases": [
+          "Gemini"
+        ],
+        "aliases_flat": [
+          "Gemini"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "grok",
+        "need_text": "Grok",
+        "aliases": [
+          "Grok"
+        ],
+        "aliases_flat": [
+          "Grok"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "chatgpt",
+        "need_text": "ChatGPT",
+        "aliases": [
+          "ChatGPT"
+        ],
+        "aliases_flat": [
+          "ChatGPT"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "genspark",
+        "need_text": "Genspark",
+        "aliases": [
+          "Genspark"
+        ],
+        "aliases_flat": [
+          "Genspark"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "cursor",
+        "need_text": "Cursor",
+        "aliases": [
+          "Cursor"
+        ],
+        "aliases_flat": [
+          "Cursor"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "top-tierai동향",
+        "need_text": "Top-tier AI 동향",
+        "aliases": [
+          "Top-tier AI 동향"
+        ],
+        "aliases_flat": [
+          "Top-tier AI 동향"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "ai모델비교",
+        "need_text": "AI 모델 비교",
+        "aliases": [
+          "AI 모델 비교"
+        ],
+        "aliases_flat": [
+          "AI 모델 비교"
+        ],
+        "is_active": true,
+        "is_valid": true
+      }
+    ],
+    "exclusions": [],
+    "countries": [],
+    "is_active": true,
+    "created_at": "2026-03-18T09:20:38.644830"
+  },
+  {
+    "name": "심규찬",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "O0DHV5QY",
+    "interests": [
+      "HBM",
+      "AI Agent",
+      "Agentic AI",
+      "AI Model",
+      "이란 전쟁",
+      "지정학 이슈"
+    ],
+    "needs_list": [
+      {
+        "need_id": "반도체",
+        "need_text": "HBM",
+        "aliases": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory"
+        ],
+        "aliases_flat": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "aiagent",
+        "need_text": "AI Agent",
+        "aliases": [
+          "AI Agent"
+        ],
+        "aliases_flat": [
+          "AI Agent"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "agenticai",
+        "need_text": "Agentic AI",
+        "aliases": [
+          "Agentic AI"
+        ],
+        "aliases_flat": [
+          "Agentic AI"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "aimodel",
+        "need_text": "AI Model",
+        "aliases": [
+          "AI Model"
+        ],
+        "aliases_flat": [
+          "AI Model"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "이란전쟁",
+        "need_text": "이란 전쟁",
+        "aliases": [
+          "이란 전쟁"
+        ],
+        "aliases_flat": [
+          "이란 전쟁"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "지정학이슈",
+        "need_text": "지정학 이슈",
+        "aliases": [
+          "지정학 이슈"
+        ],
+        "aliases_flat": [
+          "지정학 이슈"
+        ],
+        "is_active": true,
+        "is_valid": true
+      }
+    ],
+    "exclusions": [],
+    "countries": [],
+    "is_active": true,
+    "created_at": "2026-03-18T09:20:38.646954"
+  }
+]
