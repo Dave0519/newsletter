@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Callable
 from urllib.parse import parse_qs, urlparse, urlencode
 import re
+
+import requests
+
+try:
+    from bs4 import BeautifulSoup
+except Exception:  # pragma: no cover
+    BeautifulSoup = None
 
 from .models import CollectedArticle, NewsletterEntry, UserProfile
 from .utils import ensure_dir
@@ -181,6 +190,9 @@ class WritingAgent:
         t = re.sub(r"\s+", " ", t).strip()
         return t
 
+    def _clean_text(self, text: str) -> str:
+        return self._strip_html(text)
+
     def _looks_google_noise(self, text: str) -> bool:
         t = (text or "").lower()
         if "google news" in t and len(t) < 200:
@@ -188,6 +200,153 @@ class WritingAgent:
         if any(x in t for x in ["google", "cookie", "로그인", "개인정보", "sign in", "menu"]):
             return len(t) < 160
         return False
+
+
+    def _llm_request(self, prompt: str, max_tokens: int = 500, temperature: float = 0.2) -> str:
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            return ""
+
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+        }
+        if str(model).lower().startswith("gpt-5"):
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["max_tokens"] = max_tokens
+
+        try:
+            r = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=60,
+            )
+            if r.status_code != 200:
+                return ""
+            return ((r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip())
+        except Exception:
+            return ""
+
+    def _extract_readable_text(self, html_text: str) -> str:
+        if not html_text:
+            return ""
+
+        if BeautifulSoup is None:
+            return self._strip_html(html_text)
+
+        try:
+            soup = BeautifulSoup(html_text, "html.parser")
+
+            # meta 기반 본문 단서 (설명/요약)
+            for meta_name in ["description", "og:description", "twitter:description"]:
+                m = soup.find("meta", attrs={"name": meta_name}) or soup.find("meta", property=meta_name)
+                if m and m.get("content"):
+                    meta_txt = self._clean_text(m.get("content") or "")
+                    if meta_txt and len(meta_txt) >= 60:
+                        return meta_txt
+
+            for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside", "form", "iframe", "svg", "canvas"]):
+                tag.decompose()
+
+            noise_words = ["로그인", "회원가입", "로그인/회원가입", "기사검색", "전체뉴스", "기자검색", "메뉴", "카테고리", "전체서비스", "search", "javascript", "adsense", "광고", "쿠키", "personal"]
+            candidates = []
+
+            for node in soup.find_all(["article", "main", "section", "div"]):
+                txts = []
+                for p in node.find_all(["p", "li", "h1", "h2", "h3"]):
+                    t = self._clean_text((p.get_text(" ", strip=True)))
+                    if len(t) < 30:
+                        continue
+                    txts.append(t)
+
+                if not txts:
+                    continue
+                txt = " ".join(txts)
+                txt = re.sub(r"\s+", " ", txt).strip()
+                if not txt or len(txt) < 240:
+                    continue
+
+                score = len(txt)
+                low = txt.lower()
+                if node.name in {"article", "main"}:
+                    score += 160
+                for w in noise_words:
+                    score -= low.count(w) * 90
+
+                candidates.append((score, txt))
+
+            if not candidates:
+                return self._strip_html(html_text)
+
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            text_body = candidates[0][1]
+            if len(text_body) < 220:
+                return self._strip_html(html_text)
+            return text_body
+        except Exception:
+            return self._strip_html(html_text)
+
+    def _llm_generate_title_from_body(self, raw_title: str, body: str) -> str:
+        base_title = self._clean_title(raw_title)
+        source = (base_title or "").strip()
+        if not body:
+            return source
+
+        prompt = (
+            "너는 뉴스레터 에디터다. 기사 본문과 원문 제목 정보를 바탕으로 한국어 제목을 1줄로 작성해줘.\n"
+            "출력은 제목 한 줄만.\n\n"
+            f"[원문 제목]\n{source}\n\n"
+            f"[기사 본문]\n{body[:5000]}"
+        )
+        out = self._llm_request(prompt, max_tokens=90, temperature=0.1)
+        if not out:
+            return source
+        s = " ".join((out or "").strip().split())
+        return s
+
+    def _llm_summary_from_body(self, title: str, body: str, regenerate_hint: str = "") -> str:
+        if not body:
+            return ""
+        hint = f"\n[추가 교정 지시] {regenerate_hint}" if regenerate_hint else ""
+        prompt = (
+            "너는 한국어 뉴스레터 에디터다. 기사 본문을 근거로 4~5줄로만 요약해줘.\n"
+            "규칙:\n"
+            "1) 본문 근거만 사용\n"
+            "2) 추측/과장/메타문구 금지\n"
+            "3) 핵심 사실-수치-영향 순으로 짧은 문장으로 정리\n"
+            "4) 출력을 요약 본문만 출력\n"
+            f"{hint}\n\n"
+            f"[제목] {title}\n\n"
+            f"[본문] {body[:12000]}"
+        )
+        return self._llm_request(prompt, max_tokens=800, temperature=0.2)
+
+    def _llm_judge_summary(self, title: str, body: str, summary: str) -> tuple[bool, str]:
+        if not title or not summary:
+            return False, "empty_input"
+
+        prompt = (
+            "너는 요약 검수자다. 아래 요약이 본문 근거에 충실한지 판정해줘.\n"
+            "조건: 1) 본문 근거 기반, 2) 한국어, 3) 과장/추측 없음, 4) 메타 문구 없음\n"
+            "출력은 JSON 한 줄: {\"pass\": true|false, \"reason\": \"...\"}\n\n"
+            f"[제목]\n{title}\n\n"
+            f"[본문]\n{body[:8000]}\n\n"
+            f"[요약]\n{summary}"
+        )
+        raw = self._llm_request(prompt, max_tokens=180, temperature=0.0)
+        if not raw:
+            return True, "judge_skip"
+        m_pass = re.search(r'"pass"\s*:\s*(true|false)', raw, re.I)
+        m_reason = re.search(r'"reason"\s*:\s*"([^"]*)"', raw)
+        passed = True
+        if m_pass:
+            passed = m_pass.group(1).lower() == "true"
+        reason = m_reason.group(1) if m_reason else ""
+        return passed, reason
 
     def _resolve_summary_source(self, c: CollectedArticle, body: str) -> str:
         if body and self._is_google_wrapper_url(c.url) and self._looks_google_noise(body[:2000]):
@@ -266,22 +425,33 @@ class WritingAgent:
 
     def _derive_entry(self, c: CollectedArticle) -> NewsletterEntry:
         resolved_url = self._resolve_url(c.url)
-        body = self._load_remote_body(resolved_url)
-        if not body and resolved_url != c.url:
-            body = self._load_remote_body(c.url)
-        raw_title = self._normalize_title_candidate(self._clean_title(c.title))
-        summary_source = self._resolve_summary_source(c, body)
+        body_html = self._load_remote_body(resolved_url)
+        if not body_html and resolved_url != c.url:
+            body_html = self._load_remote_body(c.url)
+        readable_body = self._extract_readable_text(body_html) if body_html else ""
 
-        rewritten_title = rewrite_title(raw_title, summary_source, max_chars=75)
+        raw_title = self._normalize_title_candidate(self._clean_title(c.title))
+        summary_source = self._resolve_summary_source(c, readable_body)
+
+        # 제목: 본문 기반 생성 우선
+        rewritten_title = self._llm_generate_title_from_body(raw_title, summary_source)
+        if not rewritten_title:
+            rewritten_title = rewrite_title(raw_title, summary_source, max_chars=75)
         if not rewritten_title:
             rewritten_title = translate_ko(raw_title)
 
-        # 최종 제목은 반드시 한국어로 보정
         rewritten_title = self._force_korean(rewritten_title or raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
         title = rewritten_title if rewritten_title and self._contains_korean(rewritten_title) else self._force_korean(raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
 
-        # 원문 본문 기반 4~5줄 요약을 DESCRIPTION으로 사용 (Google 래퍼면 summary 대체)
-        description = summarize_ko(summary_source, title=title, sentence_count=5)
+        # 요약: 본문 기반 4~5줄 + 검수 재시도 1회
+        description = self._llm_summary_from_body(title, summary_source)
+        if description:
+            ok, reason = self._llm_judge_summary(title, summary_source, description)
+            if not ok:
+                description = self._llm_summary_from_body(title, summary_source, regenerate_hint=reason)
+
+        if not description:
+            description = summarize_ko(summary_source, title=title, sentence_count=5)
         if not description:
             description = self._strip_html(summary_source)
 
@@ -291,7 +461,6 @@ class WritingAgent:
         if not description:
             description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
 
-        # 원문 근거 기반 4~5줄 내외 요약, 줄바꿈 정규화
         description = self._ensure_korean_summary_lines(description, max_lines=5)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
 
