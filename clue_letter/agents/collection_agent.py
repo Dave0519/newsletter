@@ -597,6 +597,9 @@ class CollectionAgent:
             "핵심 주제(인/물기업)\n"
             "핵심 사건(방문/발표/협력 )등\n"
             "핵심 대상(제/품기술/장소)\n\n"
+            "정치 제외 판단 기준 :\n"
+            "핵심 대상(제/품기술/장소)과 상관없이 제목에 정치 관련 키워드(예:선거,출마,공약,국회,대사관,전쟁범죄 등)가 포함되면 전체 제외로 판단하세요.\n"
+            "정치 기사면 문자열 '정치기사제외'만 출력하고, 그 외 중복 판단 주제는 한 줄로만 출력하세요.\n"
             f"{base}"
         )
         out = self._llm_request(prompt).strip()
@@ -630,6 +633,9 @@ class CollectionAgent:
                 cache[cache_key] = topic
 
             topic_key = self._normalize_topic_key(topic)
+            if topic == "정치기사제외":
+                continue
+
             if not topic_key:
                 selected.append(art)
                 continue
