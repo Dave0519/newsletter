@@ -561,26 +561,13 @@ class WritingAgent:
             return ""
 
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> str:
-        """기사별 핵심 한두 문장을 소제목 없이 리스트로 구성."""
+        """GLOBAL SCAN에서 작성된 기사 제목을 번호 없이 리스트로 구성."""
         lines: list[str] = []
-        for idx, e in enumerate(entries, start=1):
-            d = " ".join((e.summary or "").split())
-            if not d and e.title:
-                d = f"{e.title}에 대한 보도입니다."
-            if not d:
+        for e in entries:
+            t = (e.title or "").strip()
+            if not t:
                 continue
-
-            parts = [p.strip() for p in re.split(r"(?<=[.!?다])\s+", d) if p.strip()]
-            if not parts:
-                continue
-
-            text = parts[0]
-            if len(parts) > 1:
-                text = f"{parts[0]} {parts[1]}"
-            lines.append(f"• {text}")
-
-            if len(lines) >= 6:
-                break
+            lines.append(f"• {t}")
 
         return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
 
