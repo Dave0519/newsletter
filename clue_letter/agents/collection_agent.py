@@ -584,22 +584,30 @@ class CollectionAgent:
         t = re.sub(r"\s+", " ", t).strip().lower()
         return t[:60]
 
-    def _llm_judge_topic(self, title: str, summary: str) -> str:
-        base = f"제목: {title or ''}\n요약: {summary or ''}".strip()
+    def _llm_judge_topic(self, title: str, summary: str, body: str = "") -> str:
+        body_snip = (body or "").replace("\\n", " ").strip()[:500]
+        if not body_snip:
+            body_snip = (summary or "").replace("\\n", " ").strip()[:500]
+        base = (
+            f"제목: {title or ''}\\n"
+            f"요약: {summary or ''}\\n"
+            f"본문(요약/추출본/short): {body_snip}"
+        ).strip()
         if not base:
             return ""
 
         prompt = (
-            "역할 : 뉴스레터 에디터\n"
-            "작업 : 아래 기사 제목 목록에서 동일 사/건인/물발표를 다루는 중복 기사를 필터링하세요.\n"
-            "중복 판단 기준 :\n"
-            "제목에서 추출한 3가지 요소가 2개 이상 일치하면 중복으로 처리합니다.\n\n"
-            "핵심 주제(인/물기업)\n"
-            "핵심 사건(방문/발표/협력 )등\n"
-            "핵심 대상(제/품기술/장소)\n\n"
-            "정치 제외 판단 기준 :\n"
-            "핵심 대상(제/품기술/장소)과 상관없이 제목에 정치 관련 키워드(예:선거,출마,공약,국회,대사관,전쟁범죄 등)가 포함되면 전체 제외로 판단하세요.\n"
-            "정치 기사면 문자열 '정치기사제외'만 출력하고, 그 외 중복 판단 주제는 한 줄로만 출력하세요.\n"
+            "역할 : 뉴스레터 에디터\\n"
+            "작업 : 아래 기사 제목 목록에서 동일 사/건인/물발표를 다루는 중복 기사를 필터링하세요.\\n"
+            "중복 판단 기준 :\\n"
+            "제목에서 추출한 3가지 요소(핵심 주제, 핵심 사건, 핵심 대상) 중 1개 이상이 일치하면 중복으로 처리합니다.\\n"
+            "또한 제목/요약/본문(요약/추출본/short) 중 하나라도 중복성이 보이면 중복으로 판단하세요.\\n\\n"
+            "핵심 주제(인/물기업)\\n"
+            "핵심 사건(방문/발표/협력 )등\\n"
+            "핵심 대상(제/품기술/장소)\\n\\n"
+            "정치 제외 판단 기준 :\\n"
+            "핵심 대상(제/품기술/장소)과 상관없이 제목에 정치 관련 키워드(예:선거,출마,공약,국회,대사관,전쟁범죄 등)가 포함되면 전체 제외로 판단하세요.\\n"
+            "정치 기사면 문자열 '정치기사제외'만 출력하고, 그 외 중복 판단 주제는 한 줄로만 출력하세요.\\n"
             f"{base}"
         )
         out = self._llm_request(prompt).strip()
@@ -611,7 +619,6 @@ class CollectionAgent:
         if len(out) > 40:
             out = out[:40]
         return out
-
     def _dedupe_daily_by_topic(self, articles: list[CollectedArticle]) -> list[CollectedArticle]:
         if not articles:
             return []
@@ -623,11 +630,12 @@ class CollectionAgent:
             if not isinstance(art, CollectedArticle):
                 continue
 
-            cache_key = f"{(art.title or '').strip()}|{(art.summary or '').strip()}"
+            body_snip = ((art.body or '').replace("\n", " ").strip()[:500])
+            cache_key = f"{(art.title or '').strip()}|{(art.summary or '').strip()}|{body_snip}"
             if cache_key in cache:
                 topic = cache[cache_key]
             else:
-                topic = self._llm_judge_topic(art.title, art.summary)
+                topic = self._llm_judge_topic(art.title, art.summary, body_snip)
                 if not topic:
                     topic = _normalize_title_signature(art.title or "")
                 cache[cache_key] = topic
