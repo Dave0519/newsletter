@@ -460,7 +460,7 @@ class WritingAgent:
         # 공통 stopword
         stopwords = {
             "있다", "있으며", "있어", "있을", "있습니다", "있을", "때", "등", "및", "하고", "한다", "할", "을", "를", "의", "가", "이", "에", "와", "과", "은", "는", "들", "이슈", "기사", "오늘", "기자", "공지",
-            "nbsp", "nbsp;", "font", "style", "color", "width", "height", "class", "table", "tr", "td", "div", "span", "meta", "href", "src", "id", "body", "html", "head", "link", "script", "title", "http", "https", "amp", "news", "amp;", "업데이트", "브리핑", "요약", "정리", "리포트", "scan", "summary", "view", "report",
+            "nbsp", "nbsp;", "font", "style", "color", "width", "height", "class", "table", "tr", "td", "div", "span", "meta", "href", "src", "id", "body", "html", "head", "link", "script", "title", "http", "https", "amp", "news", "amp;", "업데이트", "브리핑", "요약", "정리", "리포트", "동향", "scan", "summary", "view", "report", "tech", "Tech", "개발", "솔루션", "top", "tier", "top-tier", "Top-tier",
             "in", "to", "on", "of", "for", "the", "a", "an", "and", "or", "with", "is", "it", "as", "at", "by", "from", "that", "this", "be", "are"
         }
 
@@ -480,6 +480,18 @@ class WritingAgent:
                 return
             if any(x in t for x in ("/", "?", "=", "&")):
                 return
+
+            # 공백 포함 태그 처리:
+            # - "AI Agent" 같은 의미 있는 조합은 붙여쓰기("AIAgent")로 정규화
+            # - 단, 범용 단어(tech/개발/솔루션/동향/업데이트 등)가 섞이면 노이즈로 보고 버림
+            if " " in t:
+                parts = [p for p in t.split(" ") if p]
+                bad_parts = {"tech", "개발", "솔루션", "동향", "업데이트", "뉴스", "요약", "정리", "리포트", "top", "tier", "top-tier"}
+                if any(p.lower() in bad_parts for p in parts):
+                    return
+                t = "".join(parts)
+                tl = t.lower()
+
             if not re.fullmatch(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9\s#&+\-_/\.]*", t):
                 return
             is_ko = bool(re.search(r"[가-힣]", t))
@@ -537,7 +549,27 @@ class WritingAgent:
             if len(unique_tags) >= max_n:
                 break
 
-        return " ".join([f"#{x}" for x in unique_tags[:max_n]])
+        def _to_hashtag_token(s: str) -> str:
+            s = (s or "").strip()
+            s = s.replace("#", "")
+            s = re.sub(r"\s+", "", s)  # 공백 제거(붙여쓰기)
+            return s
+
+        final: list[str] = []
+        seen_norm: set[str] = set()
+        for x in unique_tags:
+            tok = _to_hashtag_token(x)
+            if not tok:
+                continue
+            norm = tok.lower()
+            if norm in seen_norm:
+                continue
+            seen_norm.add(norm)
+            final.append(tok)
+            if len(final) >= max_n:
+                break
+
+        return " ".join([f"#{x}" for x in final])
 
 
 
