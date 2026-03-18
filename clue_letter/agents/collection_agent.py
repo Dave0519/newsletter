@@ -584,6 +584,36 @@ class CollectionAgent:
         t = re.sub(r"\s+", " ", t).strip().lower()
         return t[:60]
 
+    def _extract_topic_tokens(self, text: str) -> set[str]:
+        t = (text or "").replace("\r", " ").replace("\n", " ").lower()
+        stop_words = {
+            "또는", "그리고", "대한", "것", "있는", "있고", "있어", "있을", "있다", "있으며", "있다고", "것으로", "관련", "현재", "이번", "이번에", "이후", "최근", "최근에는", "현재는", "기업", "회사", "기자", "내용", "뉴스", "보도", "발표", "출시", "확대", "강조", "돌입", "마감", "국내", "해외", "시장", "기술", "글로벌"
+        }
+        toks = re.findall(r"[가-힣A-Za-z0-9']+", t)
+        out = set()
+        for tok in toks:
+            tok = tok.strip()
+            if len(tok) < 2:
+                continue
+            if tok in stop_words:
+                continue
+            out.add(tok)
+        return out
+
+    def _is_similar_topic_signature(self, a: str, b: str) -> bool:
+        if not a or not b:
+            return False
+        ta = set((a or "").split())
+        tb = set((b or "").split())
+        if not ta or not tb:
+            return False
+        inter = ta & tb
+        if len(inter) >= 5:
+            return True
+        if len(inter) >= 3 and len(inter) >= 0.45 * min(len(ta), len(tb)):
+            return True
+        return False
+
     def _llm_judge_topic(self, title: str, summary: str, body: str = "") -> str:
         body_snip = (body or "").replace("\\n", " ").strip()[:500]
         if not body_snip:
@@ -601,7 +631,8 @@ class CollectionAgent:
             "작업 : 아래 기사 제목 목록에서 동일 사/건인/물발표를 다루는 중복 기사를 필터링하세요.\\n"
             "중복 판단 기준 :\\n"
             "제목에서 추출한 3가지 요소(핵심 주제, 핵심 사건, 핵심 대상) 중 1개 이상이 일치하면 중복으로 처리합니다.\\n"
-            "또한 제목/요약/본문(요약/추출본/short) 중 하나라도 중복성이 보이면 중복으로 판단하세요.\\n\\n"
+            "특히 제목/요약/본문(요약/추출본/short)에 공통 핵심 키워드가 3개 이상(인물명/기술명/행사명) 겹치면 동일 주제 중복으로 판단하세요.\n"
+            "동일 인물/기관/기술과 동일 사건이 함께 2개 이상 결합되면 무조건 중복으로 처리하세요.\n\n"
             "핵심 주제(인/물기업)\\n"
             "핵심 사건(방문/발표/협력 )등\\n"
             "핵심 대상(제/품기술/장소)\\n\\n"
@@ -626,6 +657,7 @@ class CollectionAgent:
         cache: dict[str, str] = {}
         selected: list[CollectedArticle] = []
         seen_topics: set[str] = set()
+        seen_signatures: list[set[str]] = []
         for art in articles:
             if not isinstance(art, CollectedArticle):
                 continue
@@ -648,9 +680,21 @@ class CollectionAgent:
                 selected.append(art)
                 continue
 
-            if topic_key in seen_topics:
+            sig = self._extract_topic_tokens(f"{art.title} {art.summary} {body_snip}")
+            duplicate = False
+            for prev_sig in seen_signatures:
+                if self._is_similar_topic_signature(" ".join(sig), " ".join(prev_sig)):
+                    duplicate = True
+                    break
+
+            if not duplicate and topic_key in seen_topics:
+                duplicate = True
+
+            if duplicate:
                 continue
+
             seen_topics.add(topic_key)
+            seen_signatures.append(sig)
             selected.append(art)
 
         return selected
