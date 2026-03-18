@@ -500,6 +500,57 @@ class WritingAgent:
 
 
 
+    def _judge_country_by_title(self, title: str) -> str:
+        """Use LLM to classify article title into one of KR/US/CN/TW/GLOBAL."""
+        base = (title or "").strip()
+        if not base:
+            return "GLOBAL"
+
+        prompt = (
+            "아래 기사 제목만 보고 뉴스가 다뤄지는 주요 국가 맥락을 판단해라.\\n"
+            "반드시 아래 5개 중 정확히 1개만 답해.\\n"
+            "옵션: KR, US, CN, TW, GLOBAL\\n\\n"
+            "규칙:\\n"
+            "- 한국 관련이면 KR\\n"
+            "- 미국 관련이면 US\\n"
+            "- 중국 관련이면 CN\\n"
+            "- 대만 관련이면 TW\\n"
+            "- 위 4개에 명확히 안 걸리면 GLOBAL\\n\\n"
+            f"[기사 제목]\\n{base}"
+        )
+        out = (self._llm_request(prompt, max_tokens=16, temperature=0.0) or "").strip().upper()
+        if not out:
+            return "GLOBAL"
+
+        candidates = {"KR", "US", "CN", "TW", "GLOBAL"}
+        for token in out.replace(",", " ").replace(";", " ").replace("/", " ").replace("\n", " ").split():
+            t = token.strip().upper().strip(".\n ")
+            if t in candidates:
+                return t
+        return "GLOBAL"
+
+    def _coerce_country_code(self, country: str) -> str:
+        c = (country or "").strip().upper()
+        mapping = {
+            "KOREA": "KR",
+            "KOR": "KR",
+            "KOREAN": "KR",
+            "한국": "KR",
+            "미국": "US",
+            "USA": "US",
+            "AMERICA": "US",
+            "CHINA": "CN",
+            "CHINESE": "CN",
+            "중국": "CN",
+            "TAIWAN": "TW",
+            "TAIWAN": "TW",
+            "대만": "TW",
+            "글로벌": "GLOBAL",
+            "GLOBAL": "GLOBAL",
+        }
+        return mapping.get(c, c or "GLOBAL") if c in mapping else c if c in {"KR", "US", "CN", "TW", "GLOBAL"} else "GLOBAL"
+
+
     def _load_remote_body(self, url: str) -> str:
         if not self.fetch_body or not url:
             return ""
@@ -674,6 +725,10 @@ class WritingAgent:
         template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
         # Country/article blocks
+        for e in entries:
+            judged = self._judge_country_by_title(e.title)
+            e.country = self._coerce_country_code(judged or e.country)
+
         countries = self._grouped_country_blocks(entries)
         row_t = _extract_block(template, "{{#COUNTRIES}}", "{{/COUNTRIES}}")
         art_t = _extract_block(row_t, "{{#ARTICLES}}", "{{/ARTICLES}}")
