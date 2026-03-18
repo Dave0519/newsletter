@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections import Counter
+from collections import Counter, OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Callable
@@ -423,10 +423,10 @@ class WritingAgent:
         except Exception:
             return ""
 
-    def _build_summary_points(self, entries: list[NewsletterEntry]) -> list[str]:
-        """Openclaw 스타일 Summary 블록 빌더(기사당 최대 2문장, 총 5개 항목)."""
-        bullets: list[str] = []
-        for e in entries:
+    def _build_summary_points(self, entries: list[NewsletterEntry]) -> str:
+        """기사별 핵심 한두 문장을 소제목 없이 리스트로 구성."""
+        lines: list[str] = []
+        for idx, e in enumerate(entries, start=1):
             d = " ".join((e.summary or "").split())
             if not d and e.title:
                 d = f"{e.title}에 대한 보도입니다."
@@ -434,14 +434,18 @@ class WritingAgent:
                 continue
 
             parts = [p.strip() for p in re.split(r"(?<=[.!?다])\s+", d) if p.strip()]
-            for part in parts[:2]:
-                if len(part) < 15:
-                    continue
-                bullets.append(f"• {part}")
-                if len(bullets) >= 5:
-                    return bullets
+            if not parts:
+                continue
 
-        return bullets
+            text = parts[0]
+            if len(parts) > 1:
+                text = f"{parts[0]} {parts[1]}"
+            lines.append(f"• {idx}. {text}")
+
+            if len(lines) >= 6:
+                break
+
+        return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
 
     def _grouped_country_blocks(self, articles: list[NewsletterEntry]):
         countries: dict[str, list[NewsletterEntry]] = {}
@@ -585,7 +589,7 @@ class WritingAgent:
 
         # summary section (global scan 핵심 5개 기반)
         summary_lines = self._build_summary_points(entries)
-        summary_block = "<br/><br/>".join(summary_lines) if summary_lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
+        summary_block = summary_lines
         template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
         # Country/article blocks
