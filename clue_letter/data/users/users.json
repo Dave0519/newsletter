@@ -537,20 +537,16 @@
       },
       {
         "need_id": "skhynixglobalr&d",
-        "need_text": "SK hynix Global R&D",
+        "need_text": "SK HYNIX GLOBAL R&D",
         "aliases": [
-          "SK hynix Global R&D",
-          "SK하이닉스 글로벌 R&D",
-          "글로벌 R&D",
+          "SK HYNIX 연구개발",
           "SK hynix 연구개발",
-          "SK hynix 기술전략"
+          "글로벌 R&D"
         ],
         "aliases_flat": [
-          "SK hynix Global R&D",
-          "SK하이닉스 글로벌 R&D",
-          "글로벌 R&D",
+          "SK HYNIX 연구개발",
           "SK hynix 연구개발",
-          "SK hynix 기술전략"
+          "글로벌 R&D"
         ],
         "is_active": true,
         "is_valid": true
