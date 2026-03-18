@@ -467,6 +467,72 @@ class BrowserRelayAdapter:
 class HttpNewsAdapter:
     """브라우저 없이 HTTP/requests 기반 수집용 경량 어댑터."""
 
+    def _extract_google_news_target(self, html_text: str) -> str | None:
+        if not html_text:
+            return None
+
+        try:
+            # 1) canonical / og / twitter URL
+            if BeautifulSoup is not None:
+                soup = BeautifulSoup(html_text or "", "html.parser")
+                if soup is not None:
+                    selectors = [
+                        "link[rel='canonical']",
+                        "meta[property='og:url']",
+                        "meta[name='twitter:url']",
+                    ]
+                    for selector in selectors:
+                        tag = soup.select_one(selector)
+                        if not tag:
+                            continue
+                        cand = tag.get("href") if selector.startswith("link") else tag.get("content")
+                        if cand and cand.startswith(("http://", "https://")):
+                            return cand.strip()
+
+                    # JSON-LD 또는 스크립트 블록에서 URL 필드 탐색
+                    for st in soup.find_all("script"):
+                        txt = (st.get_text() or "").strip()
+                        if not txt:
+                            continue
+                        m = re.search(r'"url"\s*:\s*"(https:[^"]+)"', txt)
+                        if m:
+                            cand2 = (m.group(1) or "").strip()
+                            if cand2.startswith(("http://", "https://")):
+                                return cand2
+
+            # 2) 텍스트 패턴 fallback
+            pats = [
+                r'canonical"\s*[:=]\s*"(https://[^"]+)"',
+                r'og:url"\s*content="(https?://[^"]+)"',
+                r'twitter:url"\s*content="(https?://[^"]+)"',
+                r"https?://[^\"']*url=(https%3A%2F%2F[^&\"']+)",
+            ]
+            for pat in pats:
+                m = re.search(pat, html_text or "")
+                if not m:
+                    continue
+                g = m.group(1) if m.lastindex and m.lastindex >= 1 else m.group(0)
+                v = (g or "").strip('\"\' ')
+                if v.startswith("https%3A%2F%2F"):
+                    try:
+                        v = unquote_plus(v)
+                    except Exception:
+                        pass
+                if v.startswith(("http://", "https://")):
+                    return v
+            # 3) google 내부 인코딩 링크 추출
+            for m in re.findall(r'"(https%3A%2F%2F[^"%]+(?:%2F[^"%]+)*)"', html_text or ""):
+                try:
+                    cand = unquote_plus(m)
+                except Exception:
+                    cand = m
+                if cand.startswith(("http://", "https://")):
+                    return cand
+        except Exception:
+            return None
+
+        return None
+
     def __init__(self, timeout_ms: int = 12000, open_timeout_ms: int | None = None):
         self.timeout_ms = timeout_ms
         self.open_timeout_ms = open_timeout_ms or timeout_ms
@@ -481,20 +547,19 @@ class HttpNewsAdapter:
     def _http_get(self, url: str) -> str:
         if requests is None:
             raise RuntimeError("requests가 설치되지 않아 브라우저 없는 모드가 동작하지 않습니다.")
-        resp = requests.get(url, timeout=self.timeout_ms/1000, headers=self._headers(), allow_redirects=True)
+        resp = requests.get(url, timeout=self.timeout_ms / 1000, headers=self._headers(), allow_redirects=True)
         resp.raise_for_status()
         return resp.text or ""
 
     def _strip_text(self, html_text: str) -> str:
         if BeautifulSoup is not None:
             soup = BeautifulSoup(html_text or "", "html.parser")
-            return (soup.get_text(" ", strip=True) or "").replace("\xa0", " ")
+            return (soup.get_text(" ", strip=True) or "").replace(" ", " ")
         text = re.sub(r"<script[\s\S]*?</script>", " ", html_text or "", flags=re.I)
         text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
-
 
     def _is_candidate_article_url(self, url: str) -> bool:
         if not url:
@@ -617,18 +682,33 @@ class HttpNewsAdapter:
         """Google News RSS 링크를 최종 원문 URL로 추적(브라우저 미사용 모드용)."""
         if not url:
             return None
+
         u = (url or "").strip()
         if "news.google.com/rss/articles" not in u and "news.google.com" not in u:
             return u
 
+        # google 래퍼는 단순 redirect만으로 원문이 안 떨어질 수 있어 본문 HTML에서 canonical/og/url을 더 탐색
+        if requests is None:
+            return u
+
         try:
-            resp = requests.get(u, timeout=self.timeout_ms/1000, headers=self._headers(), allow_redirects=True) if requests is not None else None
+            resp = requests.get(u, timeout=self.timeout_ms / 1000, headers=self._headers(), allow_redirects=True)
         except Exception:
             return u
 
-        if resp is not None:
-            final = (resp.url or "").strip()
-            if final:
-                return final
+        if resp is None:
+            return u
 
-        return u
+        final = (resp.url or "").strip()
+        if final and "news.google.com" not in final:
+            return final
+
+        text = resp.text or ""
+        if not text:
+            return final or u
+
+        extracted = self._extract_google_news_target(text)
+        if extracted:
+            return extracted
+
+        return final or u
