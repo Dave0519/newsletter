@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Dave0519/newsletter/schemas/total_news.schema.json",
+  "title": "clue_letter_total_news",
+  "type": "object",
+  "required": ["run_id", "issue_date", "items", "schema_version", "dedupe_policy", "forbidden_domain_filter"],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "issue_date": {"type": "string", "format": "date"},
+    "schema_version": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "string",
+      "enum": ["clue_letter", "clue_letter_dev2"]
+    },
+    "total_candidates_requested": {"type": "integer", "minimum": 0},
+    "total_candidates_persisted": {"type": "integer", "minimum": 0},
+    "dedupe_policy": {
+      "type": "object",
+      "required": ["keys", "similarity_threshold"],
+      "properties": {
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "enum": ["normalized_url", "normalized_title", "semantic_signature"]}
+        },
+        "similarity_threshold": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": true
+    },
+    "forbidden_domain_filter": {
+      "type": "array",
+      "items": {"type": "string", "format": "hostname"},
+      "minItems": 1
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title", "url", "country_code", "category", "matched_need_ids", "search_plan_key"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "summary": {"type": "string"},
+          "url": {"type": "string", "format": "uri", "minLength": 8},
+          "source": {"type": "string", "minLength": 1},
+          "source_type": {"type": "string", "enum": ["direct", "google", "rss"]},
+          "country_code": {
+            "type": "string",
+            "enum": ["KR", "US", "CN", "TW", "GLOBAL"]
+          },
+          "country": {"type": "string"},
+          "query": {"type": "string"},
+          "need_category": {"type": "string"},
+          "matched_need_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "matched_needs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "matched_aliases": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "category": {
+            "type": "string",
+            "enum": ["HOT_TOPIC", "KR", "US", "CN", "TW", "GLOBAL"]
+          },
+          "search_plan_key": {"type": "string", "minLength": 1},
+          "query_id": {"type": "string"},
+          "need_match_score": {"type": "number", "minimum": 0},
+          "source_score": {"type": "number", "minimum": 0},
+          "recency_score": {"type": "number", "minimum": 0},
+          "collected_at": {"type": "string", "format": "date-time"},
+          "relevance_score": {"type": "number", "minimum": 0},
+          "relevance_note": {"type": "string"},
+          "issue_angle_id": {"type": "string"},
+          "origin_type": {"type": "string"},
+          "origin_detail": {"type": "string"},
+          "normalization_fingerprint": {
+            "type": "object",
+            "properties": {
+              "normalized_url": {"type": "string"},
+              "normalized_title": {"type": "string"},
+              "semantic_signature": {"type": "string"}
+            },
+            "required": ["normalized_url", "normalized_title", "semantic_signature"],
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true,
+  "uniqueItemsBy": {
+    "keys": ["url", "title", "search_plan_key"],
+    "description": "dedupe keys for total_news persistence"
+  }
+}

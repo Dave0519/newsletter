@@ -1,0 +1,277 @@
+{
+  "version": "clue_letter_policy_schema_v1",
+  "name": "clue_letter_pipeline_policy",
+  "description": "Need normalization, shared total_news pool, and per-user daily_news composition policy for clue_letter_dev2.",
+  "pipeline": {
+    "stages": [
+      {
+        "name": "needs",
+        "version": "v1",
+        "inputs": ["user_profile"],
+        "outputs": ["normalized_needs"],
+        "goals": [
+          "collect all explicit user interests and free-form need inputs",
+          "normalize and deduplicate include/overlap relationships",
+          "expand aliases and flattened aliases for search",
+          "preserve canonical need_id for downstream matching"
+        ],
+        "compatibility": {
+          "preserves_user_schema": true,
+          "keep_original_needs_list": true
+        },
+        "config": {
+          "subsumption": {
+            "enabled": true,
+            "method": "casefold_normalized_token_include",
+            "dedupe_by_canonical_id": true,
+            "merge_conflict_priority": "longer_specific_over_shorter_general",
+            "min_token_len": 2
+          },
+          "alias_expand": {
+            "enabled": true,
+            "alias_flatten": true,
+            "casefold": true,
+            "trim_spaces": true,
+            "dedupe_algorithm": "normalized_set_union"
+          },
+          "aliases_flat_policy": {
+            "source": [
+              "aliases",
+              "aliases_flat",
+              "need_text"
+            ],
+            "append_auto_aliases": [
+              "영문 변형(공백 제거/대소문자 정규화)",
+              "동의어 사전 기반 보완"
+            ]
+          }
+        },
+        "required_outputs": [
+          "needs_list"
+        ],
+        "output_fields": {
+          "need_id": {
+            "type": "string",
+            "required": true,
+            "examples": ["HBM", "삼성동향", "온톨로지"]
+          },
+          "need_text": {
+            "type": "string",
+            "required": true,
+            "examples": ["HBM", "삼성 동향", "온톨로지"]
+          },
+          "aliases": {
+            "type": "array",
+            "items_type": "string"
+          },
+          "aliases_flat": {
+            "type": "array",
+            "items_type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "is_valid": {
+            "type": "boolean"
+          }
+        }
+      },
+      {
+        "name": "collect_stage_A",
+        "version": "v1",
+        "inputs": ["normalized_needs", "policy.collect"],
+        "outputs": ["master_candidate_pool", "total_news"],
+        "goals": [
+          "build search plan from normalized unique needs",
+          "collect candidate news across KR/US/CN/TW plus GLOBAL sources",
+          "deduplicate shared pool by title/url/similarity",
+          "remove prohibited domains before pool persistence"
+        ],
+        "compatibility": {
+          "openclaw_orchestrator_compatible": true,
+          "stage_a_master_candidate_pool": true,
+          "country_tags": ["KR", "US", "CN", "TW", "GLOBAL"]
+        },
+        "config": {
+          "search_plan": {
+            "enabled": true,
+            "query_plan_per_need": "aliases_flat * templates",
+            "query_templates": [
+              "{}",
+              "{} 뉴스",
+              "{} 업데이트"
+            ],
+            "max_queries_per_need": 20,
+            "cap_per_need": 6,
+            "batch_size": 8,
+            "max_parallel_queries": 4
+          },
+          "collection": {
+            "source_order": ["direct", "google"],
+            "google_time_window_days": 14,
+            "max_candidates_per_query": 25,
+            "global_fetch_time_cap_sec": 45,
+            "global_candidate_cap": 180
+          },
+          "forbidden_domains": [
+            "news.google.com",
+            "digitimes.com"
+          ],
+          "dedupe": {
+            "keys": ["normalized_url", "normalized_title", "semantic_signature"],
+            "title_normalization": "lower_case_trim_punct_space",
+            "similarity_threshold": 0.82,
+            "title_shingles_n": 2
+          },
+          "stage_a_output_filter": {
+            "require_canonical_url": true,
+            "resolved_url": true,
+            "min_body_len": 0,
+            "allow_duplicate_needs": true
+          }
+        },
+        "output_fields": {
+          "title": {"type": "string", "required": true},
+          "url": {"type": "string", "format": "uri", "required": true},
+          "country_code": {
+            "type": "string",
+            "enum": ["KR", "US", "CN", "TW", "GLOBAL"],
+            "required": true
+          },
+          "matched_need_ids": {
+            "type": "array",
+            "required": true
+          },
+          "matched_needs": {
+            "type": "array",
+            "required": true
+          },
+          "matched_aliases": {
+            "type": "array"
+          },
+          "need_category": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": ["direct", "google", "rss"]
+          }
+        }
+      },
+      {
+        "name": "daily_news",
+        "version": "v1",
+        "inputs": ["total_news", "normalized_needs", "policy.daily_news"],
+        "outputs": ["user_daily_news", "search_plan_audit"],
+        "goals": [
+          "derive user daily_news from shared total_news",
+          "always include common HOT_TOPIC articles",
+          "select personalized articles by need match score",
+          "deduplicate daily output",
+          "provide country/section aware composition"
+        ],
+        "config": {
+          "composition": {
+            "enable_hot_topic": true,
+            "hot_topic_inclusion_policy": "append_common_all_users",
+            "hot_topic_max_per_user": 2,
+            "need_match_ratio": 0.7,
+            "top_k_per_user": 10,
+            "section_cap": {
+              "HOT_TOPIC": 2,
+              "KR": 3,
+              "US": 2,
+              "CN": 1,
+              "TW": 1,
+              "GLOBAL": 2
+            }
+          },
+          "selection": {
+            "scoring_weight": {
+              "need_match": 1.0,
+              "recency": 0.2,
+              "source_diversity": 0.2
+            },
+            "personization_floor_ratio": 0.75
+          },
+          "dedupe": {
+            "keys": ["normalized_url", "normalized_title", "semantic_signature"],
+            "similarity_threshold": 0.8,
+            "title_shingles_n": 2
+          }
+        },
+        "render_sections": [
+          "HOT_TOPIC",
+          "KR",
+          "US",
+          "CN",
+          "TW",
+          "GLOBAL"
+        ],
+        "required_outputs": [
+          "daily_news_items"
+        ],
+        "output_fields": {
+          "title": {"type": "string", "required": true},
+          "url": {"type": "string", "format": "uri", "required": true},
+          "matched_needs": {
+            "type": "array",
+            "required": true,
+            "items_type": "string"
+          },
+          "category": {
+            "type": "string",
+            "required": true,
+            "enum": ["HOT_TOPIC", "KR", "US", "CN", "TW", "GLOBAL"]
+          },
+          "country_code": {
+            "type": "string",
+            "required": true,
+            "enum": ["KR", "US", "CN", "TW", "GLOBAL"]
+          }
+        }
+      },
+      {
+        "name": "writing",
+        "version": "v1",
+        "inputs": ["user_daily_news", "policy.writing"],
+        "outputs": ["rendered_sections"],
+        "goals": [
+          "render by section order HOT_TOPIC, KR, US, CN, TW, GLOBAL",
+          "keep template-compat with COUNTRIES block"
+        ],
+        "config": {
+          "template": "CLUE_TEMPLATE_OFFICIAL.html",
+          "template_section_binding": {
+            "COUNTRIES": "country_sections",
+            "COUNTRY_NAME": "section_title",
+            "ARTICLES": "articles"
+          },
+          "section_order": [
+            "HOT_TOPIC",
+            "KR",
+            "US",
+            "CN",
+            "TW",
+            "GLOBAL"
+          ]
+        }
+      }
+    ]
+  },
+  "governance": {
+    "forbidden_mutations": [
+      "do_not_mutate_user_code",
+      "do_not_drop_user_id",
+      "do_not_include_prohibited_domain_in_total_news"
+    ],
+    "data_quality_checks": [
+      "for every total_news item require title,url,matched_needs,country_code,query",
+      "for every daily_news item require title,url,matched_needs,category,country_code",
+      "dedupe must run before persistence in both total_news and daily_news"
+    ]
+  }
+}

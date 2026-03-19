@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Dave0519/newsletter/schemas/daily_news.schema.json",
+  "title": "clue_letter_daily_news",
+  "type": "object",
+  "required": ["run_id", "issue_date", "user_code", "schema_version", "items", "section_map"],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "issue_date": {"type": "string", "format": "date"},
+    "schema_version": {"type": "string", "minLength": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "user_code": {"type": "string", "minLength": 1},
+    "issue_number": {"type": "integer", "minimum": 1},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "section_order": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["HOT_TOPIC", "KR", "US", "CN", "TW", "GLOBAL"]
+      },
+      "minItems": 5
+    },
+    "section_map": {
+      "type": "object",
+      "required": ["HOT_TOPIC", "KR", "US", "CN", "TW", "GLOBAL"],
+      "properties": {
+        "HOT_TOPIC": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "KR": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "US": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "CN": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "TW": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "GLOBAL": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title", "url", "matched_needs", "category", "country_code"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "url": {"type": "string", "format": "uri", "minLength": 8},
+          "summary": {"type": "string"},
+          "summary_snippet": {"type": "string"},
+          "need_category": {"type": "string"},
+          "matched_need_ids": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "matched_needs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "matched_aliases": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "category": {
+            "type": "string",
+            "enum": ["HOT_TOPIC", "KR", "US", "CN", "TW", "GLOBAL"]
+          },
+          "country_code": {
+            "type": "string",
+            "enum": ["KR", "US", "CN", "TW", "GLOBAL"]
+          },
+          "country": {"type": "string"},
+          "query": {"type": "string"},
+          "source": {"type": "string"},
+          "source_type": {
+            "type": "string",
+            "enum": ["direct", "google", "rss"]
+          },
+          "relevance_score": {"type": "number", "minimum": 0},
+          "need_match_score": {"type": "number", "minimum": 0},
+          "recency_score": {"type": "number", "minimum": 0},
+          "source_score": {"type": "number", "minimum": 0},
+          "collected_at": {"type": "string", "format": "date-time"},
+          "extraction_status": {
+            "type": "string",
+            "enum": ["success_full", "success_partial", "failed", "skipped"]
+          },
+          "issue_angle_id": {"type": "string"},
+          "origin_type": {"type": "string"},
+          "origin_detail": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true,
+  "uniqueItemsBy": {
+    "keys": ["url", "title"],
+    "description": "daily_news dedupe keys before final persistence"
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "category": { "const": "HOT_TOPIC" } }
+      },
+      "then": {
+        "properties": {
+          "matched_needs": {
+            "description": "HOT_TOPIC category may include empty matched_needs only if precomputed common angle exists"
+          }
+        }
+      }
+    }
+  ]
+}
