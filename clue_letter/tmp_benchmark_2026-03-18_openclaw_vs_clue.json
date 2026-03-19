@@ -1,0 +1,82 @@
+{
+  "date": "2026-03-18",
+  "total_rows": 18,
+  "google_feed_count": 16,
+  "raw_dup_count": 1,
+  "raw_dup_key_count": 1,
+  "clue_dup_count": 1,
+  "clue_dup_key_count": 1,
+  "open_dup_count": 1,
+  "open_dup_key_count": 1,
+  "title_signature_dup_count": 1,
+  "title_signature_dup_key_count": 1,
+  "title_signature_multi_url_count": 0,
+  "clue_google_resolved_count": 2,
+  "open_google_resolved_count": 2,
+  "sample_rows": [
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9CeUFSQVUzSmJQR0xiTUlfSWZTVVRqNDBkTGxqdHUtQWRJYVZXRnRoZDhnLU9iekMxbjlKNFIzUTJvbW1hdV9RTDM5REt1bXZMLVZpbGI0QlFFTm9MMzhhcTBDWENtZ3VOVHI1YkxYa2g?hl=en-US&gl=US&ceid=US%3Aen",
+      "clue_url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9CeUFSQVUzSmJQR0xiTUlfSWZTVVRqNDBkTGxqdHUtQWRJYVZXRnRoZDhnLU9iekMxbjlKNFIzUTJvbW1hdV9RTDM5REt1bXZMLVZpbGI0QlFFTm9MMzhhcTBDWENtZ3VOVHI1YkxYa2g",
+      "open_url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9CeUFSQVUzSmJQR0xiTUlfSWZTVVRqNDBkTGxqdHUtQWRJYVZXRnRoZDhnLU9iekMxbjlKNFIzUTJvbW1hdV9RTDM5REt1bXZMLVZpbGI0QlFFTm9MMzhhcTBDWENtZ3VOVHI1YkxYa2g?hl=en-US&gl=US&ceid=US%3Aen",
+      "title": "Samsung Unveils HBM4 and AI Infrastructure Solutions at NVIDIA GTC 2026, Expands AI Factory and On-Device AI Strategy - Korea IT Times"
+    },
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://wccftech.com/samsung-mobile-now-turning-to-chinese-oled-panels-to-cut-down-on-costs/",
+      "clue_url": "https://wccftech.com/samsung-mobile-now-turning-to-chinese-oled-panels-to-cut-down-on-costs/",
+      "open_url": "https://wccftech.com/samsung-mobile-now-turning-to-chinese-oled-panels-to-cut-down-on-costs/",
+      "title": "Samsung Mobile Now Turning To Chinese OLED Panels To Cut Down On Costs]"
+    },
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://news.google.com/rss/articles/CBMiZ0FVX3lxTFAyRmhzQkRPMWR1RU1WVmpnMlR5WjBGTnFhZG1hTzZGQ0dMU2JjWDlsb1M0Y3ZKV05pamc2cnNtRTBWT3BYTkFtdzlyRUNINnhQamtlbFZzcFFUUzdCWW1SUm9yMDBiSmM?hl=en-US&gl=US&ceid=US%3Aen",
+      "clue_url": "https://news.google.com/rss/articles/CBMiZ0FVX3lxTFAyRmhzQkRPMWR1RU1WVmpnMlR5WjBGTnFhZG1hTzZGQ0dMU2JjWDlsb1M0Y3ZKV05pamc2cnNtRTBWT3BYTkFtdzlyRUNINnhQamtlbFZzcFFUUzdCWW1SUm9yMDBiSmM",
+      "open_url": "https://news.google.com/rss/articles/CBMiZ0FVX3lxTFAyRmhzQkRPMWR1RU1WVmpnMlR5WjBGTnFhZG1hTzZGQ0dMU2JjWDlsb1M0Y3ZKV05pamc2cnNtRTBWT3BYTkFtdzlyRUNINnhQamtlbFZzcFFUUzdCWW1SUm9yMDBiSmM?hl=en-US&gl=US&ceid=US%3Aen",
+      "title": "신세계, 국내 최대 규모 AI Data Center 짓는다 -‘美정부 AI 수출 1호’로 리플렉션 AI와 전략적 파트너십 - mstoday.co.kr"
+    },
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE5EbjV6QnVfY1oza1Q4aUdTUzdVeGx5Z3IzWDBkajFrQktDSXJxNl85WVZja19uZWtYM0lta3B1UGUtd1BWR0I3c1B2T080dXpfN2d5eTYwUUREemlOVEN2OE1Sck5qNVJORzRVMlFkNV8?hl=en-US&gl=US&ceid=US%3Aen",
+      "clue_url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE5EbjV6QnVfY1oza1Q4aUdTUzdVeGx5Z3IzWDBkajFrQktDSXJxNl85WVZja19uZWtYM0lta3B1UGUtd1BWR0I3c1B2T080dXpfN2d5eTYwUUREemlOVEN2OE1Sck5qNVJORzRVMlFkNV8",
+      "open_url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE5EbjV6QnVfY1oza1Q4aUdTUzdVeGx5Z3IzWDBkajFrQktDSXJxNl85WVZja19uZWtYM0lta3B1UGUtd1BWR0I3c1B2T080dXpfN2d5eTYwUUREemlOVEN2OE1Sck5qNVJORzRVMlFkNV8?hl=en-US&gl=US&ceid=US%3Aen",
+      "title": "LS Eco Energy Wins First Busduct Deal for Hyperscale Data Center in Malaysia, Expands ASEAN Power Infrastructure Business - Korea IT Times"
+    },
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://news.google.com/rss/articles/CBMia0FVX3lxTE4wUVNwRnN5RmNwbUIwQVRhbW52WThwVS1Gb3R5eWRkTlJCb19fdld5MDR1MjZJcERnOFJFaWx5ZWZtNnFELWxpblo5MkJWMG4zR1lSRVp3Tjh0N2NRM2NZbWhaTVQ5UFFQQ2Fn?hl=en-US&gl=US&ceid=US%3Aen",
+      "clue_url": "https://news.google.com/rss/articles/CBMia0FVX3lxTE4wUVNwRnN5RmNwbUIwQVRhbW52WThwVS1Gb3R5eWRkTlJCb19fdld5MDR1MjZJcERnOFJFaWx5ZWZtNnFELWxpblo5MkJWMG4zR1lSRVp3Tjh0N2NRM2NZbWhaTVQ5UFFQQ2Fn",
+      "open_url": "https://news.google.com/rss/articles/CBMia0FVX3lxTE4wUVNwRnN5RmNwbUIwQVRhbW52WThwVS1Gb3R5eWRkTlJCb19fdld5MDR1MjZJcERnOFJFaWx5ZWZtNnFELWxpblo5MkJWMG4zR1lSRVp3Tjh0N2NRM2NZbWhaTVQ5UFFQQ2Fn?hl=en-US&gl=US&ceid=US%3Aen",
+      "title": "신세계-美 AI 리플렉션社 국내 최대 규모 ‘250MW AI Data Center’ 건립 추진 - 마일드경제"
+    },
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE92NEd0cjFDWGJaVk9ERmhCeE5pdjU1dUJ5RTNfeDVDcEhnTGphd1VWbUtaOVlXZktyU000dmVYRHE4cGhtNzZwMEZCTzZ0UVF6c0JJ?hl=en-US&gl=US&ceid=US%3Aen",
+      "clue_url": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE92NEd0cjFDWGJaVk9ERmhCeE5pdjU1dUJ5RTNfeDVDcEhnTGphd1VWbUtaOVlXZktyU000dmVYRHE4cGhtNzZwMEZCTzZ0UVF6c0JJ",
+      "open_url": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE92NEd0cjFDWGJaVk9ERmhCeE5pdjU1dUJ5RTNfeDVDcEhnTGphd1VWbUtaOVlXZktyU000dmVYRHE4cGhtNzZwMEZCTzZ0UVF6c0JJ?hl=en-US&gl=US&ceid=US%3Aen",
+      "title": "Shinsegae joins hands with Reflection AI to build AI data center in Korea - 네이트"
+    },
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://news.google.com/rss/articles/CBMiXkFVX3lxTFBxYXpsTkZndlFLZ3hXMlFZNWxjTmlmXzlrZ1dEY2RRSnhFejR4aFNIRG1kU2Jfbnh6cy01SWFZdTlhUjdTTEotcmo4WnBaS1pra0ZTQzZyaEtqc2k0OWc?hl=en-US&gl=US&ceid=US%3Aen",
+      "clue_url": "https://news.google.com/rss/articles/CBMiXkFVX3lxTFBxYXpsTkZndlFLZ3hXMlFZNWxjTmlmXzlrZ1dEY2RRSnhFejR4aFNIRG1kU2Jfbnh6cy01SWFZdTlhUjdTTEotcmo4WnBaS1pra0ZTQzZyaEtqc2k0OWc",
+      "open_url": "https://news.google.com/rss/articles/CBMiXkFVX3lxTFBxYXpsTkZndlFLZ3hXMlFZNWxjTmlmXzlrZ1dEY2RRSnhFejR4aFNIRG1kU2Jfbnh6cy01SWFZdTlhUjdTTEotcmo4WnBaS1pra0ZTQzZyaEtqc2k0OWc?hl=en-US&gl=US&ceid=US%3Aen",
+      "title": "Shinsegae to pursue construction of the largest AI data center in the country… ‘AI Export ’ No. 1 - 경향신문"
+    },
+    {
+      "user": "lcs",
+      "date": "2026-03-18",
+      "raw_url": "https://news.google.com/rss/articles/CBMiXkFVX3lxTE1MakRiclgyaGp5WkZlTmF3bWNpRWxxQjRpTjFWMlBuQjh2d2R1WGt1SDMtYkZoQlFGZXBmQjJHR3JHVVVVOWpMb0xxaTJHQldMai11bXA0QnRibk1FRlE?hl=en-US&gl=US&ceid=US%3Aen",
+      "clue_url": "https://news.google.com/rss/articles/CBMiXkFVX3lxTE1MakRiclgyaGp5WkZlTmF3bWNpRWxxQjRpTjFWMlBuQjh2d2R1WGt1SDMtYkZoQlFGZXBmQjJHR3JHVVVVOWpMb0xxaTJHQldMai11bXA0QnRibk1FRlE",
+      "open_url": "https://news.google.com/rss/articles/CBMiXkFVX3lxTE1MakRiclgyaGp5WkZlTmF3bWNpRWxxQjRpTjFWMlBuQjh2d2R1WGt1SDMtYkZoQlFGZXBmQjJHR3JHVVVVOWpMb0xxaTJHQldMai11bXA0QnRibk1FRlE?hl=en-US&gl=US&ceid=US%3Aen",
+      "title": "Shinsegae to build the largest ‘AI data center’ in Korea···GPUs to be supplied by Nvidia - 경향신문"
+    }
+  ]
+}

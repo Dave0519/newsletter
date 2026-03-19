@@ -1,0 +1,25 @@
+{
+  "total_candidates": 45,
+  "need_matched_count": 45,
+  "success_full_count": 43,
+  "success_full_rate": 0.9555555555555556,
+  "google_news_ratio": 0.9777777777777777,
+  "daily_news_need_balance": {
+    "ai인프라": 3,
+    "반도체": 6,
+    "데이터센터": 7,
+    "지정학리스크": 0,
+    "gpu": 1,
+    "클라우드": 0,
+    "중동": 0,
+    "수급": 0,
+    "ai칩": 0,
+    "삼성": 0,
+    "skhynix": 3
+  },
+  "coverage_ok": true,
+  "short_count": 0,
+  "fail_count": 2,
+  "filtered_unreachable_count": 13,
+  "normalized_total_count": 0
+}

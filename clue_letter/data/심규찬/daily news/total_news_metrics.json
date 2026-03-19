@@ -1,0 +1,20 @@
+{
+  "total_candidates": 52,
+  "need_matched_count": 52,
+  "success_full_count": 50,
+  "success_full_rate": 0.9615384615384616,
+  "google_news_ratio": 0.9423076923076923,
+  "daily_news_need_balance": {
+    "반도체": 1,
+    "aiagent": 8,
+    "agenticai": 8,
+    "aimodel": 2,
+    "이란전쟁": 0,
+    "지정학이슈": 0
+  },
+  "coverage_ok": true,
+  "short_count": 0,
+  "fail_count": 3,
+  "filtered_unreachable_count": 16,
+  "normalized_total_count": 0
+}
