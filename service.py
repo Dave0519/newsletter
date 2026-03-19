@@ -74,12 +74,18 @@ def main(argv=None):
     parser.add_argument("--countries", nargs="*", default=[], help="preferred countries")
     parser.add_argument("--exclusions", nargs="*", default=[], help="exclusions")
     parser.add_argument("--dry", action="store_true", help="dry-run only")
+    parser.add_argument("--trace", action="store_true", help="enable detailed API/step trace logs")
     parser.add_argument("--batch-size", type=int, default=0, help="Run only first N users from selected batch")
     parser.add_argument("--batch-start", type=int, default=0, help="Zero-based start index for user batch")
     parser.add_argument("--browser", action="store_true", help="use browser relay explicitly (default is HTTP/requests)")
     parser.add_argument("--no-browser", action="store_true", help="explicitly force no-browser; use HTTP/requests fetch path")
 
     args = parser.parse_args(argv)
+
+    if args.trace:
+        os.environ["CLUE_TRACE"] = "1"
+    trace_dir = Path("logs") / "trace"
+    os.environ.setdefault("CLUE_TRACE_DIR", str(ROOT / trace_dir))
     use_browser_relay = bool(args.browser and not args.no_browser)
     svc = SuperAgent(root=ROOT, use_browser_relay=use_browser_relay)
 

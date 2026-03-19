@@ -457,6 +457,11 @@ class CollectionAgent:
         return out[:max_chars] if out else txt[:max_chars]
 
     def _llm_request(self, prompt: str, max_tokens: int = 240, temperature: float = 0.0) -> str:
+        if self.trace_enabled:
+            try:
+                self._log(f"[llm] call model={os.getenv('OPENAI_MODEL', 'gpt-5-mini')} max_tokens={max_tokens} prompt_len={len(prompt or '')}")
+            except Exception:
+                pass
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
             return ""
@@ -470,6 +475,7 @@ class CollectionAgent:
             payload["max_completion_tokens"] = max_tokens
         else:
             payload["max_tokens"] = max_tokens
+        t0 = time.perf_counter()
         try:
             r = requests.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -477,10 +483,21 @@ class CollectionAgent:
                 json=payload,
                 timeout=60,
             )
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            if self.trace_enabled:
+                try:
+                    self._log(f"[llm] status={r.status_code} elapsed_ms={elapsed_ms} model={model} response_chars={len((r.text or ''))}")
+                except Exception:
+                    pass
             if r.status_code != 200:
                 return ""
             return ((r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip())
-        except Exception:
+        except Exception as e:
+            if self.trace_enabled:
+                try:
+                    self._log(f"[llm] error={type(e).__name__}:{e}")
+                except Exception:
+                    pass
             return ""
 
     def load_daily_news(self, user: UserProfile, issue: str | None = None) -> list[CollectedArticle]:
