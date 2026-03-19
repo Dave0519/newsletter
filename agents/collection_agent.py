@@ -318,6 +318,11 @@ class CollectionAgent:
         self.phase2_shared_hot_keyword_floor = max(1, int(os.getenv("CLUE_PHASE2_SHARED_HOT_RELEVANCE_FLOOR", "2")))
         self.phase2_overlap_floor = float(os.getenv("CLUE_PHASE2_PERSONAL_SHARE_FLOOR", "0.75"))
 
+        # dev2: 판매/프로모션/상업성 주제 차단 키워드
+        self._sales_noisewords = {
+            "할인", "판매", "세일", "특가", "이벤트", "혜택", "프로모션", "쿠폰", "할부", "예약판매", "한정수량", "특별가", "사전예약", "딜", "deal", "discount", "promotion", "sale", "pre-order", "preorder", "price", "buy", "구매"
+        }
+
         self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0, "filtered_stale": 0, "filtered_unreachable": 0, "fallback_used": 0, "short_circuit": 0, "normalized_total": 0}
         self.trace_root = Path(os.getenv("CLUE_TRACE_DIR", self.data_root / "trace"))
 
@@ -1013,6 +1018,10 @@ class CollectionAgent:
             pass
         return q
 
+    def _is_sales_topic(self, text: str) -> bool:
+        hay = (text or "").lower()
+        return any(k in hay for k in self._sales_noisewords)
+
     def _collect_need_hits(
         self,
         text: str,
@@ -1120,6 +1129,10 @@ class CollectionAgent:
         merged_for_match = f"{raw_title} {raw_snippet}"
         if _is_marketing_content(merged_for_match, url):
             self.stage_counters["fail"] += 1
+            return None
+
+        if self._is_sales_topic(merged_for_match):
+            self.stage_counters["filtered_stale"] += 1
             return None
 
         matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged_for_match, needs_payload)
