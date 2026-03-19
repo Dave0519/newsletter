@@ -6,7 +6,9 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.append("/Users/davechoi/.openclaw/workspace")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
 
 
 def _load_env_file(path: Path) -> None:
@@ -31,7 +33,7 @@ def _load_env_file(path: Path) -> None:
 def _bootstrap_env() -> None:
     # Runtime safety: ensure OpenAI keys are loaded even without shell source.
     root = Path(__file__).resolve().parent
-    _load_env_file(root.parent / "openclaw" / ".env")
+    _load_env_file((root.parent) / "openclaw" / ".env")
     _load_env_file(root / ".env")
 
 

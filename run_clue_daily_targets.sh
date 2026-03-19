@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/Users/davechoi/.openclaw/workspace/clue_letter_dev2"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$SCRIPT_DIR"
 LOG_FILE="${ROOT}/logs/daily_targets.log"
 TARGET_USERS=("주재욱")
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"

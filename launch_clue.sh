@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
 # Persistent-ready launcher for clue_letter
 # Usage:
-#   source /Users/davechoi/.openclaw/workspace/clue_letter/launch_clue.sh
+#   source <clue_letter_root>/launch_clue.sh
 # then run:
 #   clue-run
 
 # Load OPENAI_* env from repository .env files when present.
 # Priority:
-#  1) /Users/davechoi/.openclaw/workspace/openclaw/.env
-#  2) ./clue_letter/.env
+#  1) <workspace>/openclaw/.env
+#  2) <clue_letter_dev2>/.env
 # Existing environment values are preserved.
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 set -a
-if [ -f /Users/davechoi/.openclaw/workspace/openclaw/.env ]; then
+if [ -f "$WORKSPACE_ROOT/openclaw/.env" ]; then
   # shellcheck disable=SC1091
-  source /Users/davechoi/.openclaw/workspace/openclaw/.env
+  source "$WORKSPACE_ROOT/openclaw/.env"
 fi
-if [ -f /Users/davechoi/.openclaw/workspace/clue_letter/.env ]; then
+if [ -f "$SCRIPT_DIR/.env" ]; then
   # shellcheck disable=SC1091
-  source /Users/davechoi/.openclaw/workspace/clue_letter/.env
+  source "$SCRIPT_DIR/.env"
 fi
 set +a
 
@@ -27,7 +30,7 @@ export OPENAI_MODEL="${OPENAI_MODEL:-gpt-5-mini}"
 export OPENAI_API_BASE="${OPENAI_API_BASE:-https://api.openai.com/v1}"
 
 clue-run() {
-  cd /Users/davechoi/.openclaw/workspace/clue_letter
+  cd "$SCRIPT_DIR"
   python3 service.py run --user-code "$1" ${2:+"$2"}
 }
 

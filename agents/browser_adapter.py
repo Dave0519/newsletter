@@ -90,7 +90,7 @@ def _dedupe_keep_order(items: list[SearchHit]) -> list[SearchHit]:
 def _append_search_trace(source: str, query: str, **extra) -> None:
     """RSS/Google 검색 키워드 및 타겟 로그를 jsonl로 남긴다."""
     try:
-        root = Path(__file__).resolve().parents[1]  # clue_letter/
+        root = Path(__file__).resolve().parents[1]  # repository root/agents
         log_root = root / "logs" / "search_trace"
         log_root.mkdir(parents=True, exist_ok=True)
         day = datetime.now().strftime("%Y-%m-%d")

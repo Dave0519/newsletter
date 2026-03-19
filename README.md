@@ -22,26 +22,26 @@
 
 ### 사용자 등록
 ```bash
-python3 clue_letter/service.py register --name "lcs" --interests "AI 인프라" "반도체" "데이터센터"
+python3 service.py register --name "lcs" --interests "AI 인프라" "반도체" "데이터센터"
 ```
 (메일은 기본 `bonggyu1.choi@sk.com`)
 
 ### 니즈 변경
 ```bash
-python3 clue_letter/service.py interests --user-code <USER_CODE> --interests "AI 인프라" "반도체" "클라우드"
+python3 service.py interests --user-code <USER_CODE> --interests "AI 인프라" "반도체" "클라우드"
 ```
 
 ### 단일 사용자 실행
 ```bash
-python3 clue_letter/service.py run --user-code <USER_CODE> --dry
-python3 clue_letter/service.py run --user-code <USER_CODE> --dry --no-browser  # 기본값: 브라우저 없이 HTTP 모드
-python3 clue_letter/service.py run --user-code <USER_CODE>
+python3 service.py run --user-code <USER_CODE> --dry
+python3 service.py run --user-code <USER_CODE> --dry --no-browser  # 기본값: 브라우저 없이 HTTP 모드
+python3 service.py run --user-code <USER_CODE>
 ```
 
 ### 전체 사용자 실행
 ```bash
-python3 clue_letter/service.py run-all --dry
-python3 clue_letter/service.py run-all
+python3 service.py run-all --dry
+python3 service.py run-all
 ```
 
 ## 비고
@@ -55,11 +55,12 @@ python3 clue_letter/service.py run-all
 정책/실행 구조 코드만 변경될 때는 아래로 즉시 반영 가능:
 
 ```bash
-cd /Users/davechoi/.openclaw/workspace/clue_letter
-./auto_sync_clue.sh "chore(clue_letter): ..."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+./auto_sync_clue.sh "chore(clue_letter_dev2): ..."
 ```
 
-- 변경 감지 대상: `clue_letter/` 하위 정책·실행 파일(agents/service/템플릿/core_rss/런처/테스트 스크립트)
-- 제외 대상: `clue_letter/data/`, `clue_letter/logs/` (런타임 산출물)
+- 변경 감지 대상: `clue_letter_dev2/` 하위 정책·실행 파일(agents/service/템플릿/core_rss/런처/테스트 스크립트)
+- 제외 대상: `data/`, `logs/` (런타임 산출물)
 - 기본 동작: 변경 있으면 `git add` → `git commit` → `git push origin main`
-- 변경 없으면 `No clue_letter policy/runtime changes to sync.`로 종료
+- 변경 없으면 `No clue_letter_dev2 policy/runtime changes to sync.`로 종료

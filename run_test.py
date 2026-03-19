@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import sys
-sys.path.append("/Users/davechoi/.openclaw/workspace")
-
 from pathlib import Path
 
-from agents.super_agent import SuperAgent
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+ROOT = Path(__file__).resolve().parent
 
 from agents.super_agent import SuperAgent
-
-ROOT = Path('/Users/davechoi/.openclaw/workspace/clue_letter')
 
 
 def main():
@@ -41,5 +41,5 @@ def main():
     print(result)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
