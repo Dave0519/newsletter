@@ -6,7 +6,6 @@
     "interests": [
       "제조 AI",
       "HBM",
-      "삼성 동향",
       "마이크론 동향",
       "스마트 팩토리",
       "반도체 패키지",
@@ -23,13 +22,7 @@
           "제조인공지능",
           "산업 AI",
           "제조자동화",
-          "smart manufacturing",
-          "industry 4.0",
-          "factory AI",
-          "Manufacturing AI",
-          "제조ai",
-          "manufacturing ai",
-          "industrial ai"
+          "smart manufacturing"
         ],
         "aliases_flat": [
           "제조 AI",
@@ -48,20 +41,11 @@
         "need_id": "반도체",
         "need_text": "HBM",
         "aliases": [
+          "HBM",
+          "HPC",
           "반도체",
           "semiconductor",
-          "HBM",
-          "반도체 장비",
-          "반도체 소재",
-          "메모리 반도체",
-          "반도체 패키지",
-          "반도체 공정",
-          "반도체 산업",
-          "HPC",
-          "High Bandwidth Memory",
-          "High Bandwidth Memory (HBM)",
-          "memory semiconductor",
-          "hbm"
+          "반도체 장비"
         ],
         "aliases_flat": [
           "반도체",
@@ -82,20 +66,16 @@
       },
       {
         "need_id": "삼성동향",
-        "need_text": "삼성 동향",
+        "need_text": "삼성전자",
         "aliases": [
-          "삼성 동향",
           "삼성",
           "Samsung",
           "삼성전자",
-          "삼성 반도체",
-          "삼성 파운드리",
-          "Samsung Electronics",
-          "삼성 반도체부문",
-          "Samsung updates",
-          "삼성동향",
-          "samsung trend",
-          "samsung electronics"
+          "삼성전자 메모리",
+          "삼성전자 hbm",
+          "dram",
+          "Samsung Electronics Memory",
+          "Samsung Electronics HBM"
         ],
         "aliases_flat": [
           "삼성 동향",
@@ -116,15 +96,9 @@
         "need_text": "마이크론 동향",
         "aliases": [
           "마이크론 동향",
-          "마이크론",
           "Micron",
-          "마이크론 테크놀로지",
-          "메모리 업체",
-          "메모리 시장",
-          "Micron updates",
-          "마이크론동향",
-          "micron trend",
-          "micron technology"
+          "마이크론",
+          "마이크론 테크놀로지"
         ],
         "aliases_flat": [
           "마이크론 동향",
@@ -145,14 +119,7 @@
           "스마트 팩토리",
           "스마트팩토리",
           "스마트 공장",
-          "스마트 제조",
-          "지능형 제조",
-          "디지털 공장",
-          "factory of the future",
-          "Smart Factory",
-          "smart factory",
-          "intelligent factory",
-          "digital factory"
+          "스마트 제조"
         ],
         "aliases_flat": [
           "스마트 팩토리",
@@ -192,11 +159,7 @@
           "GTC",
           "NVIDIA GTC",
           "GPU Technology Conference",
-          "엔비디아 GTC",
-          "글로벌 AI 콘퍼런스",
-          "gtc",
-          "nvidia gtc",
-          "gpu technology conference"
+          "엔비디아 GTC"
         ]
       }
     ],
@@ -214,7 +177,6 @@
       "온톨로지",
       "제조 AI",
       "HBM",
-      "삼성 동향",
       "마이크론 동향",
       "스마트 팩토리",
       "Database",
@@ -229,18 +191,9 @@
         "need_text": "팔란티어",
         "aliases": [
           "팔란티어",
-          "Palantir",
-          "팔란티어 플랫폼",
-          "팔란티어foundry",
-          "Foundry",
           "Gotham",
           "AIP",
-          "Palantir Foundry",
-          "팔란티어 가트홈",
-          "Palantir Gotham",
-          "Palantir Technologies",
-          "Palantir Inc",
-          "palantir"
+          "Palantir"
         ],
         "aliases_flat": [
           "팔란티어",
@@ -264,26 +217,9 @@
         "need_text": "온톨로지",
         "aliases": [
           "온톨로지",
-          "ontology",
-          "지식그래프",
-          "지식 그래프",
-          "지식 표현",
-          "지식 모델링",
-          "온톨로지 엔진",
-          "시맨틱",
-          "Semantic",
           "RDF",
           "OWL",
-          "SKOS",
-          "OWL 2",
-          "지식 베이스",
-          "개념 계층",
-          "knowledge graph",
-          "시맨틱 웹",
-          "온톨로지 관리",
-          "메타데이터 모델",
-          "Ontology",
-          "semantic web"
+          "SKOS"
         ],
         "aliases_flat": [
           "온톨로지",
@@ -317,14 +253,7 @@
           "제조 AI",
           "제조인공지능",
           "산업 AI",
-          "제조자동화",
-          "smart manufacturing",
-          "industry 4.0",
-          "factory AI",
-          "Manufacturing AI",
-          "제조ai",
-          "manufacturing ai",
-          "industrial ai"
+          "제조자동화"
         ],
         "aliases_flat": [
           "제조 AI",
@@ -343,20 +272,10 @@
         "need_id": "반도체",
         "need_text": "HBM",
         "aliases": [
-          "반도체",
-          "semiconductor",
           "HBM",
-          "반도체 장비",
-          "반도체 소재",
-          "메모리 반도체",
-          "반도체 패키지",
-          "반도체 공정",
-          "반도체 산업",
           "HPC",
-          "High Bandwidth Memory",
-          "High Bandwidth Memory (HBM)",
-          "memory semiconductor",
-          "hbm"
+          "반도체",
+          "semiconductor"
         ],
         "aliases_flat": [
           "반도체",
@@ -377,20 +296,16 @@
       },
       {
         "need_id": "삼성동향",
-        "need_text": "삼성 동향",
+        "need_text": "삼성전자",
         "aliases": [
-          "삼성 동향",
           "삼성",
           "Samsung",
           "삼성전자",
-          "삼성 반도체",
-          "삼성 파운드리",
-          "Samsung Electronics",
-          "삼성 반도체부문",
-          "Samsung updates",
-          "삼성동향",
-          "samsung trend",
-          "samsung electronics"
+          "삼성전자 메모리",
+          "삼성전자 hbm",
+          "dram",
+          "Samsung Electronics Memory",
+          "Samsung Electronics HBM"
         ],
         "aliases_flat": [
           "삼성 동향",
@@ -411,15 +326,9 @@
         "need_text": "마이크론 동향",
         "aliases": [
           "마이크론 동향",
-          "마이크론",
           "Micron",
-          "마이크론 테크놀로지",
-          "메모리 업체",
-          "메모리 시장",
-          "Micron updates",
-          "마이크론동향",
-          "micron trend",
-          "micron technology"
+          "마이크론",
+          "마이크론 테크놀로지"
         ],
         "aliases_flat": [
           "마이크론 동향",
@@ -439,15 +348,7 @@
         "aliases": [
           "스마트 팩토리",
           "스마트팩토리",
-          "스마트 공장",
-          "스마트 제조",
-          "지능형 제조",
-          "디지털 공장",
-          "factory of the future",
-          "Smart Factory",
-          "smart factory",
-          "intelligent factory",
-          "digital factory"
+          "스마트 공장"
         ],
         "aliases_flat": [
           "스마트 팩토리",
@@ -467,16 +368,8 @@
         "need_text": "Database",
         "aliases": [
           "Database",
-          "데이터베이스",
           "DB",
-          "데이터 저장소",
-          "관계형 DB",
-          "NoSQL",
-          "데이터 웨어하우스",
-          "RDBMS",
-          "database",
-          "db",
-          "data warehouse"
+          "NoSQL"
         ],
         "aliases_flat": [
           "Database",
@@ -525,14 +418,7 @@
         "aliases": [
           "메모리 요소기술",
           "메모리 재료",
-          "반도체 소자",
-          "반도체 소자 기술",
-          "칩 재료",
-          "메모리 원천기술",
-          "메모리요소기술",
-          "Memory component technologies",
-          "memory component technology",
-          "memory materials"
+          "반도체 소자"
         ],
         "aliases_flat": [
           "메모리 요소기술",
@@ -553,13 +439,7 @@
         "aliases": [
           "메모리 Tech 개발",
           "메모리 기술 개발",
-          "메모리 솔루션",
-          "메모리 아키텍처",
-          "memory technology",
-          "차세대 메모리",
-          "메모리tech개발",
-          "memory tech development",
-          "next-gen memory"
+          "메모리 솔루션"
         ],
         "aliases_flat": [
           "메모리 Tech 개발",
@@ -578,12 +458,7 @@
         "aliases": [
           "경쟁사 R&D 동향",
           "경쟁사 R&D",
-          "경쟁사 연구개발",
-          "경쟁사 기술 동향",
-          "R&D 경쟁사 분석",
-          "경쟁사r&d동향",
-          "competitor r&d trend",
-          "competitor rnd trend"
+          "경쟁사 연구개발"
         ],
         "aliases_flat": [
           "경쟁사 R&D 동향",
@@ -601,11 +476,7 @@
         "aliases": [
           "메모리 R&D 핵심역량",
           "메모리 연구개발 역량",
-          "핵심 기술",
-          "R&D 파이프라인",
-          "메모리r&d핵심역량",
-          "memory r&d core capability",
-          "memory rnd capability"
+          "핵심 기술"
         ],
         "aliases_flat": [
           "메모리 R&D 핵심역량",
@@ -622,14 +493,7 @@
         "aliases": [
           "Product R&D",
           "제품 R&D",
-          "제품 개발",
-          "제품개발 연구",
-          "Product Development",
-          "기술 상용화",
-          "productr&d",
-          "product r&d",
-          "product rnd",
-          "product development"
+          "제품 개발"
         ],
         "aliases_flat": [
           "Product R&D",
@@ -646,13 +510,9 @@
         "need_id": "skhynixglobalr&d",
         "need_text": "SK HYNIX GLOBAL R&D",
         "aliases": [
-          "SK HYNIX 연구개발",
-          "SK hynix 연구개발",
-          "글로벌 R&D",
           "SK HYNIX GLOBAL R&D",
-          "skhynixglobalr&d",
-          "sk hynix global r&d",
-          "sk hynix global rnd"
+          "SK HYNIX 연구개발",
+          "글로벌 R&D"
         ],
         "aliases_flat": [
           "SK HYNIX 연구개발",
@@ -668,13 +528,7 @@
         "need_text": "R&D 방향성",
         "aliases": [
           "R&D 방향성",
-          "연구개발 방향",
-          "기술 방향성",
-          "R&D 로드맵",
-          "기술 전략",
-          "r&d방향성",
-          "r&d direction",
-          "rnd roadmap"
+          "연구개발 방향"
         ],
         "aliases_flat": [
           "R&D 방향성",
@@ -691,13 +545,7 @@
         "need_text": "AI 기반 R&D",
         "aliases": [
           "AI 기반 R&D",
-          "AI 연구개발",
-          "AI 기반 연구",
-          "AIGR",
-          "AI-R&D",
-          "ai기반r&d",
-          "ai-based r&d",
-          "ai based rnd"
+          "AIGR"
         ],
         "aliases_flat": [
           "AI 기반 R&D",
@@ -714,13 +562,7 @@
         "need_text": "R&D AI 기술",
         "aliases": [
           "R&D AI 기술",
-          "AI 연구기술",
-          "연구개발 AI 적용",
-          "생성형 AI",
-          "생성형 인공지능",
-          "r&dai기술",
-          "r&d ai technology",
-          "rnd ai technology"
+          "AI 연구기술"
         ],
         "aliases_flat": [
           "R&D AI 기술",
@@ -737,13 +579,7 @@
         "need_text": "미래기술연구원 로드맵",
         "aliases": [
           "미래기술연구원 로드맵",
-          "미래기술연구원",
-          "R&D 로드맵",
-          "기술 로드맵",
-          "연구로드맵",
-          "미래기술연구원로드맵",
-          "future technology institute roadmap",
-          "technology roadmap"
+          "미래기술연구원"
         ],
         "aliases_flat": [
           "미래기술연구원 로드맵",
@@ -761,13 +597,7 @@
         "need_text": "AI 기술 활용",
         "aliases": [
           "AI 기술 활용",
-          "AI 적용",
-          "인공지능 활용",
-          "AI 활용 사례",
-          "AI 도입",
-          "ai기술활용",
-          "ai adoption",
-          "ai application"
+          "AI 적용"
         ],
         "aliases_flat": [
           "AI 기술 활용",
@@ -784,12 +614,7 @@
         "need_text": "GTC",
         "aliases": [
           "GTC",
-          "GPU Technology Conference",
-          "NVIDIA GTC",
-          "글로벌 AI 콘퍼런스",
-          "gtc",
-          "nvidia gtc",
-          "gpu technology conference"
+          "GPU Technology Conference"
         ],
         "aliases_flat": [
           "GTC",
@@ -833,13 +658,7 @@
         "aliases": [
           "AI Agent",
           "인공지능 에이전트",
-          "AI 에이전트",
-          "agentic AI",
-          "오토메이션 에이전트",
-          "aiagent",
-          "ai agent",
-          "intelligent agent",
-          "autonomous agent"
+          "AI 에이전트"
         ],
         "aliases_flat": [
           "AI Agent",
@@ -857,12 +676,7 @@
         "aliases": [
           "Agentic AI",
           "주도형 AI",
-          "행동형 AI",
-          "Autonomous AI",
-          "에이전틱 AI",
-          "agenticai",
-          "agentic ai",
-          "autonomous ai"
+          "행동형 AI"
         ],
         "aliases_flat": [
           "Agentic AI",
@@ -880,11 +694,7 @@
         "aliases": [
           "Claude",
           "클로드",
-          "Anthropic",
-          "Claude AI",
-          "클로드 모델",
-          "claude",
-          "anthropic"
+          "Anthropic"
         ],
         "aliases_flat": [
           "Claude",
@@ -902,11 +712,7 @@
         "aliases": [
           "Gemini",
           "제미니",
-          "Google Gemini",
-          "제미나이",
-          "Gemini Pro",
-          "gemini",
-          "google gemini"
+          "Google Gemini"
         ],
         "aliases_flat": [
           "Gemini",
@@ -923,12 +729,8 @@
         "need_text": "Grok",
         "aliases": [
           "Grok",
-          "그로크",
-          "Grok AI",
           "xAI",
-          "Grok 모델",
-          "grok",
-          "xai grok"
+          "그로크"
         ],
         "aliases_flat": [
           "Grok",
@@ -945,12 +747,8 @@
         "need_text": "ChatGPT",
         "aliases": [
           "ChatGPT",
-          "챗GPT",
-          "Chat GPT",
-          "OpenAI ChatGPT",
           "GPT",
-          "chatgpt",
-          "openai gpt"
+          "챗GPT"
         ],
         "aliases_flat": [
           "ChatGPT",
@@ -968,9 +766,7 @@
         "aliases": [
           "Genspark",
           "젠스파크",
-          "제네릭 AI",
-          "생산성 AI",
-          "genspark"
+          "제네릭 AI"
         ],
         "aliases_flat": [
           "Genspark",
@@ -986,13 +782,8 @@
         "need_text": "Cursor",
         "aliases": [
           "Cursor",
-          "커서",
-          "AI 코파일럿",
-          "코드 편집기",
           "IDE",
-          "cursor",
-          "cursor ide",
-          "ai code editor"
+          "커서"
         ],
         "aliases_flat": [
           "Cursor",
@@ -1009,15 +800,8 @@
         "need_text": "Top-tier AI 동향",
         "aliases": [
           "Top-tier AI 동향",
-          "최고급 AI",
-          "top-tier 모델",
-          "오픈AI",
           "OpenAI",
-          "구글",
-          "Anthropic",
-          "top-tierai동향",
-          "top-tier ai trend",
-          "frontier ai trend"
+          "최고급 AI"
         ],
         "aliases_flat": [
           "Top-tier AI 동향",
@@ -1037,12 +821,7 @@
         "aliases": [
           "AI 모델 비교",
           "모델 비교",
-          "LLM 비교",
-          "모델 성능 비교",
-          "베이스라인 비교",
-          "ai모델비교",
-          "ai model comparison",
-          "llm benchmark"
+          "LLM 비교"
         ],
         "aliases_flat": [
           "AI 모델 비교",
@@ -1079,14 +858,11 @@
         "need_id": "반도체",
         "need_text": "HBM",
         "aliases": [
-          "반도체",
-          "semiconductor",
           "HBM",
           "HPC",
-          "High Bandwidth Memory",
-          "High Bandwidth Memory (HBM)",
-          "memory semiconductor",
-          "hbm"
+          "반도체",
+          "semiconductor",
+          "High Bandwidth Memory"
         ],
         "aliases_flat": [
           "반도체",
@@ -1107,11 +883,7 @@
           "인공지능 에이전트",
           "AI 에이전트",
           "agentic AI",
-          "오토메이션 에이전트",
-          "aiagent",
-          "ai agent",
-          "intelligent agent",
-          "autonomous agent"
+          "오토메이션 에이전트"
         ],
         "aliases_flat": [
           "AI Agent",
@@ -1131,10 +903,7 @@
           "주도형 AI",
           "행동형 AI",
           "Autonomous AI",
-          "에이전틱 AI",
-          "agenticai",
-          "agentic ai",
-          "autonomous ai"
+          "에이전틱 AI"
         ],
         "aliases_flat": [
           "Agentic AI",
@@ -1154,10 +923,7 @@
           "AI 모델",
           "인공지능 모델",
           "모델",
-          "Foundation model",
-          "aimodel",
-          "ai model",
-          "foundation model"
+          "Foundation model"
         ],
         "aliases_flat": [
           "AI Model",
@@ -1177,11 +943,7 @@
           "이스라엘 이란 갈등",
           "중동 긴장",
           "중동 안보",
-          "이란전쟁",
-          "Iran war",
-          "iran war",
-          "iran israel conflict",
-          "middle east conflict"
+          "이란전쟁"
         ],
         "aliases_flat": [
           "이란 전쟁",
@@ -1202,11 +964,7 @@
           "지정학적 리스크",
           "국제 정세",
           "지정학적 동향",
-          "정치적 리스크",
-          "지정학이슈",
-          "Geopolitical issues",
-          "geopolitical issue",
-          "geopolitical risk"
+          "정치적 리스크"
         ],
         "aliases_flat": [
           "지정학 이슈",
@@ -1225,5 +983,193 @@
     "countries": [],
     "is_active": true,
     "created_at": "2026-03-18T09:20:38.646954"
+  },
+  {
+    "name": "lcs",
+    "email": "bonggyu1.choi@sk.com",
+    "user_code": "GZ08VC0L",
+    "interests": [
+      "AI 인프라",
+      "반도체",
+      "데이터센터",
+      "지정학 리스크",
+      "GPU",
+      "클라우드",
+      "중동",
+      "수급",
+      "AI 칩",
+      "삼성",
+      "SK hynix"
+    ],
+    "needs_list": [
+      {
+        "need_id": "ai인프라",
+        "need_text": "AI 인프라",
+        "aliases": [
+          "AI 인프라",
+          "AI infrastructure",
+          "AI infra"
+        ],
+        "aliases_flat": [
+          "AI 인프라",
+          "AI infrastructure",
+          "AI infra",
+          "cloud infrastructure",
+          "compute infrastructure"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "반도체",
+        "need_text": "반도체",
+        "aliases": [
+          "반도체",
+          "chip",
+          "HBM"
+        ],
+        "aliases_flat": [
+          "반도체",
+          "semiconductor",
+          "chip",
+          "AI chip",
+          "HBM",
+          "memory"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "데이터센터",
+        "need_text": "데이터센터",
+        "aliases": [
+          "데이터센터",
+          "데이터 센터",
+          "data center"
+        ],
+        "aliases_flat": [
+          "데이터센터",
+          "데이터 센터",
+          "data center",
+          "data-center",
+          "datacenter",
+          "AI data center",
+          "cloud data center",
+          "hyperscale",
+          "server farm"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "지정학리스크",
+        "need_text": "지정학 리스크",
+        "aliases": [
+          "지정학 리스크",
+          "지정학리스크"
+        ],
+        "aliases_flat": [
+          "지정학 리스크"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "gpu",
+        "need_text": "GPU",
+        "aliases": [
+          "GPU"
+        ],
+        "aliases_flat": [
+          "GPU"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "클라우드",
+        "need_text": "클라우드",
+        "aliases": [
+          "클라우드"
+        ],
+        "aliases_flat": [
+          "클라우드"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "중동",
+        "need_text": "중동",
+        "aliases": [
+          "중동"
+        ],
+        "aliases_flat": [
+          "중동"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "수급",
+        "need_text": "수급",
+        "aliases": [
+          "수급"
+        ],
+        "aliases_flat": [
+          "수급"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "ai칩",
+        "need_text": "AI 칩",
+        "aliases": [
+          "AI 칩",
+          "ai칩"
+        ],
+        "aliases_flat": [
+          "AI 칩"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "삼성",
+        "need_text": "삼성",
+        "aliases": [
+          "삼성"
+        ],
+        "aliases_flat": [
+          "삼성"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "skhynix",
+        "need_text": "SK hynix",
+        "aliases": [
+          "SK hynix",
+          "skhynix"
+        ],
+        "aliases_flat": [
+          "SK hynix"
+        ],
+        "is_active": true,
+        "is_valid": true
+      }
+    ],
+    "exclusions": [],
+    "countries": [
+      "KR",
+      "US",
+      "CN",
+      "TW",
+      "GLOBAL"
+    ],
+    "is_active": true,
+    "created_at": "2026-03-19T11:51:33.838621"
   }
 ]

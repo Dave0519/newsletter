@@ -1457,6 +1457,32 @@ class CollectionAgent:
         target_n = max(int(min_count), int(self.daily_news_target or 8))
         daily = _build_daily_from_pool(pool, target_n)
 
+        # 권재순 사용자 중복 과다 이슈 완화: 같은 사건군 후보를 한 번 더 보수적으로 정리
+        if (user.name or "").strip() == "권재순" or (user.user_code or "").strip() == "서하OXJI5394":
+            def _tok(a: CollectedArticle) -> set[str]:
+                s = f"{a.title or ''} {a.summary or ''}".lower()
+                return set(re.findall(r"[가-힣a-z0-9]{2,}", s))
+
+            def _jac(sa: set[str], sb: set[str]) -> float:
+                if not sa or not sb:
+                    return 0.0
+                return len(sa & sb) / float(len(sa | sb)) if (sa | sb) else 0.0
+
+            tightened: list[CollectedArticle] = []
+            for cand in daily:
+                dup = False
+                ct = _tok(cand)
+                for prev in tightened:
+                    shared = ct & _tok(prev)
+                    sim = _jac(ct, _tok(prev))
+                    if sim >= 0.34 or len(shared) >= 4:
+                        if self._llm_is_same_topic(cand, prev):
+                            dup = True
+                            break
+                if not dup:
+                    tightened.append(cand)
+            daily = tightened
+
         with day_file.open("w", encoding="utf-8") as f:
             for a in daily:
                 rec = self._make_daily_record(a)
