@@ -177,6 +177,18 @@ class WritingAgent:
                 break
         return "\n".join(lines)
 
+    def _sanitize_unsubstantiated_year_mentions(self, text: str, source: str) -> str:
+        txt=(text or "")
+        source_text=(source or "")
+        years=re.findall(r"(20\d{2})\s*년", txt)
+        if not years:
+            return txt
+        for y in years:
+            token=f"{y}년"
+            if token not in source_text:
+                txt=txt.replace(token, "향후")
+        return txt
+
     def _force_korean(self, text: str, fallback_on_fail: str | None = None) -> str:
         src = (text or "").strip()
         if not src:
@@ -770,6 +782,7 @@ class WritingAgent:
 
         description = self._ensure_korean_summary_lines(description, max_lines=7)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
+        description = self._sanitize_unsubstantiated_year_mentions(description, summary_source)
 
         entry = NewsletterEntry(
             title=title,
@@ -831,7 +844,7 @@ class WritingAgent:
                     f"{e.summary}\n\n{practical_source}",
                     max_sentences=3,
                 )
-            e.practical_implication = practical or e.summary
+            e.practical_implication = self._sanitize_unsubstantiated_year_mentions(practical or e.summary, practical_source or practical_body)
             out.append(e)
         return out
 
