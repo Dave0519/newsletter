@@ -687,13 +687,27 @@ class WritingAgent:
             return ""
 
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> str:
-        """GLOBAL SCAN에서 작성된 기사 제목을 번호 없이 리스트로 구성."""
+        """GLOBAL SCAN 렌더링 순서를 그대로 반영해 1~2줄 요약 리스트 구성."""
         lines: list[str] = []
-        for e in entries:
-            t = (e.title or "").strip()
-            if not t:
+
+        # GLOBAL SCAN에서 실제 표시되는 국가 블록/기사 순서를 유지
+        grouped = self._grouped_country_blocks(entries)
+        ordered_articles: list[NewsletterEntry] = []
+        for _, arts in grouped.items():
+            ordered_articles.extend(arts)
+
+        for e in ordered_articles:
+            title = (e.title or "").strip()
+            summary = (e.summary or "").strip()
+
+            compact = self._ensure_korean_summary_lines(summary, max_lines=2)
+            compact = _safe_esc((compact or "").replace("\n", " ")).strip()
+            if compact:
+                lines.append(f"• {compact}")
                 continue
-            lines.append(f"• {t}")
+
+            if title:
+                lines.append(f"• {title}")
 
         return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
 
@@ -849,15 +863,15 @@ class WritingAgent:
         need_tags = self._build_need_hashtags(collected, user=user, max_n=5)
         template = template.replace("{{NEEDS_HASHTAGS}}", need_tags)
 
-        # summary section (global scan 핵심 5개 기반)
-        summary_lines = self._build_summary_points(entries)
-        summary_block = summary_lines
-        template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
-
         # Country/article blocks
         for e in entries:
             judged = self._judge_country_by_title(e.title)
             e.country = self._coerce_country_code(judged or e.country)
+
+        # summary section follows GLOBAL SCAN(국가 블록) 렌더 순서
+        summary_lines = self._build_summary_points(entries)
+        summary_block = summary_lines
+        template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
         countries = self._grouped_country_blocks(entries)
         row_t = _extract_block(template, "{{#COUNTRIES}}", "{{/COUNTRIES}}")
