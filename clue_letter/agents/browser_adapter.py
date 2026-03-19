@@ -6,6 +6,8 @@ import html
 import subprocess
 import os
 import time
+from datetime import datetime
+from pathlib import Path
 from dataclasses import dataclass
 from urllib.parse import quote_plus, unquote, urlparse, parse_qs
 
@@ -83,6 +85,26 @@ def _dedupe_keep_order(items: list[SearchHit]) -> list[SearchHit]:
         seen.add(it.url)
         out.append(it)
     return out
+
+
+def _append_search_trace(source: str, query: str, **extra) -> None:
+    """RSS/Google 검색 키워드 및 타겟 로그를 jsonl로 남긴다."""
+    try:
+        root = Path(__file__).resolve().parents[1]  # clue_letter/
+        log_root = root / "logs" / "search_trace"
+        log_root.mkdir(parents=True, exist_ok=True)
+        day = datetime.now().strftime("%Y-%m-%d")
+        path = log_root / f"{day}.jsonl"
+        rec = {
+            "ts": datetime.now().isoformat(),
+            "source": source,
+            "query": (query or "").strip(),
+        }
+        rec.update(extra or {})
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        return
 
 
 class BrowserRelayAdapter:
@@ -394,10 +416,14 @@ class BrowserRelayAdapter:
             try:
                 raw = self._fetch_feed_raw(feed_url, cache_ttl=self._rss_cache_ttl)
             except Exception:
+                _append_search_trace("core-rss", q, feed_url=feed_url, status="fetch_error", hit_count=0)
                 continue
             if not isinstance(raw, str) or not raw:
+                _append_search_trace("core-rss", q, feed_url=feed_url, status="empty", hit_count=0)
                 continue
-            all_hits.extend(self._extract_google_titles(raw, q, limit=per_feed_limit))
+            hits = self._extract_google_titles(raw, q, limit=per_feed_limit)
+            _append_search_trace("core-rss", q, feed_url=feed_url, status="ok", hit_count=len(hits))
+            all_hits.extend(hits)
 
         uniq: list[dict[str, str]] = []
         seen=set()
@@ -650,10 +676,14 @@ class HttpNewsAdapter:
             try:
                 raw = self._fetch_feed_raw(feed_url, cache_ttl=self._rss_cache_ttl)
             except Exception:
+                _append_search_trace("core-rss", q, feed_url=feed_url, status="fetch_error", hit_count=0)
                 continue
             if not isinstance(raw, str) or not raw:
+                _append_search_trace("core-rss", q, feed_url=feed_url, status="empty", hit_count=0)
                 continue
-            all_hits.extend(self._extract_google_titles(raw, q, limit=per_feed_limit))
+            hits = self._extract_google_titles(raw, q, limit=per_feed_limit)
+            _append_search_trace("core-rss", q, feed_url=feed_url, status="ok", hit_count=len(hits))
+            all_hits.extend(hits)
         uniq: list[dict[str, str]] = []
         seen=set()
         for h in all_hits:
@@ -674,9 +704,11 @@ class HttpNewsAdapter:
         try:
             raw = self._http_get(url)
         except Exception:
+            _append_search_trace("google-news", q, request_url=url, status="fetch_error", hit_count=0)
             return []
         raw = html.unescape(raw)
         hits = self._extract_google_titles(raw, q, limit=limit * 2)
+        _append_search_trace("google-news", q, request_url=url, status="ok", hit_count=len(hits))
         return [SearchHit(title=h["title"], url=h["url"], snippet=h["snippet"], source="google-news", published_at=h.get("published_at", "")) for h in hits][:limit]
 
     def fetch(self, url: str) -> str:
