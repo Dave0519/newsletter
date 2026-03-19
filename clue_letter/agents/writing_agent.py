@@ -687,15 +687,28 @@ class WritingAgent:
             return ""
 
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> str:
-        """GLOBAL SCAN에서 작성된 기사 제목을 번호 없이 리스트로 구성."""
+        """기사 본문 요약 위주로 1~2줄씩 리스트 구성(국가/카테고리 구분 없음)."""
         lines: list[str] = []
-        for e in entries:
-            t = (e.title or "").strip()
-            if not t:
-                continue
-            lines.append(f"• {t}")
 
-        return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
+        for e in entries:
+            title = (e.title or "").strip()
+            summary = (e.summary or "").strip()
+
+            # 요약 문장을 1~2줄로 줄여 핵심만 노출
+            compact = self._ensure_korean_summary_lines(summary, max_lines=2)
+            compact = _safe_esc((compact or "").replace("\n", " ")).strip()
+            if compact:
+                lines.append(f"• {compact}")
+                continue
+
+            # 요약이 없으면 제목 기반 1줄 폴백
+            if title:
+                lines.append(f"• {title}")
+
+        if not lines:
+            return "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
+
+        return "<br/><br/>".join(lines)
 
     def _grouped_country_blocks(self, articles: list[NewsletterEntry]):
         countries: dict[str, list[NewsletterEntry]] = {}
