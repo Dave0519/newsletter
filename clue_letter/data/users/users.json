@@ -197,7 +197,6 @@
         "aliases": [
           "온톨로지",
           "RDF",
-          "OWL",
           "SKOS"
         ],
         "aliases_flat": [
@@ -211,7 +210,6 @@
           "시맨틱",
           "Semantic",
           "RDF",
-          "OWL",
           "SKOS",
           "OWL 2",
           "지식 베이스",
