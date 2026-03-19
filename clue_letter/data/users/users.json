@@ -6,7 +6,7 @@
     "interests": [
       "제조 AI",
       "HBM",
-      "마이크론 동향",
+      "마이크론",
       "스마트 팩토리",
       "반도체 패키지",
       "메모리 반도체",
@@ -92,27 +92,6 @@
         "is_valid": true
       },
       {
-        "need_id": "마이크론동향",
-        "need_text": "마이크론 동향",
-        "aliases": [
-          "마이크론 동향",
-          "Micron",
-          "마이크론",
-          "마이크론 테크놀로지"
-        ],
-        "aliases_flat": [
-          "마이크론 동향",
-          "마이크론",
-          "Micron",
-          "마이크론 테크놀로지",
-          "메모리 업체",
-          "메모리 시장",
-          "Micron updates"
-        ],
-        "is_active": true,
-        "is_valid": true
-      },
-      {
         "need_id": "스마트팩토리",
         "need_text": "스마트 팩토리",
         "aliases": [
@@ -177,7 +156,7 @@
       "온톨로지",
       "제조 AI",
       "HBM",
-      "마이크론 동향",
+      "마이크론",
       "스마트 팩토리",
       "Database",
       "데이터베이스",
@@ -322,27 +301,6 @@
         "is_valid": true
       },
       {
-        "need_id": "마이크론동향",
-        "need_text": "마이크론 동향",
-        "aliases": [
-          "마이크론 동향",
-          "Micron",
-          "마이크론",
-          "마이크론 테크놀로지"
-        ],
-        "aliases_flat": [
-          "마이크론 동향",
-          "마이크론",
-          "Micron",
-          "마이크론 테크놀로지",
-          "메모리 업체",
-          "메모리 시장",
-          "Micron updates"
-        ],
-        "is_active": true,
-        "is_valid": true
-      },
-      {
         "need_id": "스마트팩토리",
         "need_text": "스마트 팩토리",
         "aliases": [
@@ -397,7 +355,6 @@
     "interests": [
       "메모리 요소기술",
       "메모리 Tech 개발",
-      "경쟁사 R&D 동향",
       "메모리 R&D 핵심역량",
       "Product R&D",
       "SK hynix Global R&D",
@@ -409,7 +366,9 @@
       "GTC",
       "R&D 투자",
       "메모리 기술",
-      "메모리 로드맵"
+      "메모리 로드맵",
+      "삼성전자 R&D",
+      "마이크론 R&D"
     ],
     "needs_list": [
       {
@@ -448,24 +407,6 @@
           "메모리 아키텍처",
           "memory technology",
           "차세대 메모리"
-        ],
-        "is_active": true,
-        "is_valid": true
-      },
-      {
-        "need_id": "경쟁사r&d동향",
-        "need_text": "경쟁사 R&D 동향",
-        "aliases": [
-          "경쟁사 R&D 동향",
-          "경쟁사 R&D",
-          "경쟁사 연구개발"
-        ],
-        "aliases_flat": [
-          "경쟁사 R&D 동향",
-          "경쟁사 R&D",
-          "경쟁사 연구개발",
-          "경쟁사 기술 동향",
-          "R&D 경쟁사 분석"
         ],
         "is_active": true,
         "is_valid": true
@@ -621,6 +562,42 @@
           "GPU Technology Conference",
           "NVIDIA GTC",
           "글로벌 AI 콘퍼런스"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "삼성전자r&d",
+        "need_text": "삼성전자 R&D",
+        "aliases": [
+          "삼성전자 R&D",
+          "삼성전자 R&D 동향",
+          "SK하이닉스 반도체 R&D",
+          "Samsung Electronics R&D"
+        ],
+        "aliases_flat": [
+          "삼성전자 R&D",
+          "삼성전자 R&D 동향",
+          "SK하이닉스 반도체 R&D",
+          "Samsung Electronics R&D"
+        ],
+        "is_active": true,
+        "is_valid": true
+      },
+      {
+        "need_id": "마이크론r&d",
+        "need_text": "마이크론 R&D",
+        "aliases": [
+          "마이크론 R&D",
+          "마이크론",
+          "Micron",
+          "Micron R&D"
+        ],
+        "aliases_flat": [
+          "마이크론 R&D",
+          "마이크론",
+          "Micron",
+          "Micron R&D"
         ],
         "is_active": true,
         "is_valid": true
