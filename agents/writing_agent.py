@@ -693,7 +693,7 @@ class WritingAgent:
         # GLOBAL SCAN에서 실제 표시되는 국가 블록/기사 순서를 유지
         grouped = self._grouped_country_blocks(entries)
         ordered_articles: list[NewsletterEntry] = []
-        for _, arts in grouped.items():
+        for _, arts in self._ordered_country_blocks(grouped).items():
             ordered_articles.extend(arts)
 
         for e in ordered_articles:
@@ -716,6 +716,19 @@ class WritingAgent:
         for a in articles:
             countries.setdefault(a.country or "GLOBAL", []).append(a)
         return countries
+
+    def _ordered_country_blocks(self, countries: dict[str, list[NewsletterEntry]]):
+        # global scan block order: 한국 -> 미국 -> 중국 -> 대만 -> 글로벌
+        order = ["KR", "US", "CN", "TW", "GLOBAL"]
+        # keep unknowns at end in discovery order
+        out = OrderedDict()
+        for c in order:
+            if c in countries:
+                out[c] = countries[c]
+        for c, arts in countries.items():
+            if c not in order and c not in out:
+                out[c] = arts
+        return out
 
     def _derive_entry_payload(self, c: CollectedArticle) -> tuple[NewsletterEntry, dict[str, str]]:
         resolved_url = self._resolve_url(c.url)
@@ -873,7 +886,7 @@ class WritingAgent:
         summary_block = summary_lines
         template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
-        countries = self._grouped_country_blocks(entries)
+        countries = self._ordered_country_blocks(self._grouped_country_blocks(entries))
         row_t = _extract_block(template, "{{#COUNTRIES}}", "{{/COUNTRIES}}")
         art_t = _extract_block(row_t, "{{#ARTICLES}}", "{{/ARTICLES}}")
         rows = []
