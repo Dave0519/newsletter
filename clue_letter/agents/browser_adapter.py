@@ -700,16 +700,49 @@ class HttpNewsAdapter:
         q = (query or "").strip()
         if not q:
             return []
-        url = f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=ko&gl=KR&ceid=KR:ko"
-        try:
-            raw = self._http_get(url)
-        except Exception:
-            _append_search_trace("google-news", q, request_url=url, status="fetch_error", hit_count=0)
-            return []
-        raw = html.unescape(raw)
-        hits = self._extract_google_titles(raw, q, limit=limit * 2)
-        _append_search_trace("google-news", q, request_url=url, status="ok", hit_count=len(hits))
-        return [SearchHit(title=h["title"], url=h["url"], snippet=h["snippet"], source="google-news", published_at=h.get("published_at", "")) for h in hits][:limit]
+
+        # 글로벌 우선 + 한국 보조로 병합
+        region_urls = [
+            f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=en&gl=US&ceid=US:en",
+            f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=ko&gl=KR&ceid=KR:ko",
+        ]
+
+        merged: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        for idx, url in enumerate(region_urls):
+            region = "global-us" if idx == 0 else "kr"
+            try:
+                raw = self._http_get(url)
+            except Exception:
+                _append_search_trace("google-news", q, request_url=url, region=region, status="fetch_error", hit_count=0)
+                continue
+
+            raw = html.unescape(raw)
+            hits = self._extract_google_titles(raw, q, limit=limit * 2)
+            _append_search_trace("google-news", q, request_url=url, region=region, status="ok", hit_count=len(hits))
+
+            for h in hits:
+                u = (h.get("url") or "").strip()
+                if not u or u in seen:
+                    continue
+                seen.add(u)
+                merged.append(h)
+                if len(merged) >= limit * 2:
+                    break
+            if len(merged) >= limit * 2:
+                break
+
+        return [
+            SearchHit(
+                title=h["title"],
+                url=h["url"],
+                snippet=h["snippet"],
+                source="google-news",
+                published_at=h.get("published_at", ""),
+            )
+            for h in merged[:limit]
+        ]
 
     def fetch(self, url: str) -> str:
         html_text = self._http_get(url)
