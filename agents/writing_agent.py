@@ -177,6 +177,57 @@ class WritingAgent:
                 break
         return "\n".join(lines)
 
+    def _extract_numeric_phrases(self, text: str) -> set[str]:
+        t = (text or "").replace(",", "")
+        patterns = [
+            r"\d+\s*%",
+            r"\d+\.?\d*\s*(?:억|만|천|조|개|명|건|개월|월|년|주|일|시간|초|분|초|미터|km|km²|kb|mb|gb|tb|pb|b|kbps|mbps|gbps|th|thz|nm|\$|원|달러|유로|%)",
+            r"[0-9]+\.[0-9]+",
+        ]
+        out = set()
+        for pat in patterns:
+            for m in re.findall(pat, t, flags=re.IGNORECASE):
+                if not m:
+                    continue
+                out.add(str(m).strip())
+        for m in re.findall(r"\d+", t):
+            out.add(m)
+        return {x for x in out if x}
+
+    def _enforce_numeric_consistency(self, text: str, source: str) -> str:
+        if not text:
+            return text
+        src = (source or "")
+        src_clean = (src or "").replace(",", "")
+        sents = [s.strip() for s in re.split(r"[。.!?\n]+", text) if s.strip()]
+        kept = []
+        for s in sents:
+            nums = self._extract_numeric_phrases(s)
+            if not nums:
+                kept.append(s)
+                continue
+
+            # keep sentence only when all cited numbers exist in source context
+            bad = False
+            for n in nums:
+                if n not in src_clean:
+                    bad = True
+                    break
+            if bad:
+                # strip unsupported numeric tokens, keep wording where possible
+                fixed = s
+                for n in sorted(nums, key=len, reverse=True):
+                    if n not in src_clean:
+                        fixed = re.sub(rf"\b{re.escape(n)}\b", "", fixed)
+                fixed = re.sub(r"\s{2,}", " ", fixed).strip()
+                fixed = fixed.strip(" ,")
+                if fixed and not re.match(r"^[^\w가-힣A-Za-z]*$", fixed):
+                    kept.append(fixed)
+            else:
+                kept.append(s)
+
+        return ". ".join(kept).strip()
+
     def _sanitize_unsubstantiated_year_mentions(self, text: str, source: str) -> str:
         txt=(text or "")
         source_text=(source or "")
@@ -713,6 +764,7 @@ class WritingAgent:
             summary = (e.summary or "").strip()
 
             compact = self._ensure_korean_summary_lines(summary, max_lines=2)
+            compact = self._enforce_numeric_consistency(compact, summary)
             compact = _safe_esc((compact or "").replace("\n", " ")).strip()
             if compact:
                 lines.append(f"• {compact}")
@@ -761,6 +813,7 @@ class WritingAgent:
 
         rewritten_title = self._force_korean(rewritten_title or raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
         title = rewritten_title if rewritten_title and self._contains_korean(rewritten_title) else self._force_korean(raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
+        title = self._enforce_numeric_consistency(title, (raw_title or " ") + " " + (summary_source or ""))
 
         # 요약: 본문 기반 5~7줄 + 검수 재시도 1회
         description = self._llm_summary_from_body(title, summary_source, line_count=7)
@@ -783,6 +836,7 @@ class WritingAgent:
         description = self._ensure_korean_summary_lines(description, max_lines=7)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
         description = self._sanitize_unsubstantiated_year_mentions(description, summary_source)
+        description = self._enforce_numeric_consistency(description, summary_source)
 
         entry = NewsletterEntry(
             title=title,
@@ -844,7 +898,8 @@ class WritingAgent:
                     f"{e.summary}\n\n{practical_source}",
                     max_sentences=3,
                 )
-            e.practical_implication = self._sanitize_unsubstantiated_year_mentions(practical or e.summary, practical_source or practical_body)
+            practical = self._enforce_numeric_consistency(practical or e.summary, practical_source or practical_body)
+            e.practical_implication = self._sanitize_unsubstantiated_year_mentions(practical, practical_source or practical_body)
             out.append(e)
         return out
 
