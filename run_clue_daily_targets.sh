@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="/Users/davechoi/.openclaw/workspace/clue_letter_dev2"
 LOG_FILE="${ROOT}/logs/daily_targets.log"
-TARGET_USERS=("주재욱" "송창석")
+TARGET_USERS=("주재욱")
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 
 mkdir -p "${ROOT}/logs"
