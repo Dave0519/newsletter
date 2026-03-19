@@ -701,37 +701,17 @@ class HttpNewsAdapter:
         if not q:
             return []
 
-        # 글로벌 우선 + 한국 보조로 병합
-        region_urls = [
-            f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=en&gl=US&ceid=US:en",
-            f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=ko&gl=KR&ceid=KR:ko",
-        ]
+        # 영문(글로벌-US) 1회 우선 검색
+        url = f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=en&gl=US&ceid=US:en"
+        try:
+            raw = self._http_get(url)
+        except Exception:
+            _append_search_trace("google-news", q, request_url=url, region="global-us", status="fetch_error", hit_count=0)
+            return []
 
-        merged: list[dict[str, str]] = []
-        seen: set[str] = set()
-
-        for idx, url in enumerate(region_urls):
-            region = "global-us" if idx == 0 else "kr"
-            try:
-                raw = self._http_get(url)
-            except Exception:
-                _append_search_trace("google-news", q, request_url=url, region=region, status="fetch_error", hit_count=0)
-                continue
-
-            raw = html.unescape(raw)
-            hits = self._extract_google_titles(raw, q, limit=limit * 2)
-            _append_search_trace("google-news", q, request_url=url, region=region, status="ok", hit_count=len(hits))
-
-            for h in hits:
-                u = (h.get("url") or "").strip()
-                if not u or u in seen:
-                    continue
-                seen.add(u)
-                merged.append(h)
-                if len(merged) >= limit * 2:
-                    break
-            if len(merged) >= limit * 2:
-                break
+        raw = html.unescape(raw)
+        hits = self._extract_google_titles(raw, q, limit=limit * 2)
+        _append_search_trace("google-news", q, request_url=url, region="global-us", status="ok", hit_count=len(hits))
 
         return [
             SearchHit(
@@ -741,7 +721,7 @@ class HttpNewsAdapter:
                 source="google-news",
                 published_at=h.get("published_at", ""),
             )
-            for h in merged[:limit]
+            for h in hits[:limit]
         ]
 
     def fetch(self, url: str) -> str:
