@@ -250,7 +250,7 @@ class CollectionAgent:
         max_days: int = 1,
         needs_target_per_keyword: int = 50,
         global_candidates_cap: int = 1200,
-        total_news_target: int = 100,
+        total_news_target: int = 50,
         source_fallback_weight: float = 0.82,
         min_success_body_len: int = 1200,
         daily_news_target: int = 10,
