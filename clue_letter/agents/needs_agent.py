@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import secrets
-import re
 from pathlib import Path
-from typing import Any, List, Sequence
+from typing import List, Sequence
 
 from .models import UserProfile
 
@@ -232,30 +231,15 @@ class NeedsAgent:
                 return UserProfile(**u)
         raise ValueError(f"user not found: {user_code}")
 
-    def _alias_variants(self, alias: str) -> list[str]:
-        a = str(alias).strip()
-        if not a:
-            return []
-
-        variants = {a}
-
-        # Search and match robustness for spacing variation (e.g. "AI Agent" ↔ "AIAgent")
-        nospace = re.sub(r"\s+", "", a)
-        if nospace:
-            variants.add(nospace)
-
-        return list(variants)
-
-    def ensure_queries_by_interests(self, interests: list[str] | list[Any], templates: list[str] | None = None) -> List[str]:
+    def ensure_queries_by_interests(self, interests: List[str], templates: list[str] | None = None) -> List[str]:
         out: list[str] = []
         base_templates = templates or ["{}"]
         for it in interests:
             s = str(it).strip()
             if not s:
                 continue
-            for alias_variant in self._alias_variants(s):
-                for t in base_templates:
-                    out.append(t.format(alias_variant))
+            for t in base_templates:
+                out.append(t.format(s))
 
         # dedupe
         uniq = []
@@ -274,7 +258,7 @@ class NeedsAgent:
             if not isinstance(item, dict):
                 continue
             need_id = str(item.get("need_id", "")).strip()
-            _ = str(item.get("need_text", "")).strip()
+            need_text = str(item.get("need_text", "")).strip()
             for alias in item.get("aliases", []):
                 alias = str(alias).strip()
                 if not alias:
@@ -284,10 +268,9 @@ class NeedsAgent:
         deduped: list[tuple[str, str]] = []
         seen = set()
         for need_id, q in out:
-            key = f"{need_id}|{q}"
-            if key in seen:
+            if q in seen:
                 continue
-            seen.add(key)
+            seen.add(q)
             deduped.append((need_id, q))
         return deduped
 

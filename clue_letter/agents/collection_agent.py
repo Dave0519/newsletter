@@ -28,17 +28,6 @@ NOISE_KEYWORDS = {
     "subscribe", "로그인", "로그아웃", "sign in", "sign up", "개인정보 처리방침"
 }
 
-PROMOTION_NOISE_KEYWORDS = {
-    "쿠폰", "할인", "세일", "특가", "경품", "이벤트", "프로모션", "기획전", "특별가", "개통", "혜택",
-    "출시 행사", "행사", "gift", "discount", "sale", "coupon", "voucher", "giveaway", "preorder",
-    "pre-order", "limited time", "free shipping", "special offer", "exclusive deal", "가격", "판매", "구매", "구매하기",
-    "신제품", "신규가입", "회원혜택", "회원 특전", "런칭", "출시", "이벤트 페이지", "신청", "예약 구매", "예약판매"
-}
-
-PROMO_URL_HINTS = {
-    "/event", "/promo", "/promotion", "/offers", "/offer", "/deal", "/shop", "/shopping", "/store", "/product", "/buy", "/coupon"
-}
-
 
 def _is_noise(text: str) -> bool:
     if not text:
@@ -49,26 +38,6 @@ def _is_noise(text: str) -> bool:
     compact = re.sub(r"\s+", "", text)
     if len(compact) > 120 and len(set(compact)) < 30:
         return True
-    return False
-
-
-def _is_marketing_content(text: str, url: str | None = None) -> bool:
-    t = (text or "").lower()
-    if not t:
-        return False
-    if any(k in t for k in PROMOTION_NOISE_KEYWORDS):
-        return True
-
-    # 가격/할인 패턴 (금액+할인/세일 조합)
-    if re.search(r"\d+(\s?)(%|퍼센트)(\s*할인|\s*세일|\s*할인률)?", t):
-        return True
-    if re.search(r"(\$|\u20a9|원)\s*\d+[\d,\.]*(\s*[~-]?\s*(\$|\u20a9|원)\s*\d+)?", t):
-        return True
-
-    if url:
-        u = (url or "").lower()
-        if any(u.find(hint) != -1 for hint in PROMO_URL_HINTS):
-            return True
     return False
 
 
@@ -992,12 +961,8 @@ class CollectionAgent:
             self.stage_counters["fail"] += 1
             return None
 
-        # 닫기: 제목+description로 광고/이벤트성 콘텐츠 배제
+        # 닫기: 제목+description만으로 니즈 매칭
         merged_for_match = f"{raw_title} {raw_snippet}"
-        if _is_marketing_content(merged_for_match, url):
-            self.stage_counters["fail"] += 1
-            return None
-
         matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged_for_match, needs_payload)
         if not matched_need_ids:
             self.stage_counters["fail"] += 1
@@ -1159,24 +1124,12 @@ class CollectionAgent:
         needs_payload = self.needs_agent.build_need_list_from_user(latest_user)
         needs_payload = [x for x in needs_payload if isinstance(x, dict) and x.get("aliases")]
         # 수집 채널별 니즈당 쿼리(직접/구글)
-        # 김현중 기준으로 최근 log 기반 zero-hit이 잦은 쿼리는 템플릿을 축소해 불필요 호출 감소
-        templates = ["{}", "{} 뉴스", "{} 업데이트"]
-        if (user.name or "").strip() == "김현중" or (user.user_code or "").strip() == "준동HHDD7818":
-            templates = ["{}", "{} 뉴스"]
-
-        query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=templates)
+        query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=["{}", "{} 뉴스", "{} 업데이트"])
         if not query_pairs:
             raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
 
-        # 사용자별로 무의미한 대량 쿼리를 방지하기 위해 사용자 쿼리 상한 적용
-        user_query_cap = len(query_pairs)
-        if (user.name or "").strip() == "김현중" or (user.user_code or "").strip() == "준동HHDD7818":
-            user_query_cap = min(user_query_cap, 120)
-
         if len(query_pairs) > self.global_candidates_cap:
             query_pairs = query_pairs[: self.global_candidates_cap]
-        if len(query_pairs) > user_query_cap:
-            query_pairs = query_pairs[:user_query_cap]
 
         candidates: list[CollectedArticle] = []
         collected_urls = set()
@@ -1482,24 +1435,6 @@ class CollectionAgent:
 
                     if len(selected) >= target_n:
                         return selected[:target_n]
-
-            # Stage-2가 과도하게 걸러서 target이 모자랄 때는 fallback으로
-            # total 후보 점수 상위에서 중복만 제어해 선별을 완화한다.
-            if len(selected) < target_n:
-                for cand in pool_sorted:
-                    if len(selected) >= target_n:
-                        break
-                    if cand not in selected:
-                        u = (cand.url or "").strip()
-                        if not u or u in seen_urls:
-                            continue
-                        sig = _normalize_title_signature(cand.title or "")
-                        if sig and sig in seen_sigs:
-                            continue
-                        selected.append(cand)
-                        seen_urls.add(u)
-                        if sig:
-                            seen_sigs.add(sig)
 
             return selected[:target_n]
 
