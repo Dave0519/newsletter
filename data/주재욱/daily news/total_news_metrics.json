@@ -1,21 +1,21 @@
 {
-  "total_candidates": 51,
-  "need_matched_count": 51,
-  "success_full_count": 50,
-  "success_full_rate": 0.9803921568627451,
-  "google_news_ratio": 0.8431372549019608,
+  "total_candidates": 32,
+  "need_matched_count": 32,
+  "success_full_count": 31,
+  "success_full_rate": 0.96875,
+  "google_news_ratio": 0.96875,
   "daily_news_need_balance": {
-    "팔란티어": 5,
-    "온톨로지": 2,
+    "팔란티어": 3,
+    "온톨로지": 1,
     "제조ai": 0,
-    "반도체": 5,
+    "반도체": 2,
     "삼성동향": 3,
     "스마트팩토리": 0,
-    "database": 9
+    "database": 3
   },
   "coverage_ok": true,
   "short_count": 0,
-  "fail_count": 39,
-  "filtered_unreachable_count": 17,
+  "fail_count": 18,
+  "filtered_unreachable_count": 21,
   "normalized_total_count": 0
 }
