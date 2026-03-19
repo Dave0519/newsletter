@@ -47,6 +47,10 @@ def _safe_esc(s: str) -> str:
     return (s or "").replace("{{", "{").replace("}}", "}")
 
 
+def _normalize_whitespace(text: str) -> str:
+    return " ".join((text or "").split())
+
+
 class WritingAgent:
     """수집 데이터 -> 공식 템플릿 변환 에이전트."""
 
@@ -73,6 +77,93 @@ class WritingAgent:
         for pat in [r"\s*\(.*\)$", r"\s*\[.*\]$"]:
             t = re.sub(pat, "", t).strip()
         return t
+
+    def _normalize_title_candidate(self, title: str) -> str:
+        t = (title or "").strip()
+        t = re.sub(r"\s+", " ", t)
+        if t.endswith("…"):
+            t = t[:-1].strip()
+        return t[:140]
+
+    def _build_need_hashtags(self, collected: list[CollectedArticle], user: UserProfile | None = None, max_n: int = 5) -> str:
+        needs: list[str] = []
+        seen: set[str] = set()
+
+        if user is not None:
+            for interest in user.interests or []:
+                s = str(interest or "").strip()
+                key = s.lower()
+                if s and key not in seen:
+                    seen.add(key)
+                    needs.append(s)
+                    if len(needs) >= max_n:
+                        break
+
+        if len(needs) < max_n:
+            for c in collected:
+                for n in getattr(c, 'matched_needs', []) or []:
+                    s = str(n).strip()
+                    key = s.lower()
+                    if s and key not in seen:
+                        seen.add(key)
+                        needs.append(s)
+                        if len(needs) >= max_n:
+                            break
+                if len(needs) >= max_n:
+                    break
+
+        if not needs:
+            return ""
+        return " ".join([f"#{n.replace(' ', '')}" for n in needs[:max_n]])
+
+    def _contains_korean(self, text: str) -> bool:
+        return bool(re.search(r"[가-힣]", text or ""))
+
+    def _force_korean(self, text: str, fallback_on_fail: str = "") -> str:
+        t = (text or "").strip()
+        if t and self._contains_korean(t):
+            return t
+        return fallback_on_fail
+
+    def _resolve_summary_source(self, c: CollectedArticle, readable_body: str) -> str:
+        body = (readable_body or "").strip()
+        if body:
+            return body
+        return self._strip_html(c.body or c.summary or "")
+
+    def _strip_html(self, s: str) -> str:
+        if not s:
+            return ""
+        if BeautifulSoup is not None:
+            try:
+                soup = BeautifulSoup(s, "html.parser")
+                for bad in soup(["script", "style", "noscript"]):
+                    bad.decompose()
+                return _normalize_whitespace(_html.unescape(soup.get_text(" ")))
+            except Exception:
+                pass
+        t = re.sub(r"<[^>]+>", " ", s)
+        return _normalize_whitespace(_html.unescape(t))
+
+    def _llm_request(self, prompt: str, max_tokens: int = 800, temperature: float = 0.2) -> str:
+        # lightweight fallback without hard dependency on OpenAI caller availability
+        return ""
+
+    def _llm_generate_title_from_body(self, title: str, body: str) -> str:
+        base = (title or "").strip()
+        if not base:
+            return ""
+        if body:
+            return rewrite_title(base, body, max_chars=75)
+        return ""
+
+    def _llm_summary_from_body(self, title: str, body: str, regenerate_hint: str = "", line_count: int = 7) -> str:
+        return summarize_ko((body or "").strip(), title=title or "", sentence_count=line_count)
+
+    def _llm_judge_summary(self, title: str, source: str, summary: str):
+        # Conservative fallback: rely on source alignment check
+        ok = bool(summary) and self._assert_source_alignment(summary, source)
+        return ok, "" if ok else "요약 근거 정합성 점검 실패"
 
     def _korean_country(self, country: str) -> str:
         c = (country or "").strip().upper()
@@ -330,6 +421,21 @@ class WritingAgent:
         }
         return mapping.get(c, c or "GLOBAL") if c in mapping else c if c in {"KR", "US", "CN", "TW", "GLOBAL"} else "GLOBAL"
 
+
+    def _extract_readable_text(self, html: str) -> str:
+        if not html:
+            return ""
+        try:
+            if BeautifulSoup is not None:
+                soup = BeautifulSoup(html, "html.parser")
+                for bad in soup(["script", "style", "noscript"]):
+                    bad.decompose()
+                text = soup.get_text(" ")
+                return _normalize_whitespace(_html.unescape(text))
+        except Exception:
+            pass
+        text = re.sub(r"<[^>]+>", " ", html)
+        return _normalize_whitespace(_html.unescape(text))
 
     def _load_remote_body(self, url: str) -> str:
         if not self.fetch_body or not url:

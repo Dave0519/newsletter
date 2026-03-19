@@ -104,12 +104,18 @@ def practical_ko(title: str, summary: str, max_sentences: int = 5) -> str:
     chunks = [x.strip() for x in out.replace("\n\n", "\n").split("\n") if x.strip()]
     cleaned = []
     import re
+    # 번호/리스트 접두어 제거(패턴 컴파일 오류 방지용 예외 처리 포함).
+    bullet_prefix_re = r"^\s*(?:[0-9]+[\)\.]|[가-힣]+[\)]|첫째|둘째|셋째|넷째|다섯째|여섯째)[\s:,\-]*"
     for c in chunks:
-        c2 = re.sub(r"^\\s*(?:[0-9]+[\\)\.]|[가-힣]+\\)|첫째|둘째|셋째|넷째|다섯째|여섯째)[\\s:\,-]*", "", c).strip()
-        c2 = re.sub(r"\\s+", " ", c2)
+        try:
+            c2 = re.sub(bullet_prefix_re, "", c).strip()
+            c2 = re.sub(r"\s+", " ", c2)
+        except Exception:
+            c2 = c.strip()
         if c2:
             cleaned.append(c2)
     return "\n".join(cleaned[: min(max_sentences, 5)])
+
 
 
 def rewrite_title(raw_title: str, body: str, max_chars: int = 70) -> str:
