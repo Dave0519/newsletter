@@ -250,12 +250,13 @@ class CollectionAgent:
         max_days: int = 1,
         needs_target_per_keyword: int = 50,
         global_candidates_cap: int = 1200,
+        total_news_target: int = 100,
         source_fallback_weight: float = 0.82,
         min_success_body_len: int = 1200,
         daily_news_target: int = 10,
         daily_news_flexible_target: bool = True,
-        query_batch_size: int = 12,
-        global_fetch_time_cap: float = 90.0,
+        query_batch_size: int = 8,
+        global_fetch_time_cap: float = 45.0,
         source_fail_rate_circuit: float | None = 0.85,
     ):
         self.data_root = Path(data_root)
@@ -270,6 +271,7 @@ class CollectionAgent:
         self.max_days = max_days
         self.needs_target_per_keyword = needs_target_per_keyword
         self.global_candidates_cap = global_candidates_cap
+        self.total_news_target = max(1, int(total_news_target))
         self.source_fallback_weight = source_fallback_weight
         self.min_success_body_len = min_success_body_len
         self.daily_news_target = daily_news_target
@@ -1116,6 +1118,8 @@ class CollectionAgent:
             raise RuntimeError("search_core와 search_google 중 하나는 주입되어야 수집을 시작할 수 합니다.")
 
         min_count = int(min_count or self.min_count)
+        # total_news 최소 목표를 안정적으로 채우기 위해 수집 단계는 버퍼를 둔다.
+        target_total_candidates = min(int(self.global_candidates_cap), max(min_count, int(self.total_news_target) + 40))
         latest_user = self.needs_agent.get_user(user.user_code)
         needs_payload = self.needs_agent.build_need_list_from_user(latest_user)
         needs_payload = [x for x in needs_payload if isinstance(x, dict) and x.get("aliases")]
@@ -1197,7 +1201,7 @@ class CollectionAgent:
 
         def build_from_preselect(preselects: list[dict], source_type: str, start_t: datetime, source_stats: dict[str, dict[str, int]]):
             for item in preselects:
-                if len(candidates) >= min(self.global_candidates_cap, max(min_count, 12)):
+                if len(candidates) >= target_total_candidates:
                     break
                 if should_stop(start_t, source_type, source_stats):
                     self._log(f"[collect] breaker triggered source={source_type}")
@@ -1230,7 +1234,7 @@ class CollectionAgent:
             q_batches = [query_pairs]
 
         for batch_i, q_batch in enumerate(q_batches, start=1):
-            if len(candidates) >= min(self.global_candidates_cap, max(min_count, 12)):
+            if len(candidates) >= target_total_candidates:
                 break
 
             self._log(f"[collect] batch start idx={batch_i}/{len(q_batches)} source=all size={len(q_batch)}")
@@ -1259,6 +1263,43 @@ class CollectionAgent:
         # 최종 반환/저장 전에 제목 시그니처까지 반영해 같은 내용 중복을 1건으로 압축
         total_news = self._dedupe_articles(total_news)
         selected = self._dedupe_articles(selected)
+
+        # total_news 최소 개수 보장: 동일 필터 수준(접근 가능/URL 정합/중복 제거)을 유지한 채 후보 풀에서 보충
+        target_total_news = max(1, int(self.total_news_target))
+        if len(total_news) < target_total_news:
+            existing_urls = {str(a.url or "").strip() for a in total_news}
+            existing_sigs = {_normalize_title_signature(a.title or "") for a in total_news if (a.title or "").strip()}
+
+            refill_pool = [a for a in total_candidates if isinstance(a, CollectedArticle) and a.extraction_status == "success_full"]
+            refill_pool.sort(key=lambda x: (x.relevance_score or 0.0, x.body_len or 0), reverse=True)
+
+            added = 0
+            for cand in refill_pool:
+                if len(total_news) >= target_total_news:
+                    break
+
+                norm_url = self._normalize_article_url(cand.url or "")
+                if norm_url:
+                    cand.url = norm_url
+                if not _is_candidate_news_url(cand.url) or not self._is_resolved_news_url(cand.url):
+                    continue
+
+                u = (cand.url or "").strip()
+                if not u or u in existing_urls:
+                    continue
+                sig = _normalize_title_signature(cand.title or "")
+                if sig and sig in existing_sigs:
+                    continue
+
+                total_news.append(cand)
+                existing_urls.add(u)
+                if sig:
+                    existing_sigs.add(sig)
+                added += 1
+
+            if added:
+                total_news = self._dedupe_articles(total_news)
+                self._log(f"[collect] total_news_refill added={added} target={target_total_news} now={len(total_news)}")
 
         self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} normalized_total={self.stage_counters['normalized_total']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
         self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)

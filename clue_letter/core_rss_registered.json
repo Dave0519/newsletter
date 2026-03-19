@@ -47,18 +47,8 @@
       "status": "ok"
     },
     {
-      "name": "ZDNet",
-      "url": "https://www.zdnet.com/topic/technology/news/rss.xml",
-      "status": "ok"
-    },
-    {
       "name": "CNET Tech",
       "url": "https://www.cnet.com/rss/news/",
-      "status": "ok"
-    },
-    {
-      "name": "연합뉴스",
-      "url": "https://www.yna.co.kr/rss/all.xml",
       "status": "ok"
     },
     {
@@ -97,6 +87,16 @@
       "name": "FT",
       "url": "https://www.ft.com/?format=rss",
       "reason": "항목 추출 실패"
+    },
+    {
+      "name": "ZDNet",
+      "url": "https://www.zdnet.com/topic/technology/news/rss.xml",
+      "reason": "삭제요청(2026-03-19): fetch_error/time-out 다수"
+    },
+    {
+      "name": "연합뉴스",
+      "url": "https://www.yna.co.kr/rss/all.xml",
+      "reason": "삭제요청(2026-03-19): fetch_error/time-out 다수"
     }
   ]
 }
