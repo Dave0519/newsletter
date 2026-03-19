@@ -340,6 +340,31 @@ class CollectionAgent:
             "trace": base / "trace",
         }
 
+    def _shared_pool_enabled(self) -> bool:
+        return os.getenv("CLUE_SHARED_POOL", "1").lower() in {"1", "true", "yes", "on"}
+
+    def _shared_dirs(self) -> dict[str, Path]:
+        base = self.data_root / "shared"
+        return {
+            "base": base,
+            "daily": base / "daily news",
+            "history": base / "history",
+        }
+
+    def _shared_pool_dir(self, issue: str | None = None) -> Path:
+        issue = issue or datetime.now().strftime("%Y-%m-%d")
+        path = self._shared_dirs()["daily"] / issue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _shared_total_pool_path(self, issue: str | None = None) -> Path:
+        issue = issue or datetime.now().strftime("%Y-%m-%d")
+        return self._shared_dirs()["daily"] / f"total_news_{issue}.jsonl"
+
+    def _shared_metrics_path(self, issue: str | None = None) -> Path:
+        issue = issue or datetime.now().strftime("%Y-%m-%d")
+        return self._shared_dirs()["daily"] / f"total_news_metrics_{issue}.jsonl"
+
     def _next_run_id(self, user: UserProfile) -> str:
         now = datetime.now().astimezone()
         safe_user = safe_filename(user.user_code or user.name or "unknown")
@@ -923,6 +948,190 @@ class CollectionAgent:
         return self._dedupe_articles(out)
 
 
+    def _load_shared_total_pool(self, issue: str | None = None) -> list[CollectedArticle]:
+        path = self._shared_total_pool_path(issue)
+        if not path.exists():
+            return []
+
+        out: list[CollectedArticle] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                raw = json.loads(line)
+            except Exception:
+                continue
+
+            title = str(raw.get("title") or "").strip()
+            url = str(raw.get("url") or "").strip()
+            if not title or not url:
+                continue
+
+            if not _is_candidate_news_url(url):
+                continue
+
+            out.append(
+                CollectedArticle(
+                    title=title,
+                    url=url,
+                    country=str(raw.get("country") or raw.get("country_code") or "GLOBAL"),
+                    summary=str(raw.get("summary") or ""),
+                    body=str(raw.get("summary") or ""),
+                    source=str(raw.get("source") or "http"),
+                    source_type=str(raw.get("source_type") or "direct"),
+                    need_category=(str(raw.get("need_category") or "") if raw.get("need_category") is not None else None),
+                    matched_need_ids=list(raw.get("matched_need_ids") or []),
+                    matched_needs=list(raw.get("matched_needs") or []),
+                    matched_aliases=list(raw.get("matched_aliases") or []),
+                    query=str(raw.get("query") or ""),
+                    published_at=str(raw.get("published_at") or ""),
+                    body_len=int(raw.get("body_len") or 0),
+                    extraction_status=str(raw.get("extraction_status") or "success_full"),
+                    recency_score=float(raw.get("recency_score") or 0.0),
+                    need_match_score=float(raw.get("need_match_score") or 0.0),
+                    source_score=float(raw.get("source_score") or 1.0),
+                    extracted_at=str(raw.get("extracted_at") or raw.get("collected_at") or datetime.now().astimezone().isoformat()),
+                    collected_at=str(raw.get("collected_at") or datetime.now().astimezone().isoformat()),
+                    relevance_note=str(raw.get("relevance_note") or ""),
+                    relevance_score=float(raw.get("relevance_score") or 0.0),
+                    origin_type=raw.get("origin_type"),
+                    origin_detail=str(raw.get("origin_detail") or ""),
+                    issue_angle_id=str(raw.get("issue_angle_id") or "") if raw.get("issue_angle_id") is not None else None,
+                )
+            )
+        return out
+
+    def _rebuild_from_shared_pool(
+        self,
+        user: UserProfile,
+        shared_articles: list[CollectedArticle],
+        needs_payload: list[dict],
+        exclusions: list[str],
+        min_count: int,
+    ) -> list[CollectedArticle]:
+        if not shared_articles:
+            return []
+
+        rematched: list[CollectedArticle] = []
+        for base in shared_articles:
+            merged = f"{base.title} {base.summary}"
+            if not merged.strip():
+                continue
+
+            if _is_candidate_news_url(base.url):
+                if self._is_sales_topic(merged):
+                    self.stage_counters["filtered_stale"] += 1
+                    continue
+
+            matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged, needs_payload)
+            if not matched_need_ids:
+                continue
+
+            url = self._normalize_article_url(base.url)
+            if not url:
+                continue
+
+            a = CollectedArticle(
+                title=base.title,
+                url=url,
+                country=base.country,
+                summary=base.summary,
+                body=base.body,
+                source=base.source,
+                source_type=base.source_type,
+                need_category=(matched_needs[0] if matched_needs else base.need_category),
+                matched_need_ids=matched_need_ids,
+                matched_needs=matched_needs,
+                matched_aliases=matched_aliases,
+                query=base.query,
+                published_at=base.published_at,
+                body_len=base.body_len,
+                extraction_status="success_full",
+                recency_score=base.recency_score,
+                source_score=base.source_score,
+                extracted_at=base.extracted_at,
+                collected_at=base.collected_at,
+                issue_angle_id=base.issue_angle_id,
+            )
+
+            score = self._score_relevance(a, [n for n in (a.matched_needs or []) if n], exclusions)
+            a.relevance_score = float(score + need_hit_score)
+            a.need_match_score = a.relevance_score
+            a.relevance_note = f"relevance_score={score:.1f}, need_hit={need_hit_score:.1f}"
+            a.query = a.query or (user.user_code or user.name or "")
+            rematched.append(a)
+
+            if len(rematched) >= max(int(min_count), int(self.total_news_target + 20)):
+                break
+
+        return rematched
+
+    def _persist_shared_total_pool(self, issue: str, total_news: list[CollectedArticle], total_candidates: list[CollectedArticle], users_hit: int = 0) -> None:
+        if not total_news:
+            return
+
+        path = self._shared_total_pool_path(issue)
+        ensure_dir(path.parent)
+        existing: list[dict] = []
+        if path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    try:
+                        existing.append(json.loads(line))
+                    except Exception:
+                        continue
+
+        existing_urls = {str(r.get("url") or "").strip() for r in existing if isinstance(r, dict)}
+        for a in total_news + list(total_candidates):
+            if not isinstance(a, CollectedArticle):
+                continue
+            if a.url in existing_urls:
+                continue
+            if not _is_candidate_news_url(a.url):
+                continue
+            existing.append(self._as_total_news_record(a))
+            existing_urls.add(a.url)
+
+        with path.open("w", encoding="utf-8") as f:
+            for rec in existing:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+        metrics_path = self._shared_metrics_path(issue)
+        metrics = {
+            "issue_date": issue,
+            "users_hit": users_hit,
+            "shared_candidates_count": len(existing),
+            "updated_at": datetime.now().astimezone().isoformat(),
+        }
+        metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _as_total_news_record(self, a: CollectedArticle) -> dict:
+        return {
+            "url": a.url,
+            "title": a.title,
+            "published_at": a.published_at,
+            "source": a.source,
+            "source_type": a.source_type,
+            "matched_needs": list(a.matched_needs or []),
+            "matched_aliases": list(a.matched_aliases or []),
+            "need_match_score": float(a.need_match_score or 0.0),
+            "source_score": float(a.source_score or 1.0),
+            "diversity_penalty": getattr(a, "diversity_penalty", 0.0),
+            "body_len": int(a.body_len or 0),
+            "collected_at": a.collected_at,
+            "query": str(a.query or ""),
+            "extraction_status": a.extraction_status,
+            "recency_score": float(a.recency_score or 0.0),
+            "origin_type": a.origin_type,
+            "origin_detail": a.origin_detail or "",
+            "issue_angle_id": a.issue_angle_id,
+            "summary": getattr(a, "summary", ""),
+            "country": a.country,
+            "relevance_score": float(a.relevance_score or 0.0),
+            "need_category": a.need_category,
+            "relevance_note": a.relevance_note,
+        }
+
     def _collect_need_term_index(self, needs_payload: list[dict]) -> list[str]:
         terms: list[str] = []
         for item in needs_payload:
@@ -1421,6 +1630,15 @@ class CollectionAgent:
         needs_payload = self.needs_agent.build_need_list_from_user(latest_user)
         needs_payload = [x for x in needs_payload if isinstance(x, dict) and x.get("aliases")]
         run_id = self._next_run_id(user)
+        issue = datetime.now().strftime("%Y-%m-%d")
+        shared_enabled = self._shared_pool_enabled()
+
+        # shared-pool 우선 모드: 기존 사용자별 수집을 줄이고 동일일 공통 후보 풀에서 재매칭
+        shared_total_candidates: list[CollectedArticle] = []
+        if shared_enabled:
+            shared_total_candidates = self._load_shared_total_pool(issue)
+            if shared_total_candidates:
+                self._log(f"[collect] shared_pool_loaded size={len(shared_total_candidates)} user_code={user.user_code}")
 
         # 수집 채널별 니즈당 쿼리(직접/구글)
         templates = ["{}", "{} 뉴스", "{} 업데이트"]
@@ -1431,6 +1649,20 @@ class CollectionAgent:
         self._emit_stage(user, run_id, stage_id="collect", status="start", in_count=len(query_pairs), extra={"target": min_count, "templates": templates})
         if not query_pairs:
             raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
+
+        shared_candidates: list[CollectedArticle] = []
+        if shared_enabled and shared_total_candidates:
+            self._emit_stage(user, run_id, stage_id="shared_pool", status="start", in_count=len(shared_total_candidates))
+            shared_candidates = self._rebuild_from_shared_pool(user, shared_total_candidates, needs_payload, latest_user.exclusions, min_count)
+            self._emit_stage(
+                user,
+                run_id,
+                stage_id="shared_pool",
+                status="ok",
+                in_count=len(shared_total_candidates),
+                out_count=len(shared_candidates),
+                extra={"user_needs": len(needs_payload), "min_count": min_count},
+            )
 
         # 사용자별로 무의미한 대량 쿼리를 방지하기 위해 사용자 쿼리 상한 적용
         user_query_cap = len(query_pairs)
@@ -1566,14 +1798,29 @@ class CollectionAgent:
                 self.stage_counters["built"] += 1
                 self._log(f"[collect] built score={article.relevance_score:.2f} need={article.need_category} src={src} url={article.url[:90]}")
 
-        source_stats: dict[str, dict[str, int]] = {}
+        # shared pool에서 유효 후보가 충분하면 사용자 수집 단계는 생략
+        use_shared_only = False
+        if shared_enabled and shared_candidates and len(shared_candidates) >= max(int(min_count), int(self.daily_news_target)):
+            candidates = shared_candidates
+            collected_urls.update({a.url for a in candidates if isinstance(a, CollectedArticle)})
+            source_stats = {"shared": {"attempt": 0, "fail": 0}}
+            use_shared_only = True
+            total_candidates = candidates
+        elif shared_enabled and shared_candidates:
+            self._log(f"[collect] shared_pool_insufficient user_code={user.user_code} size={len(shared_candidates)} fallback_collect=true")
+        else:
+            source_stats = {}
+
         core_limit = limit
 
-        # query 배치 모드로 처리
+        # query 배치 모드로 처리 (공유풀로 충분치 않은 경우에만)
         q_batches: list[list[tuple[str, str]]] = []
-        if self.query_batch_size > 0 and len(query_pairs) > self.query_batch_size:
-            for i in range(0, len(query_pairs), self.query_batch_size):
-                q_batches.append(query_pairs[i : i + self.query_batch_size])
+        if not use_shared_only:
+            if self.query_batch_size > 0 and len(query_pairs) > self.query_batch_size:
+                for i in range(0, len(query_pairs), self.query_batch_size):
+                    q_batches.append(query_pairs[i : i + self.query_batch_size])
+            else:
+                q_batches = [query_pairs]
         else:
             q_batches = [query_pairs]
 
@@ -1604,6 +1851,9 @@ class CollectionAgent:
         # total_news 입력 전에 링크 정규화: google 래퍼/추적 파라미터 정리로 공통 저장 포맷 정합성 강화
         total_news = self._normalize_urls_for_total(total_news, filter_unresolved=True)
         selected = self._normalize_urls_for_total(selected, filter_unresolved=False)
+
+        if shared_enabled:
+            self._persist_shared_total_pool(issue, total_news, total_candidates, users_hit=1)
 
         # phase2 호환: 공통 Hot Topic 보강 + overlap-aware rerank
         selected = self._inject_shared_hot_topics(user, total_candidates, selected, min_count, needs_payload)
@@ -1879,26 +2129,7 @@ class CollectionAgent:
         total_path = dirs["daily"] / f"total_news_{issue}.jsonl"
         with total_path.open("w", encoding="utf-8") as f:
             for a in total_news:
-                rec = {
-                    "url": a.url,
-                    "title": a.title,
-                    "published_at": a.published_at,
-                    "source": a.source,
-                    "source_type": a.source_type,
-                    "matched_needs": a.matched_needs,
-                    "matched_aliases": a.matched_aliases,
-                    "need_match_score": a.need_match_score,
-                    "source_score": a.source_score,
-                    "diversity_penalty": a.diversity_penalty,
-                    "body_len": a.body_len,
-                    "collected_at": a.collected_at,
-                    "query": a.query,
-                    "extraction_status": a.extraction_status,
-                    "recency_score": a.recency_score,
-                    "origin_type": a.origin_type,
-                    "origin_detail": a.origin_detail,
-                    "issue_angle_id": a.issue_angle_id,
-                }
+                rec = self._as_total_news_record(a)
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
         metric_path = dirs["daily"] / "total_news_metrics.json"
