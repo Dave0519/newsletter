@@ -1471,6 +1471,24 @@ class CollectionAgent:
                     if len(selected) >= target_n:
                         return selected[:target_n]
 
+            # Stage-2가 과도하게 걸러서 target이 모자랄 때는 fallback으로
+            # total 후보 점수 상위에서 중복만 제어해 선별을 완화한다.
+            if len(selected) < target_n:
+                for cand in pool_sorted:
+                    if len(selected) >= target_n:
+                        break
+                    if cand not in selected:
+                        u = (cand.url or "").strip()
+                        if not u or u in seen_urls:
+                            continue
+                        sig = _normalize_title_signature(cand.title or "")
+                        if sig and sig in seen_sigs:
+                            continue
+                        selected.append(cand)
+                        seen_urls.add(u)
+                        if sig:
+                            seen_sigs.add(sig)
+
             return selected[:target_n]
 
         # (A) 후보 풀: daily(선정 후보) + total_news(전체 풀)
