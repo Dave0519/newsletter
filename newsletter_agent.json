@@ -459,5 +459,21 @@
         ]
       }
     }
+  },
+  "phase2": {
+    "enabled": true,
+    "queryAwareUpstreamPool": {
+      "enabled": true,
+      "stageAMetaLimit": 120
+    },
+    "sharedSkhynixHotTopic": {
+      "enabled": true,
+      "capPerEdition": 2,
+      "relevanceFloor": 1.5
+    },
+    "overlapAwareFinalRerank": {
+      "enabled": true,
+      "personalizationShareFloor": 0.75
+    }
   }
 }

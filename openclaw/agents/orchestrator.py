@@ -19,6 +19,13 @@ from agents.country_tagger import CountryTagger
 from agents.delivery import DeliveryManager
 from agents.news_collector import NewsCollector
 from agents.newsletter_builder import NewsletterBuilder
+from agents.observability import ObservabilityStore, diff_candidates
+from agents.personalization_phase2 import (
+    build_customer_query_plans,
+    choose_shared_hot_topic,
+    get_issue_angle_id,
+    rerank_overlap_aware,
+)
 from agents.research_collector import ResearchCollector
 from utils.dedup import DedupDB
 from utils.logger import setup_logger
@@ -53,15 +60,19 @@ class CLUEOrchestrator:
         )
         self.delivery = DeliveryManager(self.config["email"], self.config.get("telegram"))
         self.dedup = DedupDB(os.path.join(base_dir, "data/clue.db"))
+        self.observability = ObservabilityStore(base_dir)
 
     def run(self, customer_id: str = "default", email_recipient: Optional[str] = None, dry_run: bool = False):
         """Single-customer pipeline (B~E)."""
         issue_date = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d")
         customer = self._get_customer(customer_id)
+        run_id = f"single-{datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
 
         publish_enabled = self._is_publish_enabled()
         if not publish_enabled:
             result = {
+                "run_id": run_id,
+                "customer_id": customer_id,
                 "status": "blocked",
                 "issue_date": issue_date,
                 "delivery": {"email": False, "telegram": False},
@@ -75,16 +86,23 @@ class CLUEOrchestrator:
                 "template_sha256": "",
                 "html": "",
             }
-            self._append_run_log(customer_id, result)
-            self._append_audit_log(customer_id, result)
+            self._append_run_log(run_id, customer_id, result)
+            self._append_audit_log(run_id, customer_id, result)
             return result
 
         policy = self._load_collection_policy()
 
         # Stage A: shared collection (single-customer execution keeps it local)
-        article_pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
-        article_pool = self._dedupe_by_title_strict(article_pool)
-        article_pool = self._dedupe_semantic(article_pool)
+        raw_pool, article_pool, stage_a_meta = self._build_stage_a_master_pool(policy=policy, customers=[customer])
+        self._record_stage(
+            run_id=run_id,
+            stage_id="A",
+            status="completed",
+            before_items=raw_pool,
+            after_items=article_pool,
+            reason_code="stage_a_dedup_drop",
+            metadata={"mode": "single_customer", **stage_a_meta},
+        )
 
         return self._run_customer_from_pool(
             customer=customer,
@@ -93,6 +111,8 @@ class CLUEOrchestrator:
             dry_run=dry_run,
             email_recipient=email_recipient,
             policy=policy,
+            run_id=run_id,
+            stage_a_meta=stage_a_meta,
         )
 
     def run_all_customers(self, dry_run: bool = False, resume: bool = True, time_budget_minutes: int = 110) -> dict:
@@ -136,11 +156,19 @@ class CLUEOrchestrator:
         # Stage A: shared pool
         if state.get("stage") == "A":
             self.log.info("A_START")
-            pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
-            pool = self._dedupe_by_title_strict(pool)
-            pool = self._dedupe_semantic(pool)
+            raw_pool, pool, stage_a_meta = self._build_stage_a_master_pool(policy=policy, customers=self.customers)
             master_path = self._checkpoint_dir(state["run_id"]) / "master_candidate_pool.json"
             self._dump_json(master_path, pool)
+            self._record_stage(
+                run_id=state["run_id"],
+                stage_id="A",
+                status="completed",
+                before_items=raw_pool,
+                after_items=pool,
+                checkpoint_path=str(master_path),
+                reason_code="stage_a_dedup_drop",
+                metadata={"mode": "batch_shared_pool", **stage_a_meta},
+            )
             state["paths"]["master_candidate_pool"] = str(master_path)
             self.log.info("A_DONE")
             state["stage"] = "B"
@@ -172,6 +200,7 @@ class CLUEOrchestrator:
                     policy=policy,
                     run_id=state.get("run_id"),
                     checkpoint_state=state,
+                    stage_a_meta=stage_a_meta,
                 )
                 state["completed_customers"].append(cid)
                 state["customer_stage"][cid] = "DONE"
@@ -213,6 +242,7 @@ class CLUEOrchestrator:
         policy: dict,
         run_id: Optional[str] = None,
         checkpoint_state: Optional[dict] = None,
+        stage_a_meta: Optional[dict] = None,
     ) -> dict:
         customer_id = customer.get("customer_id", "default")
 
@@ -226,21 +256,47 @@ class CLUEOrchestrator:
         self.log.info(f"B_START cid={customer_id}")
         shortlist_meta = self._select_for_customer(customer, article_pool, allow_semantic_fallback=True, policy=policy, stage="B")
         shortlist_meta = shortlist_meta[: policy["shortlist_meta_cap_per_customer"]]
+        checkpoint_path = ""
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "B"
             p = self._checkpoint_dir(run_id) / f"shortlist_{customer_id}.json"
             self._dump_json(p, shortlist_meta)
             checkpoint_state.setdefault("paths", {}).setdefault("shortlists", {})[customer_id] = str(p)
+            checkpoint_path = str(p)
+        if run_id:
+            self._record_stage(
+                run_id=run_id,
+                customer_id=customer_id,
+                stage_id="B",
+                status="completed",
+                before_items=article_pool,
+                after_items=shortlist_meta,
+                checkpoint_path=checkpoint_path,
+                reason_code="not_shortlisted",
+            )
         self.log.info(f"B_DONE cid={customer_id} n={len(shortlist_meta)}")
 
         # Stage C: precheck (fast filter before expensive LLM steps)
         self.log.info(f"C_START cid={customer_id}")
         prechecked = self._precheck_candidates(customer, shortlist_meta, policy=policy)
+        checkpoint_path = ""
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "C"
             p = self._checkpoint_dir(run_id) / f"prechecked_{customer_id}.json"
             self._dump_json(p, prechecked)
             checkpoint_state.setdefault("paths", {}).setdefault("prechecked", {})[customer_id] = str(p)
+            checkpoint_path = str(p)
+        if run_id:
+            self._record_stage(
+                run_id=run_id,
+                customer_id=customer_id,
+                stage_id="C",
+                status="completed",
+                before_items=shortlist_meta,
+                after_items=prechecked,
+                checkpoint_path=checkpoint_path,
+                reason_code="precheck_rejected",
+            )
         self.log.info(f"C_DONE cid={customer_id} n={len(prechecked)}")
 
         # Stage D: origin read + judge
@@ -253,11 +309,24 @@ class CLUEOrchestrator:
         )
         clean_items = self._dedupe_by_title_strict(clean_items)
         clean_items = self._dedupe_semantic(clean_items)
+        checkpoint_path = ""
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "D"
             p = self._checkpoint_dir(run_id) / f"cleaned_{customer_id}.json"
             self._dump_json(p, clean_items)
             checkpoint_state.setdefault("paths", {}).setdefault("cleaned", {})[customer_id] = str(p)
+            checkpoint_path = str(p)
+        if run_id:
+            self._record_stage(
+                run_id=run_id,
+                customer_id=customer_id,
+                stage_id="D",
+                status="completed",
+                before_items=origin_candidates,
+                after_items=clean_items,
+                checkpoint_path=checkpoint_path,
+                reason_code="processing_dropped",
+            )
         self.log.info(f"D_DONE cid={customer_id} n={len(clean_items)}")
 
         # Stage E: shortage-aware refill loop (need/article/country gaps)
@@ -327,6 +396,8 @@ class CLUEOrchestrator:
                         selected = self._dedupe_semantic(selected + country_clean)
                         selected = self._select_for_customer(customer, selected, policy=policy, allow_semantic_fallback=True, stage="E")
 
+        selected, hot_topic_decision = self._apply_shared_hot_topic(selected, candidate_pool, customer, policy)
+        selected, rerank_meta = self._apply_overlap_aware_rerank(selected, candidate_pool, policy)
         selected = self._rebalance_domain_bias(selected, max_share=policy["domain_max_share"])
         selected = self._apply_country_floor(
             selected=selected,
@@ -334,11 +405,24 @@ class CLUEOrchestrator:
             country_floor=policy.get("country_floor", {}),
         )
         selected = self._fill_minimum_articles(selected, candidate_pool, min_articles=min_articles)
+        checkpoint_path = ""
         if checkpoint_state is not None and run_id:
             checkpoint_state["customer_stage"][customer_id] = "E"
             p = self._checkpoint_dir(run_id) / f"final_{customer_id}.json"
             self._dump_json(p, selected)
             checkpoint_state.setdefault("paths", {}).setdefault("final_candidates", {})[customer_id] = str(p)
+            checkpoint_path = str(p)
+        if run_id:
+            self._record_stage(
+                run_id=run_id,
+                customer_id=customer_id,
+                stage_id="E",
+                status="completed",
+                before_items=clean_items,
+                after_items=selected,
+                checkpoint_path=checkpoint_path,
+                reason_code="final_selection_drop",
+            )
         self.log.info(f"E_DONE cid={customer_id} n={len(selected)}")
 
         # Stage F: render & deliver
@@ -405,6 +489,8 @@ class CLUEOrchestrator:
             extraction_stats[c] = {"success": ok_cnt}
 
         result = {
+            "run_id": run_id,
+            "customer_id": customer_id,
             "status": "ok" if gate_ok else "blocked",
             "issue_date": issue_date,
             "delivery": delivery_result,
@@ -421,8 +507,54 @@ class CLUEOrchestrator:
             "html": html,
         }
 
-        self._append_run_log(customer_id, result)
-        self._append_audit_log(customer_id, result)
+        if run_id:
+            source_health = self.observability.build_source_health_snapshot(
+                collected=article_pool,
+                shortlisted=shortlist_meta,
+                prechecked=prechecked,
+                cleaned=clean_items,
+                selected=selected,
+            )
+            self._append_source_health(run_id, customer_id, source_health)
+            self._append_customer_decision(
+                run_id=run_id,
+                customer_id=customer_id,
+                coverage=result["coverage"],
+                selected=selected,
+                gate_ok=gate_ok,
+                delivery=delivery_result,
+                soft_warnings=soft_warnings,
+                gate_errors=hard_errors,
+                phase2={
+                    "upstream": stage_a_meta or {},
+                    "sharedHotTopic": {k: v for k, v in hot_topic_decision.items() if k != "candidate"},
+                    "rerank": rerank_meta,
+                },
+            )
+            publication_reason = "published" if gate_ok else "publish_gate_blocked"
+            published_items = selected if gate_ok else []
+            self._record_stage(
+                run_id=run_id,
+                customer_id=customer_id,
+                stage_id="F",
+                status="completed" if gate_ok else "blocked",
+                before_items=selected,
+                after_items=published_items,
+                reason_code=publication_reason,
+                metadata={
+                    "delivery": delivery_result,
+                    "softWarnings": soft_warnings,
+                    "gateErrors": hard_errors,
+                    "phase2": {
+                        "sharedHotTopic": {k: v for k, v in hot_topic_decision.items() if k != "candidate"},
+                        "rerank": rerank_meta,
+                    },
+                },
+                errors=hard_errors,
+            )
+
+        self._append_run_log(run_id or "", customer_id, result)
+        self._append_audit_log(run_id or "", customer_id, result)
         self.log.info(f"F_DONE cid={customer_id} status={result.get('status')} gate_ok={result.get('gate_ok')}")
         if checkpoint_state is not None:
             checkpoint_state["customer_stage"][customer_id] = "F"
@@ -486,6 +618,14 @@ class CLUEOrchestrator:
             "relevance_pass_ambiguous": False,
             "relevance_allow_no_signal_volume_fallback": False,
             "block_send_below_hard_min": True,
+            "phase2_enabled": False,
+            "query_aware_upstream_pool_enabled": False,
+            "shared_skhynix_hot_topic_enabled": False,
+            "overlap_aware_final_rerank_enabled": False,
+            "query_aware_stage_a_meta_limit": 120,
+            "hot_topic_cap_per_edition": 2,
+            "hot_topic_relevance_floor": 1.5,
+            "personalization_share_floor": 0.75,
         }
         try:
             if not os.path.exists(cfg_path):
@@ -547,6 +687,34 @@ class CLUEOrchestrator:
             send_gate = col.get("sendGate", {})
             if isinstance(send_gate, dict):
                 defaults["block_send_below_hard_min"] = bool(send_gate.get("blockSendBelowHardMin", defaults["block_send_below_hard_min"]))
+
+            phase2 = cfg.get("phase2", {}) if isinstance(cfg, dict) else {}
+            if isinstance(phase2, dict):
+                defaults["phase2_enabled"] = bool(phase2.get("enabled", defaults["phase2_enabled"]))
+                upstream = phase2.get("queryAwareUpstreamPool", {}) if isinstance(phase2.get("queryAwareUpstreamPool", {}), dict) else {}
+                defaults["query_aware_upstream_pool_enabled"] = bool(
+                    upstream.get("enabled", defaults["query_aware_upstream_pool_enabled"])
+                )
+                defaults["query_aware_stage_a_meta_limit"] = int(
+                    upstream.get("stageAMetaLimit", defaults["query_aware_stage_a_meta_limit"])
+                )
+                shared = phase2.get("sharedSkhynixHotTopic", {}) if isinstance(phase2.get("sharedSkhynixHotTopic", {}), dict) else {}
+                defaults["shared_skhynix_hot_topic_enabled"] = bool(
+                    shared.get("enabled", defaults["shared_skhynix_hot_topic_enabled"])
+                )
+                defaults["hot_topic_cap_per_edition"] = int(
+                    shared.get("capPerEdition", defaults["hot_topic_cap_per_edition"])
+                )
+                defaults["hot_topic_relevance_floor"] = float(
+                    shared.get("relevanceFloor", defaults["hot_topic_relevance_floor"])
+                )
+                rerank = phase2.get("overlapAwareFinalRerank", {}) if isinstance(phase2.get("overlapAwareFinalRerank", {}), dict) else {}
+                defaults["overlap_aware_final_rerank_enabled"] = bool(
+                    rerank.get("enabled", defaults["overlap_aware_final_rerank_enabled"])
+                )
+                defaults["personalization_share_floor"] = float(
+                    rerank.get("personalizationShareFloor", defaults["personalization_share_floor"])
+                )
 
         except Exception:
             return defaults
@@ -1176,25 +1344,28 @@ class CLUEOrchestrator:
         with p.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
-    def _append_run_log(self, customer_id: str, result: dict):
+    def _append_run_log(self, run_id: str, customer_id: str, result: dict):
         payload = {
             "timestamp": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
             "type": "agent_run",
+            "runId": run_id,
             "customerId": customer_id,
             "status": result.get("status"),
             "gateOk": result.get("gate_ok"),
             "gateErrors": result.get("gate_errors", []),
             "totalScan": result.get("total_scan", 0),
+            "totalResearch": result.get("total_research", 0),
             "delivery": result.get("delivery", {}),
             "templatePath": result.get("template_path", ""),
             "templateSha256": result.get("template_sha256", ""),
         }
         self._append_jsonl(os.path.join(self.base_dir, "..", "newsletter_runs.jsonl"), payload)
 
-    def _append_audit_log(self, customer_id: str, result: dict):
+    def _append_audit_log(self, run_id: str, customer_id: str, result: dict):
         payload = {
             "at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
             "action": "send_attempt",
+            "runId": run_id,
             "customerId": customer_id,
             "status": result.get("status"),
             "gateOk": result.get("gate_ok"),
@@ -1203,6 +1374,78 @@ class CLUEOrchestrator:
             "templateSha256": result.get("template_sha256", ""),
         }
         self._append_jsonl(os.path.join(self.base_dir, "..", "newsletter_audit.jsonl"), payload)
+
+    def _record_stage(
+        self,
+        *,
+        run_id: str,
+        stage_id: str,
+        status: str,
+        before_items: list[dict],
+        after_items: list[dict],
+        reason_code: str,
+        customer_id: str | None = None,
+        checkpoint_path: str = "",
+        metadata: dict | None = None,
+        errors: list[str] | None = None,
+    ) -> None:
+        try:
+            dropped_items = diff_candidates(before_items, after_items)
+            self.observability.append_stage(
+                run_id=run_id,
+                stage_id=stage_id,
+                status=status,
+                customer_id=customer_id,
+                in_count=len(before_items),
+                out_count=len(after_items),
+                loss_count=max(0, len(before_items) - len(after_items)),
+                checkpoint_path=checkpoint_path,
+                metadata=metadata,
+                errors=errors,
+            )
+            if dropped_items:
+                self.observability.append_loss_events(
+                    run_id=run_id,
+                    stage_id=stage_id,
+                    customer_id=customer_id,
+                    reason_code=reason_code,
+                    items=dropped_items,
+                    metadata=metadata,
+                )
+        except Exception as exc:
+            self.log.warning(f"OBS_STAGE_FAIL stage={stage_id} customer={customer_id or '-'} reason={type(exc).__name__}")
+
+    def _append_customer_decision(
+        self,
+        *,
+        run_id: str,
+        customer_id: str,
+        coverage: dict,
+        selected: list[dict],
+        gate_ok: bool,
+        delivery: dict,
+        soft_warnings: list[str],
+        gate_errors: list[str],
+    ) -> None:
+        try:
+            self.observability.append_customer_decision(
+                run_id=run_id,
+                customer_id=customer_id,
+                coverage=coverage,
+                selected=selected,
+                gate_ok=gate_ok,
+                delivery=delivery,
+                soft_warnings=soft_warnings,
+                gate_errors=gate_errors,
+            )
+        except Exception as exc:
+            self.log.warning(f"OBS_CUSTOMER_FAIL customer={customer_id} reason={type(exc).__name__}")
+
+    def _append_source_health(self, run_id: str, customer_id: str, snapshot: dict) -> None:
+        try:
+            self.observability.append_source_health(run_id=run_id, customer_id=customer_id, snapshot=snapshot)
+        except Exception as exc:
+            self.log.warning(f"OBS_SOURCE_FAIL customer={customer_id} reason={type(exc).__name__}")
 
     def _is_publish_enabled(self) -> bool:
         cfg_path = os.path.join(self.base_dir, "..", "newsletter_agent.json")
@@ -1908,6 +2151,104 @@ class CLUEOrchestrator:
             uniq.append(q)
         return uniq[:40]
 
+    def _build_customer_query_plans(self, customer: dict) -> list[dict]:
+        return build_customer_query_plans(customer, self._build_customer_queries(customer))
+
+    def _collect_query_aware_stage_a_pool(self, customers: list[dict], policy: dict) -> tuple[list[dict], dict]:
+        if not (policy.get("phase2_enabled") and policy.get("query_aware_upstream_pool_enabled")):
+            return [], {"queryAwareEnabled": False, "queryAwareCount": 0, "queryPlanCount": 0}
+
+        weighted_queries = []
+        keywords = []
+        seen_queries = set()
+        for customer in customers or []:
+            for plan in self._build_customer_query_plans(customer):
+                query_key = str(plan.get("query") or "").lower().strip()
+                plan_key = (query_key, str(plan.get("customerId") or ""))
+                if not query_key or plan_key in seen_queries:
+                    continue
+                seen_queries.add(plan_key)
+                weighted_queries.append(plan)
+
+            prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
+            keywords.extend([str(v) for v in prefs.get("keywords", []) if isinstance(v, str)])
+            for cluster in prefs.get("needClusters", []) if isinstance(prefs, dict) else []:
+                if not isinstance(cluster, dict):
+                    continue
+                keywords.extend([str(v) for v in cluster.get("terms", []) if isinstance(v, str)])
+
+        if not weighted_queries:
+            return [], {"queryAwareEnabled": True, "queryAwareCount": 0, "queryPlanCount": 0}
+
+        query_pool = self.news_collector.collect_custom_queries(
+            queries=[],
+            category="CUSTOM_NEEDS",
+            limit=int(policy.get("query_aware_stage_a_meta_limit", 120)),
+            weighted_queries=weighted_queries,
+            keywords=keywords,
+        )
+        for item in query_pool:
+            item["origin_type"] = item.get("origin_type") or "query_aware_source"
+            item["origin_detail"] = item.get("origin_detail") or {}
+            item["issue_angle_id"] = get_issue_angle_id(item)
+        return query_pool, {
+            "queryAwareEnabled": True,
+            "queryAwareCount": len(query_pool),
+            "queryPlanCount": len(weighted_queries),
+        }
+
+    def _build_stage_a_master_pool(self, policy: dict, customers: list[dict]) -> tuple[list[dict], list[dict], dict]:
+        static_pool = self.news_collector.collect_all(per_category_limit=policy["per_category_limit"])
+        for item in static_pool:
+            item["origin_type"] = item.get("origin_type") or "static_source"
+            item["origin_detail"] = item.get("origin_detail") or {"mode": "static_source"}
+            item["issue_angle_id"] = get_issue_angle_id(item)
+
+        query_pool, query_meta = self._collect_query_aware_stage_a_pool(customers, policy)
+        raw_pool = list(static_pool) + list(query_pool)
+        dedup_title_pool = self._dedupe_by_title_strict(raw_pool)
+        article_pool = self._dedupe_semantic(dedup_title_pool)
+        for item in article_pool:
+            item["issue_angle_id"] = get_issue_angle_id(item)
+
+        stage_meta = {
+            "staticCount": len(static_pool),
+            "combinedCount": len(raw_pool),
+            **query_meta,
+        }
+        return raw_pool, article_pool, stage_meta
+
+    def _apply_shared_hot_topic(self, selected: list[dict], candidate_pool: list[dict], customer: dict, policy: dict) -> tuple[list[dict], dict]:
+        if not (policy.get("phase2_enabled") and policy.get("shared_skhynix_hot_topic_enabled")):
+            return selected, {"action": "skip", "reason": "flag_disabled"}
+
+        decision = choose_shared_hot_topic(
+            candidate_pool,
+            selected,
+            customer,
+            hot_topic_cap=int(policy.get("hot_topic_cap_per_edition", 1)),
+            relevance_floor=float(policy.get("hot_topic_relevance_floor", 1.5)),
+        )
+        candidate = decision.get("candidate")
+        if decision.get("action") != "inject" or not isinstance(candidate, dict):
+            return selected, decision
+
+        selected_urls = {(item.get("url") or item.get("source_url") or "").strip().lower() for item in selected}
+        candidate_url = (candidate.get("url") or candidate.get("source_url") or "").strip().lower()
+        if candidate_url and candidate_url not in selected_urls:
+            return [candidate] + list(selected), decision
+        return selected, {"action": "skip", "reason": "already_selected", **{k: v for k, v in decision.items() if k != "candidate"}}
+
+    def _apply_overlap_aware_rerank(self, selected: list[dict], candidate_pool: list[dict], policy: dict) -> tuple[list[dict], dict]:
+        if not (policy.get("phase2_enabled") and policy.get("overlap_aware_final_rerank_enabled")):
+            return selected, {"reordered": 0, "removedIssueDuplicates": 0, "personalizationShare": 1.0, "reason": "flag_disabled"}
+        reranked, rerank_meta = rerank_overlap_aware(
+            selected,
+            candidate_pool,
+            personalization_share_floor=float(policy.get("personalization_share_floor", 0.75)),
+        )
+        return reranked, rerank_meta
+
     @staticmethod
     def _build_needs_hashtags(customer: dict, max_tags: int = 5) -> str:
         prefs = customer.get("preferences", {}) if isinstance(customer, dict) else {}
@@ -1970,6 +2311,7 @@ class CLUEOrchestrator:
                 "excludes": profile.get("excludes", []),
                 "search_queries": profile.get("searchQueries", []),
                 "needClusters": profile.get("needClusters", []),
+                "watch_companies": profile.get("watch_companies", []) or profile.get("watchCompanies", []),
             },
         }
 

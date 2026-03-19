@@ -38,27 +38,52 @@ class NewsCollector:
             pool.extend(ranked)
         return self._dedup_pool(pool)
 
-    def collect_custom_queries(self, queries: list[str], category: str = "AI_TECH", limit: int = 40) -> list[dict]:
-        if not queries:
+    def collect_custom_queries(
+        self,
+        queries: list[str],
+        category: str = "AI_TECH",
+        limit: int = 40,
+        weighted_queries: list[dict] | None = None,
+        keywords: list[str] | None = None,
+    ) -> list[dict]:
+        plans = []
+        for query in queries or []:
+            q = (query or "").strip()
+            if q:
+                plans.append({"query": q, "weight": 1.0, "originType": "query_aware_source", "originDetail": {"query": q}})
+        for plan in weighted_queries or []:
+            if not isinstance(plan, dict):
+                continue
+            q = str(plan.get("query") or "").strip()
+            if q:
+                plans.append(plan)
+
+        if not plans:
             return []
         items = []
         regions = [("US", "en"), ("KR", "ko"), ("TW", "zh-TW"), ("CN", "zh-CN")]
 
         tasks = []
         with ThreadPoolExecutor(max_workers=12) as ex:
-            for q in queries:
-                if not q:
-                    continue
+            for plan in plans:
+                q = str(plan.get("query") or "").strip()
                 for gl, hl in regions:
-                    tasks.append(ex.submit(self._fetch_google_news, q, category, gl, hl))
+                    tasks.append((plan, ex.submit(self._fetch_google_news, q, category, gl, hl)))
 
-            for fut in as_completed(tasks):
+            for plan, fut in tasks:
                 try:
-                    items.extend(fut.result() or [])
+                    fetched = fut.result() or []
+                    for item in fetched:
+                        row = dict(item)
+                        row["origin_type"] = plan.get("originType", "query_aware_source")
+                        row["origin_detail"] = dict(plan.get("originDetail", {}))
+                        row["query_weight"] = float(plan.get("weight", 1.0) or 1.0)
+                        row["query_customer_id"] = plan.get("customerId", "")
+                        items.append(row)
                 except Exception:
                     continue
 
-        ranked = self._rank_and_limit(items, keywords=[], limit=limit)
+        ranked = self._rank_and_limit(items, keywords=keywords or [], limit=limit)
         return self._dedup_pool(ranked)
 
     def _normalize_domain(self, domain: str) -> str:
@@ -176,7 +201,9 @@ class NewsCollector:
     @staticmethod
     def _score(item: dict, keywords: list[str]) -> int:
         text = f"{item.get('title','')} {item.get('summary','')}".lower()
-        return sum(text.count(k.lower()) for k in keywords)
+        score = sum(text.count(k.lower()) for k in keywords)
+        score += float(item.get("query_weight", 0.0) or 0.0)
+        return int(score)
 
     def _domain_of(self, url: str) -> str:
         try:
