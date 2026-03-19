@@ -55,6 +55,10 @@ class CollectedArticle:
     collected_at: str = field(default_factory=lambda: datetime.now().isoformat())
     relevance_note: str = ""
     relevance_score: float = 0.0
+    # observability/compat shim fields
+    origin_type: Optional[str] = None
+    origin_detail: Optional[str] = None
+    issue_angle_id: Optional[str] = None
 
 
 @dataclass

@@ -311,7 +311,15 @@ class CollectionAgent:
         self.global_fetch_time_cap = float(global_fetch_time_cap) if global_fetch_time_cap is not None else 0.0
         self.source_fail_rate_circuit = float(source_fail_rate_circuit) if source_fail_rate_circuit is not None else None
         self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
+
+        # phase2-compatible compatibility switches (lightweight observability / query aware / overlap)
+        self.phase2_query_aware = os.getenv("CLUE_PHASE2_QUERY_AWARE", "1").lower() not in {"0", "false", "off"}
+        self.phase2_shared_hot_topic_cap = max(0, int(os.getenv("CLUE_PHASE2_SHARED_HOT_TOPIC_CAP", "2")))
+        self.phase2_shared_hot_keyword_floor = max(1, int(os.getenv("CLUE_PHASE2_SHARED_HOT_RELEVANCE_FLOOR", "2")))
+        self.phase2_overlap_floor = float(os.getenv("CLUE_PHASE2_PERSONAL_SHARE_FLOOR", "0.75"))
+
         self.stage_counters = {"search_calls": 0, "fetch_calls": 0, "preselected": 0, "built": 0, "success_full": 0, "short": 0, "fail": 0, "filtered_stale": 0, "filtered_unreachable": 0, "fallback_used": 0, "short_circuit": 0, "normalized_total": 0}
+        self.trace_root = Path(os.getenv("CLUE_TRACE_DIR", self.data_root / "trace"))
 
     def _log(self, msg: str) -> None:
         if self.trace_enabled:
@@ -324,7 +332,92 @@ class CollectionAgent:
             "base": base,
             "daily": base / "daily news",
             "history": base / "history",
+            "trace": base / "trace",
         }
+
+    def _next_run_id(self, user: UserProfile) -> str:
+        now = datetime.now().astimezone()
+        safe_user = safe_filename(user.user_code or user.name or "unknown")
+        return f"{now.strftime('%Y%m%d-%H%M%S')}_{safe_user}"
+
+    def _trace_path(self, user: UserProfile, name: str) -> Path:
+        p = self._user_dirs(user)["trace"] / "jsonl" / name
+        ensure_dir(p.parent)
+        return p
+
+    def _append_trace(self, path: Path, payload: dict) -> None:
+        try:
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            return
+
+    def _emit_stage(self, user: UserProfile, run_id: str, stage_id: str, status: str, *, in_count: int = 0, out_count: int = 0, loss_count: int = 0, reason_code: str | None = None, extra: dict | None = None) -> None:
+        if not self.trace_enabled:
+            return
+        rec = {
+            "ts": datetime.now().astimezone().isoformat(),
+            "run_id": run_id,
+            "user_code": user.user_code,
+            "stage_id": stage_id,
+            "status": status,
+            "in_count": int(in_count),
+            "out_count": int(out_count),
+            "loss_count": int(loss_count),
+            "reason_code": reason_code,
+            "phase2": {
+                "queryAware": self.phase2_query_aware,
+                "sharedHotTopicCap": self.phase2_shared_hot_topic_cap,
+                "personalShareFloor": self.phase2_overlap_floor,
+            },
+        }
+        if extra:
+            rec["extra"] = extra
+        self._append_trace(self._trace_path(user, "stage_runs.jsonl"), rec)
+
+    def _emit_loss(self, user: UserProfile, run_id: str, reason_code: str, item: dict | None = None) -> None:
+        if not self.trace_enabled:
+            return
+        rec = {
+            "ts": datetime.now().astimezone().isoformat(),
+            "run_id": run_id,
+            "user_code": user.user_code,
+            "reason_code": reason_code,
+        }
+        if item:
+            rec.update({
+                "need_category": item.get("need_category"),
+                "query": item.get("query"),
+                "url": item.get("url"),
+            })
+        self._append_trace(self._trace_path(user, "loss_events.jsonl"), rec)
+
+    def _emit_customer_decision(self, user: UserProfile, run_id: str, selected: list[CollectedArticle], total_news: list[CollectedArticle]) -> None:
+        if not self.trace_enabled:
+            return
+        rec = {
+            "ts": datetime.now().astimezone().isoformat(),
+            "run_id": run_id,
+            "user_code": user.user_code,
+            "selected": len(selected),
+            "total_news": len(total_news),
+            "coverage_ok": len(selected) > 0,
+            "min_count": self.min_count,
+            "need_ids": sorted({nid for a in selected for nid in (a.matched_need_ids or [])}),
+        }
+        self._append_trace(self._trace_path(user, "customer_decisions.jsonl"), rec)
+
+    def _emit_source_health(self, user: UserProfile, run_id: str, stage_id: str, counts: dict) -> None:
+        if not self.trace_enabled:
+            return
+        rec = {
+            "ts": datetime.now().astimezone().isoformat(),
+            "run_id": run_id,
+            "user_code": user.user_code,
+            "stage_id": stage_id,
+            "counts": counts,
+        }
+        self._append_trace(self._trace_path(user, "source_health.jsonl"), rec)
 
     def _to_kor(self, txt: str, max_chars: int = 2000) -> str:
         if not txt:
@@ -926,6 +1019,14 @@ class CollectionAgent:
         needs_payload: list[dict],
     ) -> tuple[list[str], list[str], list[str], float]:
         t = (text or "").lower()
+        tokens = set(re.findall(r"[a-z0-9가-힣]+", t))
+        # 짧은 키워드 오탐 방지를 위해 문맥 제한을 둔다.
+        short_alias_context = {
+            "dram": {"dram", "hbm", "memory", "semiconductor", "반도체", "메모리", "samsung", "삼성", "micron", "hynix", "하이닉스"},
+            "db": {"database", "databases", "데이터베이스", "db", "반도체", "semiconductor", "memory", "메모리"},
+            "hpc": {"hpc", "high", "performance", "computing", "반도체", "ai", "gpus", "gpu", "memory", "memorys"},
+        }
+
         matched_need_ids: list[str] = []
         matched_needs: list[str] = []
         matched_aliases: list[str] = []
@@ -934,7 +1035,30 @@ class CollectionAgent:
             nid = str(item.get("need_id", "")).strip()
             aliases = [str(a).strip() for a in item.get("aliases", []) if str(a).strip()]
             for a in aliases:
-                if a.lower() in t:
+                a_norm = str(a).strip().lower()
+                if not a_norm:
+                    continue
+
+                alias_tokens = re.findall(r"[a-z0-9가-힣]+", a_norm)
+                hit = False
+
+                # 짧은 alias는 토큰 정확일치 + 문맥 필요
+                if len(a_norm) <= 4:
+                    if a_norm in tokens:
+                        ctx = short_alias_context.get(a_norm)
+                        hit = True
+                        if ctx:
+                            hit = bool(ctx.intersection(tokens))
+                    else:
+                        hit = False
+                else:
+                    if a_norm in t:
+                        hit = True
+                    elif alias_tokens and len(alias_tokens) >= 2:
+                        # 멀티 토큰 alias는 토큰 집합이 모두 텍스트에 존재해야 함
+                        hit = all(tok in tokens for tok in alias_tokens)
+
+                if hit:
                     if nid and nid not in matched_need_ids:
                         matched_need_ids.append(nid)
                     if item.get("need_text") and item.get("need_text") not in matched_needs:
@@ -1112,6 +1236,131 @@ class CollectionAgent:
             return selected[:target]
         return selected
 
+    def _inject_shared_hot_topics(
+        self,
+        user: UserProfile,
+        candidates: list[CollectedArticle],
+        selected: list[CollectedArticle],
+        min_count: int,
+        needs_payload: list[dict],
+    ) -> list[CollectedArticle]:
+        if self.phase2_shared_hot_topic_cap <= 0:
+            return selected
+
+        hot_need_ids: list[str] = []
+        for item in needs_payload:
+            if not isinstance(item, dict):
+                continue
+            alias_text = " ".join([str(x or "") for x in (item.get("aliases") or [])]).lower()
+            nid = str(item.get("need_id") or "").strip()
+            if nid and ("hynix" in alias_text or "하이닉스" in alias_text):
+                hot_need_ids.append(nid)
+                break
+
+        if not hot_need_ids:
+            for item in needs_payload:
+                alias_text = " ".join([str(x or "") for x in (item.get("aliases") or [])]).lower()
+                if "samsung" in alias_text and "memory" in alias_text:
+                    nid = str(item.get("need_id") or "").strip()
+                    if nid:
+                        hot_need_ids.append(nid)
+                        break
+        if not hot_need_ids:
+            return selected
+
+        selected_urls = {a.url for a in selected}
+        selected_sig = {_normalize_title_signature(a.title or "") for a in selected}
+        hot_pool = []
+        for a in candidates:
+            if not isinstance(a, CollectedArticle):
+                continue
+            if a.url in selected_urls:
+                continue
+            if not any((nid in hot_need_ids) for nid in a.matched_need_ids):
+                continue
+            if (a.relevance_score or 0.0) < self.phase2_shared_hot_keyword_floor:
+                continue
+            hot_pool.append(a)
+
+        # relevance 높은 것부터 채움
+        hot_pool.sort(key=lambda x: (x.relevance_score or 0.0, x.body_len), reverse=True)
+
+        idx = 0
+        while len(selected) < max(min_count, int(min_count * 1.1)) and idx < len(hot_pool) and idx < self.phase2_shared_hot_topic_cap:
+            cand = hot_pool[idx]
+            sig = _normalize_title_signature(cand.title or "")
+            if sig and sig in selected_sig:
+                idx += 1
+                continue
+            selected.append(cand)
+            selected_urls.add(cand.url)
+            if sig:
+                selected_sig.add(sig)
+            idx += 1
+        return selected
+
+    def _overlap_aware_rerank(self, articles: list[CollectedArticle], min_count: int) -> list[CollectedArticle]:
+        if not articles:
+            return []
+        selected: list[CollectedArticle] = []
+        seen_urls = set()
+        seen_sigs = set()
+
+        required_personal_share = max(1, int(min_count * self.phase2_overlap_floor))
+
+        def _sig(a: CollectedArticle) -> str:
+            return _normalize_title_signature(a.title or "")
+
+        for a in sorted(articles, key=lambda x: (x.relevance_score or 0.0, x.body_len), reverse=True):
+            u = (a.url or "").strip()
+            if not u or u in seen_urls:
+                continue
+            s = _sig(a)
+            if s and s in seen_sigs:
+                continue
+
+            # 간단한 토큰 유사도 컷
+            dup = False
+            atoks = set((a.title or "").lower().split())
+            for b in selected:
+                btoks = set((b.title or "").lower().split())
+                union = atoks | btoks
+                inter = len(atoks & btoks)
+                sim = inter / len(union) if union else 0.0
+                if sim >= 0.70:
+                    dup = True
+                    break
+            if dup:
+                continue
+
+            selected.append(a)
+            seen_urls.add(u)
+            if s:
+                seen_sigs.add(s)
+            if len(selected) >= min_count:
+                break
+
+        # personalization floor 보강
+        if len(selected) < required_personal_share:
+            for a in sorted(articles, key=lambda x: (x.relevance_score or 0.0, x.body_len), reverse=True):
+                if a in selected:
+                    continue
+                if not (a.matched_need_ids or []):
+                    continue
+                selected.append(a)
+                if len(selected) >= required_personal_share:
+                    break
+
+        if len(selected) < min_count:
+            for a in sorted(articles, key=lambda x: (x.relevance_score or 0.0, x.body_len), reverse=True):
+                if a in selected:
+                    continue
+                selected.append(a)
+                if len(selected) >= min_count:
+                    break
+
+        return selected[:min_count]
+
     def _build_total_news(
         self,
         candidates: list[CollectedArticle],
@@ -1158,13 +1407,15 @@ class CollectionAgent:
         latest_user = self.needs_agent.get_user(user.user_code)
         needs_payload = self.needs_agent.build_need_list_from_user(latest_user)
         needs_payload = [x for x in needs_payload if isinstance(x, dict) and x.get("aliases")]
+        run_id = self._next_run_id(user)
+
         # 수집 채널별 니즈당 쿼리(직접/구글)
-        # 김현중 기준으로 최근 log 기반 zero-hit이 잦은 쿼리는 템플릿을 축소해 불필요 호출 감소
         templates = ["{}", "{} 뉴스", "{} 업데이트"]
         if (user.name or "").strip() == "김현중" or (user.user_code or "").strip() == "준동HHDD7818":
             templates = ["{}", "{} 뉴스"]
 
         query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=templates)
+        self._emit_stage(user, run_id, stage_id="collect", status="start", in_count=len(query_pairs), extra={"target": min_count, "templates": templates})
         if not query_pairs:
             raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
 
@@ -1192,13 +1443,26 @@ class CollectionAgent:
         def stage_preselect(search_fn, pairs_in, source_type="direct", max_hits=18):
             self.stage_counters["search_calls"] += 1
             preselects = []
-            for need_id, q in pairs_in:
+            for pair in pairs_in:
+                if not pair:
+                    continue
+                need_id = pair[0] if len(pair) > 0 else ""
+                q = pair[1] if len(pair) > 1 else ""
+                query_weight = float(pair[2]) if len(pair) > 2 and isinstance(pair[2], (int, float, str)) and str(pair[2]).strip() not in {"", "None"} else 1.0
+                issue_angle_id = pair[3] if len(pair) > 3 else None
+
                 q_effective = self._build_time_prefixed_query(q, source_type, max_days)
                 self._log(f"[collect] stage={source_type} need={need_id} query={q_effective}")
                 try:
                     hits = search_fn(q_effective, limit=max_hits)
                 except Exception as e:
                     self._log(f"[collect] stage={source_type} search_error={type(e).__name__} query={q_effective}")
+                    self._emit_loss(
+                        user,
+                        run_id,
+                        "search_error",
+                        {"need_id": need_id, "query": q_effective, "source_type": source_type},
+                    )
                     hits = []
 
                 per_need_added = 0
@@ -1218,6 +1482,7 @@ class CollectionAgent:
                     need_terms = self._collect_need_term_index(needs_payload)
                     preferred_terms = self._get_preferred_need_terms(needs_payload, need_id)
                     score = self._score_preselect_by_metadata(raw.get("title") or "", raw.get("snippet") or "", need_terms, preferred_need=preferred_terms)
+                    score *= float(query_weight)
                     if score < self.min_ratio:
                         continue
 
@@ -1225,14 +1490,19 @@ class CollectionAgent:
                         "score": score,
                         "need_id": need_id,
                         "query": f"{need_id}|{q}",
+                        "query_weight": query_weight,
+                        "issue_angle_id": issue_angle_id,
                         "raw": raw,
                         "source_type": source_type,
+                        "origin_type": "query_aware" if self.phase2_query_aware else "query",
+                        "origin_detail": q_effective,
                     })
                     per_need_added += 1
                     self.stage_counters["preselected"] += 1
                     if per_need_added >= per_need_cap:
                         break
 
+            self._emit_stage(user, run_id, stage_id=f"preselect:{source_type}", status="ok", in_count=len(pairs_in), out_count=len(preselects), extra={"source": source_type, "weight_enabled": self.phase2_query_aware})
             return sorted(preselects, key=lambda x: x["score"], reverse=True)
 
         def should_stop(start_t: datetime, source_type: str, source_stats: dict[str, dict[str, int]]) -> bool:
@@ -1263,7 +1533,21 @@ class CollectionAgent:
                 article = self._maybe_build_article(raw, source_query, needs_payload, latest_user.exclusions, collected_urls, source_type=src)
                 if article is None:
                     source_stats[source_type]["fail"] += 1
+                    self._emit_loss(user, run_id, "article_reject", {
+                        "url": raw.get("url"),
+                        "query": source_query,
+                        "source_type": src,
+                        "need_id": item.get("need_id"),
+                    })
                     continue
+
+                article.origin_type = item.get("origin_type")
+                article.origin_detail = item.get("origin_detail")
+                article.issue_angle_id = item.get("issue_angle_id")
+                if not article.origin_type:
+                    article.origin_type = "query_aware" if self.phase2_query_aware else "query"
+                if not article.issue_angle_id:
+                    article.issue_angle_id = item.get("need_id")
 
                 candidates.append(article)
                 self.stage_counters["built"] += 1
@@ -1302,10 +1586,15 @@ class CollectionAgent:
             self._log(f"[collect] batch done idx={batch_i}/{len(q_batches)} total={len(candidates)}")
 
         total_candidates = candidates
+        self._emit_stage(user, run_id, stage_id="build", status="start", in_count=len(total_candidates), extra={"min_count": min_count})
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
         # total_news 입력 전에 링크 정규화: google 래퍼/추적 파라미터 정리로 공통 저장 포맷 정합성 강화
         total_news = self._normalize_urls_for_total(total_news, filter_unresolved=True)
         selected = self._normalize_urls_for_total(selected, filter_unresolved=False)
+
+        # phase2 호환: 공통 Hot Topic 보강 + overlap-aware rerank
+        selected = self._inject_shared_hot_topics(user, total_candidates, selected, min_count, needs_payload)
+        selected = self._overlap_aware_rerank(selected, max(int(min_count), int(self.daily_news_target or 8)))
 
         # 최종 반환/저장 전에 제목 시그니처까지 반영해 같은 내용 중복을 1건으로 압축
         total_news = self._dedupe_articles(total_news)
@@ -1347,7 +1636,23 @@ class CollectionAgent:
             if added:
                 total_news = self._dedupe_articles(total_news)
                 self._log(f"[collect] total_news_refill added={added} target={target_total_news} now={len(total_news)}")
+                self._emit_stage(user, run_id, stage_id="refill", status="ok", in_count=len(refill_pool), out_count=len(total_news), extra={"added": added, "target": target_total_news})
 
+        self._emit_stage(user, run_id, stage_id="build", status="done", in_count=len(total_candidates), out_count=len(selected), extra={"total_news": len(total_news), "selected": len(selected)})
+        self._emit_customer_decision(user, run_id, selected, total_news)
+        self._emit_source_health(user, run_id, "summary", {
+            "preselected": self.stage_counters['preselected'],
+            "built": self.stage_counters['built'],
+            "success_full": self.stage_counters['success_full'],
+            "direct": self.stage_counters['search_calls'],
+            "google_fallback": self.stage_counters['fallback_used'],
+            "short": self.stage_counters['short'],
+            "fail": self.stage_counters['fail'],
+            "stale": self.stage_counters['filtered_stale'],
+            "unreachable": self.stage_counters['filtered_unreachable'],
+            "normalized_total": self.stage_counters['normalized_total'],
+            "short_circuit": self.stage_counters['short_circuit'],
+        })
         self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} normalized_total={self.stage_counters['normalized_total']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
         self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)
 
@@ -1577,6 +1882,9 @@ class CollectionAgent:
                     "query": a.query,
                     "extraction_status": a.extraction_status,
                     "recency_score": a.recency_score,
+                    "origin_type": a.origin_type,
+                    "origin_detail": a.origin_detail,
+                    "issue_angle_id": a.issue_angle_id,
                 }
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
@@ -1652,6 +1960,9 @@ class CollectionAgent:
             "source": art.source,
             "title_ko": art.title,
             "summary_ko": art.summary,
+            "origin_type": art.origin_type,
+            "origin_detail": art.origin_detail,
+            "issue_angle_id": art.issue_angle_id,
         }
 
     def load_daily_history(self, user: UserProfile, issue: str | None = None) -> list[dict]:

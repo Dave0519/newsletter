@@ -268,27 +268,36 @@ class NeedsAgent:
             uniq.append(q2)
         return uniq
 
-    def build_need_queries(self, needs_payload: list[dict], templates: list[str] | None = None) -> list[tuple[str, str]]:
-        tpl = templates or ["{}"]; out: list[tuple[str, str]] = []
+    def build_need_queries(self, needs_payload: list[dict], templates: list[str] | None = None) -> list[tuple[str, str, float, str]]:
+        tpl = templates or ["{}"]; out: list[tuple[str, str, float, str]] = []
         for item in needs_payload:
             if not isinstance(item, dict):
                 continue
             need_id = str(item.get("need_id", "")).strip()
-            _ = str(item.get("need_text", "")).strip()
+            need_text = str(item.get("need_text", "")).strip()
+            raw_weight = item.get("weight")
+            try:
+                base_weight = float(raw_weight) if raw_weight is not None else 1.0
+            except Exception:
+                base_weight = 1.0
+            if base_weight <= 0:
+                base_weight = 1.0
+
             for alias in item.get("aliases", []):
                 alias = str(alias).strip()
                 if not alias:
                     continue
                 for q in self.ensure_queries_by_interests([alias], templates=tpl):
-                    out.append((need_id, q))
-        deduped: list[tuple[str, str]] = []
+                    # query-aware upstream compatibility: carry query weight + issue angle id
+                    out.append((need_id, q, base_weight, need_id if need_id else need_text))
+        deduped: list[tuple[str, str, float, str]] = []
         seen = set()
-        for need_id, q in out:
-            key = f"{need_id}|{q}"
+        for need_id, q, w, angle in out:
+            key = f"{need_id}|{q}|{angle}"
             if key in seen:
                 continue
             seen.add(key)
-            deduped.append((need_id, q))
+            deduped.append((need_id, q, w, angle))
         return deduped
 
     def build_need_list_from_user(self, user: UserProfile) -> list[dict]:
