@@ -28,6 +28,17 @@ NOISE_KEYWORDS = {
     "subscribe", "로그인", "로그아웃", "sign in", "sign up", "개인정보 처리방침"
 }
 
+PROMOTION_NOISE_KEYWORDS = {
+    "쿠폰", "할인", "세일", "특가", "경품", "이벤트", "프로모션", "기획전", "특별가", "개통", "혜택",
+    "출시 행사", "행사", "gift", "discount", "sale", "coupon", "voucher", "giveaway", "preorder",
+    "pre-order", "limited time", "free shipping", "special offer", "exclusive deal", "가격", "판매", "구매", "구매하기",
+    "신제품", "신규가입", "회원혜택", "회원 특전", "런칭", "출시", "이벤트 페이지", "신청", "예약 구매", "예약판매"
+}
+
+PROMO_URL_HINTS = {
+    "/event", "/promo", "/promotion", "/offers", "/offer", "/deal", "/shop", "/shopping", "/store", "/product", "/buy", "/coupon"
+}
+
 
 def _is_noise(text: str) -> bool:
     if not text:
@@ -38,6 +49,26 @@ def _is_noise(text: str) -> bool:
     compact = re.sub(r"\s+", "", text)
     if len(compact) > 120 and len(set(compact)) < 30:
         return True
+    return False
+
+
+def _is_marketing_content(text: str, url: str | None = None) -> bool:
+    t = (text or "").lower()
+    if not t:
+        return False
+    if any(k in t for k in PROMOTION_NOISE_KEYWORDS):
+        return True
+
+    # 가격/할인 패턴 (금액+할인/세일 조합)
+    if re.search(r"\d+(\s?)(%|퍼센트)(\s*할인|\s*세일|\s*할인률)?", t):
+        return True
+    if re.search(r"(\$|\u20a9|원)\s*\d+[\d,\.]*(\s*[~-]?\s*(\$|\u20a9|원)\s*\d+)?", t):
+        return True
+
+    if url:
+        u = (url or "").lower()
+        if any(u.find(hint) != -1 for hint in PROMO_URL_HINTS):
+            return True
     return False
 
 
@@ -961,8 +992,12 @@ class CollectionAgent:
             self.stage_counters["fail"] += 1
             return None
 
-        # 닫기: 제목+description만으로 니즈 매칭
+        # 닫기: 제목+description로 광고/이벤트성 콘텐츠 배제
         merged_for_match = f"{raw_title} {raw_snippet}"
+        if _is_marketing_content(merged_for_match, url):
+            self.stage_counters["fail"] += 1
+            return None
+
         matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged_for_match, needs_payload)
         if not matched_need_ids:
             self.stage_counters["fail"] += 1
