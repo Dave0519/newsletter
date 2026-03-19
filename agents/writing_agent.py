@@ -798,7 +798,7 @@ class WritingAgent:
             "아래 기사 제목/요약/본문을 바탕으로 실무 시사점을 한국어로 작성해라.\n"
             "작성 원칙:\n"
             "1) 기사 본문 근거 중심으로만 작성, 외부 추측 최소화\n"
-            "2) 해당 이슈에 대한 실무 액션/리스크/대응 방향을 3~5문장으로 제시\n"
+            "2) 해당 이슈에 대한 실무 액션/리스크/대응 방향을 3문장으로 제시\n"
             "3) 단정이 아닌 실행 관점 중심 문장으로 마무리\n"
             "4) 문장당 짧고 즉시 참고 가능한 수준\n"
             "5) 번호/리스트(1), 첫째, 둘째, • 등) 형식 사용 금지\n\n"
@@ -810,7 +810,7 @@ class WritingAgent:
         out = (out or "").strip()
         if not out:
             return ""
-        return self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=5), max_lines=5)
+        return self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=3), max_lines=3)
 
 
 
@@ -829,7 +829,7 @@ class WritingAgent:
                 practical = practical_ko(
                     e.title,
                     f"{e.summary}\n\n{practical_source}",
-                    max_sentences=5,
+                    max_sentences=3,
                 )
             e.practical_implication = practical or e.summary
             out.append(e)
