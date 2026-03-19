@@ -895,6 +895,15 @@ class CollectionAgent:
         needs_payload: list[dict],
     ) -> tuple[list[str], list[str], list[str], float]:
         t = (text or "").lower()
+        # 토큰 기반 매칭 + 짧은 alias 문맥 게이트
+        # - alias가 짧거나 단문인 경우에는 substring 오탐(dram -> drama)을 방지
+        tokens = set(re.findall(r"[a-z0-9가-힣]+", t))
+        short_alias_context = {
+            "dram": {"dram", "hbm", "semiconductor", "memory", "반도체", "메모리", "samsung", "삼성", "micron", "hynix", "하이닉스"},
+            "db": {"database", "databases", "datab", "데이터베이스", "db", "hbm", "semiconductor", "반도체"},
+            "hpc": {"hpc", "high", "performance", "computing", "반도체", "ai", "memory", "ai chip", "gpus"},
+        }
+
         matched_need_ids: list[str] = []
         matched_needs: list[str] = []
         matched_aliases: list[str] = []
@@ -903,7 +912,32 @@ class CollectionAgent:
             nid = str(item.get("need_id", "")).strip()
             aliases = [str(a).strip() for a in item.get("aliases", []) if str(a).strip()]
             for a in aliases:
-                if a.lower() in t:
+                a_norm = str(a).strip().lower()
+                if not a_norm:
+                    continue
+
+                hit = False
+                alias_tokens = re.findall(r"[a-z0-9가-힣]+", a_norm)
+
+                # 짧은 알리아스는 토큰 정확 일치로만 매칭
+                if len(a_norm) <= 4:
+                    hit = a_norm in tokens
+                    if not hit:
+                        continue
+                    ctx = short_alias_context.get(a_norm)
+                    if ctx:
+                        # 드라마/오탐 방지: 핵심 문맥어 동반여부 확인
+                        if not (ctx & tokens):
+                            hit = False
+                else:
+                    # 긴 alias는 기존 동작(포함 검사) 유지
+                    if a_norm in t:
+                        hit = True
+                    elif alias_tokens and len(alias_tokens) >= 2:
+                        # 여러 단어 alias는 토큰 포함(서브셋)으로 보완 매칭
+                        hit = all(tok in tokens for tok in alias_tokens)
+
+                if hit:
                     if nid and nid not in matched_need_ids:
                         matched_need_ids.append(nid)
                     if item.get("need_text") and item.get("need_text") not in matched_needs:
