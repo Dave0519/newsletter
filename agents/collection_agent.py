@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -562,7 +563,7 @@ class CollectionAgent:
         return items
 
 
-    def _extract_country(self, text: str, title: str) -> str:
+    def _extract_country(self, text: str, title: str) -> tuple[str, str]:
         t = f"{title} {text}".lower()
         country_map = {
             "미국": "US",
@@ -588,8 +589,42 @@ class CollectionAgent:
         }
         for k, v in country_map.items():
             if k in t:
-                return v
-        return "GLOBAL"
+                return v, f"text_match:{k}"
+
+        return "GLOBAL", "default_global"
+
+    @staticmethod
+    def _extract_domain_country(url: str) -> str | None:
+        try:
+            netloc = urlparse(url or "").netloc.lower()
+            netloc = netloc.replace("www.", "", 1)
+            if not netloc:
+                return None
+
+            # TLD 기반 추정
+            if netloc.endswith(".kr"):
+                return "KR"
+            if ".cn" in netloc or netloc.endswith(".cn"):
+                return "CN"
+            if ".tw" in netloc or netloc.endswith(".tw"):
+                return "TW"
+            if netloc.endswith(".jp"):
+                return "JP"
+
+            # 도메인 힌트
+            if any(x in netloc for x in ["korea", "hani.co.kr", "chosun.com", "asiae.co.kr", "donga.com", "mk.co.kr"]):
+                return "KR"
+            if any(x in netloc for x in ["scmp", "xinhuanet", "cnbeta.com", "caixin", "chinadaily"]):
+                return "CN"
+            if any(x in netloc for x in ["reuters.com", "reutersagency", "marketwatch", "thehill", "wsj", "forbes", "ft.com", "reuters.cn", "apnews"]):
+                return "GLOBAL"
+
+            # 미국/영문 위주의 일반 뉴스 도메인은 보조 힌트로만 US 처리
+            if netloc.endswith(".us"):
+                return "US"
+        except Exception:
+            return None
+        return None
 
     def _split_sentences(self, text: str, max_sent: int = 5) -> str:
         cleaned = " ".join((text or "").replace("\n", " ").split())
@@ -1025,6 +1060,7 @@ class CollectionAgent:
         needs_payload: list[dict],
         exclusions: list[str],
         min_count: int,
+        run_id: str | None = None,
     ) -> list[CollectedArticle]:
         if not shared_articles:
             return []
@@ -1048,10 +1084,13 @@ class CollectionAgent:
             if not url:
                 continue
 
+            if self.trace_enabled and run_id and user is not None:
+                self._log(f"[country] source=shared-pool skipped url={url[:72]} country=GLOBAL reason=deferred_for_daily title={base.title[:60]}")
+
             a = CollectedArticle(
                 title=base.title,
                 url=url,
-                country=base.country,
+                country="GLOBAL",
                 summary=base.summary,
                 body=base.body,
                 source=base.source,
@@ -1106,7 +1145,10 @@ class CollectionAgent:
                 continue
             if not _is_candidate_news_url(a.url):
                 continue
-            existing.append(self._as_total_news_record(a))
+            # Shared pool stores unclassified country to re-evaluate per user/day stage.
+            rec = self._as_total_news_record(a)
+            rec["country"] = "GLOBAL"
+            existing.append(rec)
             existing_urls.add(a.url)
 
         with path.open("w", encoding="utf-8") as f:
@@ -1312,6 +1354,8 @@ class CollectionAgent:
         exclusions: list[str],
         collected_urls: set[str],
         source_type: str = "direct",
+        run_id: str | None = None,
+        user: UserProfile | None = None,
     ) -> CollectedArticle | None:
         url = str(raw.get("url") or "").strip()
         if not url or not _is_candidate_news_url(url) or url in collected_urls:
@@ -1367,7 +1411,23 @@ class CollectionAgent:
             return None
 
         published_at = self._extract_publication_time(raw)
-        country = self._extract_country(raw_snippet or body_text, raw_title)
+        country = "GLOBAL"
+        country_reason = "deferred_for_daily"
+
+        if self.trace_enabled:
+            self._log(f"[country] source={source_type} url={url[:72]} country=GLOBAL reason=deferred_for_daily title={raw_title[:60]}")
+            if run_id and user is not None:
+                self._append_trace(self._trace_path(user, "country_reasons.jsonl"), {
+                    "ts": datetime.now().astimezone().isoformat(),
+                    "run_id": run_id,
+                    "user_code": user.user_code,
+                    "url": url,
+                    "country": country,
+                    "reason": country_reason,
+                    "title": raw_title[:200],
+                    "query": source_query,
+                    "source": source_type,
+                })
 
         article = CollectedArticle(
             title=raw_title,
@@ -1670,7 +1730,7 @@ class CollectionAgent:
         shared_candidates: list[CollectedArticle] = []
         if shared_enabled and shared_total_candidates:
             self._emit_stage(user, run_id, stage_id="shared_pool", status="start", in_count=len(shared_total_candidates))
-            shared_candidates = self._rebuild_from_shared_pool(user, shared_total_candidates, needs_payload, latest_user.exclusions, min_count)
+            shared_candidates = self._rebuild_from_shared_pool(user, shared_total_candidates, needs_payload, latest_user.exclusions, min_count, run_id=run_id)
             self._emit_stage(
                 user,
                 run_id,
@@ -1792,7 +1852,7 @@ class CollectionAgent:
                 raw = item["raw"]
                 source_query = item["query"]
                 src = item.get("source_type", source_type)
-                article = self._maybe_build_article(raw, source_query, needs_payload, latest_user.exclusions, collected_urls, source_type=src)
+                article = self._maybe_build_article(raw, source_query, needs_payload, latest_user.exclusions, collected_urls, source_type=src, run_id=run_id, user=user)
                 if article is None:
                     source_stats[source_type]["fail"] += 1
                     self._emit_loss(user, run_id, "article_reject", {
@@ -1947,6 +2007,18 @@ class CollectionAgent:
 
     def _persist_total_news_and_daily(self, user: UserProfile, total_news: list[CollectedArticle], daily: list[CollectedArticle], total_candidates: list[CollectedArticle], needs_payload: list[dict], min_count: int) -> None:
         dirs = self._user_dirs(user)
+
+        def _classify_article_country_for_daily(a: CollectedArticle, source_tag: str) -> tuple[str, str]:
+            country, country_reason = self._extract_country(a.summary or "", a.title or "")
+            if country == "GLOBAL" and a.url:
+                dc = self._extract_domain_country(a.url)
+                if dc:
+                    country = dc
+                    country_reason = f"domain:{dc}"
+            a.country = country
+            if self.trace_enabled:
+                self._log(f"[country] source={source_tag} url={str(a.url or '')[:72]} country={country} reason={country_reason} title={(a.title or '')[:60]}")
+            return country, country_reason
         ensure_dir(dirs["daily"])
         ensure_dir(dirs["history"])
 
@@ -2132,6 +2204,11 @@ class CollectionAgent:
                 if not dup:
                     tightened.append(cand)
             daily = tightened
+
+        # COUNTRY TAGGING: finalize country only at daily stage (as requested)
+        for a in daily:
+            if isinstance(a, CollectedArticle):
+                _classify_article_country_for_daily(a, "daily_news")
 
         with day_file.open("w", encoding="utf-8") as f:
             for a in daily:
