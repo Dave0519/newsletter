@@ -1,0 +1,24 @@
+{
+  "total_candidates": 43,
+  "need_matched_count": 43,
+  "success_full_count": 41,
+  "success_full_rate": 0.9534883720930233,
+  "google_news_ratio": 0.7441860465116279,
+  "daily_news_need_balance": {
+    "aiagent": 3,
+    "agenticai": 1,
+    "claude": 0,
+    "gemini": 1,
+    "grok": 0,
+    "chatgpt": 5,
+    "genspark": 0,
+    "cursor": 5,
+    "top-tierai동향": 5,
+    "ai모델비교": 0
+  },
+  "coverage_ok": true,
+  "short_count": 0,
+  "fail_count": 2,
+  "filtered_unreachable_count": 13,
+  "normalized_total_count": 0
+}

@@ -1,0 +1,20 @@
+AMD, AI 가속기에 삼성 HBM4 탑재…네이버와 AI 인프라 협력 확대 - 전자신문
+삼성전자, AMD와 AI 반도체 협력 확대…HBM4·파운드리 동시 공략 - mstoday.co.kr
+네이버-AMD, 차세대 GPU 기반 AI 인프라 협력…하이퍼클로바X 성능 고도화 - 더테크
+“엔비디아를 부품으로 쓴다”... 삼성·SK가 설계한 ‘포스트 HBM’의 덫과 역전된 반도체 계급 - 글로벌이코노믹
+[AI반도체 패권 전쟁] HBM 완판·2나노 승부수… 삼성·마이크론, AI 반도체 '5년 황금기' 진입 - 글로벌이코노믹
+Naver and AMD Partner to Expand AI Infrastructure Ecosystem, Target Reduced Reliance on Nvidia GPUs - 알파경제
+"GPU가 신약개발 좌우"···빅파마, AI 인프라 경쟁 본격화 - 메디칼업저버
+ASRock Launches AI BOX-A395, Powered By Ryzen AI Max+ 395 And Up To 128 GB LPDDR5X Memory]
+[GTC 2026] 엔비디아·AWS, AI 인프라 협력 확대…올해 GPU 100만개 이상 도입 - ER 이코노믹리뷰
+Samsung Electronics, AMD Expand AI Partnership on HBM4 Memory for MI455X GPU and Next-Gen EPYC CPUs - Korea IT Times
+Canada AI infrastructure and data centers expand with Bell AI Fabric | ETIH EdTech News - EdTech Innovation Hub
+Hyperscalers Are Spending Nearly $700 Billion in 2026 on AI Infrastructure -- but This Pales in Comparison to the Estimated $1 Trillion Spent by S&P 500 Companies on Another "Growth" Initiative - AOL.com
+SK Hynix presses ahead on HBM4 despite tightening AI memory supply - digitimes
+NN, Inc. Expands into Liquid-Cooled Data Center Market with New AI Infrastructure Awards - Quiver Quantitative
+From Chip to Cloud: Understanding the Bottlenecks in Scaling AI Data Centers - RT Insights
+TPRO: AI and data center GPU demand drove robust 2025 growth, with 2026 set for further expansion - TradingView
+SK Hynix says memory chip crunch to persist until 2030 - MSN
+SK Hynix Uses GTC 2026 To Deepen NVIDIA AI Memory Role - simplywall.st
+Nvidia to launch AI chip for data centers in space - AOL.com
+Nvidia debuts an AI chip for space-based data centers - MSN

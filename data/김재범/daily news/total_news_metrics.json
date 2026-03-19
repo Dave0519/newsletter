@@ -1,0 +1,26 @@
+{
+  "total_candidates": 12,
+  "need_matched_count": 12,
+  "success_full_count": 12,
+  "success_full_rate": 1.0,
+  "google_news_ratio": 0.9166666666666666,
+  "daily_news_need_balance": {
+    "메모리요소기술": 0,
+    "메모리tech개발": 2,
+    "경쟁사r&d동향": 0,
+    "메모리r&d핵심역량": 0,
+    "productr&d": 0,
+    "skhynixglobalr&d": 0,
+    "r&d방향성": 0,
+    "ai기반r&d": 0,
+    "r&dai기술": 1,
+    "미래기술연구원로드맵": 0,
+    "ai기술활용": 0,
+    "gtc": 2
+  },
+  "coverage_ok": false,
+  "short_count": 0,
+  "fail_count": 0,
+  "filtered_unreachable_count": 4,
+  "normalized_total_count": 0
+}

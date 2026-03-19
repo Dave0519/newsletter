@@ -1,0 +1,21 @@
+{
+  "total_candidates": 90,
+  "need_matched_count": 90,
+  "success_full_count": 89,
+  "success_full_rate": 0.9888888888888889,
+  "google_news_ratio": 0.9111111111111111,
+  "daily_news_need_balance": {
+    "제조ai": 1,
+    "반도체": 4,
+    "삼성동향": 5,
+    "마이크론동향": 1,
+    "스마트팩토리": 1,
+    "GTC": 6,
+    "gtc": 6
+  },
+  "coverage_ok": true,
+  "short_count": 0,
+  "fail_count": 0,
+  "filtered_unreachable_count": 17,
+  "normalized_total_count": 0
+}
