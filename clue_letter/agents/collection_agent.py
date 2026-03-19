@@ -1159,12 +1159,24 @@ class CollectionAgent:
         needs_payload = self.needs_agent.build_need_list_from_user(latest_user)
         needs_payload = [x for x in needs_payload if isinstance(x, dict) and x.get("aliases")]
         # 수집 채널별 니즈당 쿼리(직접/구글)
-        query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=["{}", "{} 뉴스", "{} 업데이트"])
+        # 김현중 기준으로 최근 log 기반 zero-hit이 잦은 쿼리는 템플릿을 축소해 불필요 호출 감소
+        templates = ["{}", "{} 뉴스", "{} 업데이트"]
+        if (user.name or "").strip() == "김현중" or (user.user_code or "").strip() == "준동HHDD7818":
+            templates = ["{}", "{} 뉴스"]
+
+        query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=templates)
         if not query_pairs:
             raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
 
+        # 사용자별로 무의미한 대량 쿼리를 방지하기 위해 사용자 쿼리 상한 적용
+        user_query_cap = len(query_pairs)
+        if (user.name or "").strip() == "김현중" or (user.user_code or "").strip() == "준동HHDD7818":
+            user_query_cap = min(user_query_cap, 120)
+
         if len(query_pairs) > self.global_candidates_cap:
             query_pairs = query_pairs[: self.global_candidates_cap]
+        if len(query_pairs) > user_query_cap:
+            query_pairs = query_pairs[:user_query_cap]
 
         candidates: list[CollectedArticle] = []
         collected_urls = set()
