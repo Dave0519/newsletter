@@ -2009,6 +2009,7 @@ class CollectionAgent:
         dirs = self._user_dirs(user)
 
         def _classify_article_country_for_daily(a: CollectedArticle, source_tag: str) -> tuple[str, str]:
+            prev_country = a.country
             country, country_reason = self._extract_country(a.summary or "", a.title or "")
             if country == "GLOBAL" and a.url:
                 dc = self._extract_domain_country(a.url)
@@ -2018,6 +2019,18 @@ class CollectionAgent:
             a.country = country
             if self.trace_enabled:
                 self._log(f"[country] source={source_tag} url={str(a.url or '')[:72]} country={country} reason={country_reason} title={(a.title or '')[:60]}")
+                if run_id and user is not None:
+                    self._append_trace(self._trace_path(user, "country_reasons.jsonl"), {
+                        "ts": datetime.now().astimezone().isoformat(),
+                        "run_id": run_id,
+                        "user_code": user.user_code,
+                        "url": str(a.url or ""),
+                        "country": country,
+                        "country_prev": prev_country,
+                        "reason": country_reason,
+                        "title": (a.title or "")[:220],
+                        "source": source_tag,
+                    })
             return country, country_reason
         ensure_dir(dirs["daily"])
         ensure_dir(dirs["history"])
