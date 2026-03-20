@@ -414,10 +414,24 @@ class WritingAgent:
             "CHINESE": "CN",
             "중국": "CN",
             "TAIWAN": "TW",
-            "TAIWAN": "TW",
             "대만": "TW",
             "글로벌": "GLOBAL",
             "GLOBAL": "GLOBAL",
+            "JP": "GLOBAL",
+            "일본": "GLOBAL",
+            "JAPAN": "GLOBAL",
+            "EU": "GLOBAL",
+            "유럽": "GLOBAL",
+            "HK": "GLOBAL",
+            "홍콩": "GLOBAL",
+            "IN": "GLOBAL",
+            "인도": "GLOBAL",
+            "DE": "GLOBAL",
+            "독일": "GLOBAL",
+            "FR": "GLOBAL",
+            "프랑스": "GLOBAL",
+            "UK": "GLOBAL",
+            "영국": "GLOBAL",
         }
         return mapping.get(c, c or "GLOBAL") if c in mapping else c if c in {"KR", "US", "CN", "TW", "GLOBAL"} else "GLOBAL"
 
@@ -646,9 +660,13 @@ class WritingAgent:
         template = template.replace("{{NEEDS_HASHTAGS}}", need_tags)
 
         # Country/article blocks
+        # Trust collection-side country tags first; only run LLM judge when country is missing.
         for e in entries:
-            judged = self._judge_country_by_title(e.title)
-            e.country = self._coerce_country_code(judged or e.country)
+            if e.country:
+                e.country = self._coerce_country_code(e.country)
+            else:
+                judged = self._judge_country_by_title(e.title)
+                e.country = self._coerce_country_code(judged)
 
         # summary section follows GLOBAL SCAN(국가 블록) 렌더 순서
         summary_lines = self._build_summary_points(entries)
