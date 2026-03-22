@@ -383,7 +383,7 @@ class CollectionAgent:
         except Exception:
             return
 
-    def _emit_stage(self, user: UserProfile, run_id: str, stage_id: str, status: str, *, in_count: int = 0, out_count: int = 0, loss_count: int = 0, reason_code: str | None = None, extra: dict | None = None) -> None:
+    def _emit_stage(self, user: UserProfile, run_id: str, stage_id: str, status: str, *, in_count: int = 0, out_count: int = 0, loss_count: int = 0, reason_code: str | None = None, extra: dict | None = None, elapsed_ms: int | None = None) -> None:
         if not self.trace_enabled:
             return
         rec = {
@@ -396,6 +396,7 @@ class CollectionAgent:
             "out_count": int(out_count),
             "loss_count": int(loss_count),
             "reason_code": reason_code,
+            "elapsed_ms": elapsed_ms,
             "phase2": {
                 "queryAware": self.phase2_query_aware,
                 "sharedHotTopicCap": self.phase2_shared_hot_topic_cap,
@@ -488,6 +489,8 @@ class CollectionAgent:
             if self.trace_enabled:
                 try:
                     self._log(f"[llm] status={r.status_code} elapsed_ms={elapsed_ms} model={model} response_chars={len((r.text or ''))}")
+                    if elapsed_ms >= 4000:
+                        self._log(f"[perf] llm_slow elapsed_ms={elapsed_ms} model={model}")
                 except Exception:
                     pass
             if r.status_code != 200:
@@ -1701,6 +1704,19 @@ class CollectionAgent:
             raise RuntimeError("search_core와 search_google 중 하나는 주입되어야 수집을 시작할 수 합니다.")
 
         min_count = int(min_count or self.min_count)
+        # timing buckets
+        t0 = datetime.now().astimezone()
+        stage_t0: dict[str, datetime] = {}
+        def _mark(stage_id: str, status: str, *, in_count: int = 0, out_count: int = 0, loss_count: int = 0, reason_code: str | None = None, extra: dict | None = None):
+            now = datetime.now().astimezone()
+            elapsed_ms = int((now - t0).total_seconds() * 1000)
+            start = stage_t0.get(stage_id)
+            if start is not None:
+                elapsed_ms = int((now - start).total_seconds() * 1000)
+            self._emit_stage(user, run_id, stage_id=stage_id, status=status, in_count=in_count, out_count=out_count, loss_count=loss_count, reason_code=reason_code, extra=extra, elapsed_ms=elapsed_ms)
+        def _tick(stage_id: str):
+            stage_t0[stage_id] = datetime.now().astimezone()
+
         # total_news 최소 목표를 안정적으로 채우기 위해 수집 단계는 버퍼를 둔다.
         target_total_candidates = min(int(self.global_candidates_cap), max(min_count, int(self.total_news_target) + 40))
         latest_user = self.needs_agent.get_user(user.user_code)
@@ -1723,13 +1739,15 @@ class CollectionAgent:
             templates = ["{}", "{} 뉴스"]
 
         query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=templates)
-        self._emit_stage(user, run_id, stage_id="collect", status="start", in_count=len(query_pairs), extra={"target": min_count, "templates": templates})
+        _tick("collect")
+        self._emit_stage(user, run_id, stage_id="collect", status="start", in_count=len(query_pairs), extra={"target": min_count, "templates": templates}, elapsed_ms=0)
         if not query_pairs:
             raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
 
         shared_candidates: list[CollectedArticle] = []
         if shared_enabled and shared_total_candidates:
-            self._emit_stage(user, run_id, stage_id="shared_pool", status="start", in_count=len(shared_total_candidates))
+            _tick("shared_pool")
+            self._emit_stage(user, run_id, stage_id="shared_pool", status="start", in_count=len(shared_total_candidates), elapsed_ms=0)
             shared_candidates = self._rebuild_from_shared_pool(user, shared_total_candidates, needs_payload, latest_user.exclusions, min_count, run_id=run_id)
             self._emit_stage(
                 user,
@@ -1739,6 +1757,7 @@ class CollectionAgent:
                 in_count=len(shared_total_candidates),
                 out_count=len(shared_candidates),
                 extra={"user_needs": len(needs_payload), "min_count": min_count},
+                elapsed_ms=int((datetime.now().astimezone() - stage_t0.get("shared_pool", datetime.now().astimezone())).total_seconds() * 1000),
             )
 
         # 사용자별로 무의미한 대량 쿼리를 방지하기 위해 사용자 쿼리 상한 적용
@@ -1877,6 +1896,7 @@ class CollectionAgent:
 
         # shared pool에서 유효 후보가 충분하면 사용자 수집 단계는 생략
         use_shared_only = False
+        source_stats = {}
         if shared_enabled and shared_candidates and len(shared_candidates) >= max(int(min_count), int(self.daily_news_target)):
             candidates = shared_candidates
             collected_urls.update({a.url for a in candidates if isinstance(a, CollectedArticle)})
@@ -1902,6 +1922,7 @@ class CollectionAgent:
             q_batches = [query_pairs]
 
         for batch_i, q_batch in enumerate(q_batches, start=1):
+            _tick(f"batch_{batch_i}")
             if len(candidates) >= target_total_candidates:
                 break
 
@@ -1922,8 +1943,10 @@ class CollectionAgent:
 
             self._log(f"[collect] batch done idx={batch_i}/{len(q_batches)} total={len(candidates)}")
 
+            self._emit_stage(user, run_id, stage_id=f"collect_batch", status="done", in_count=len(q_batch), out_count=len(candidates), extra={"batch": batch_i, "total_batches": len(q_batches)}, elapsed_ms=int((datetime.now().astimezone() - stage_t0.get(f"batch_{batch_i}", datetime.now().astimezone())).total_seconds() * 1000))
+
         total_candidates = candidates
-        self._emit_stage(user, run_id, stage_id="build", status="start", in_count=len(total_candidates), extra={"min_count": min_count})
+        self._emit_stage(user, run_id, stage_id="build", status="start", in_count=len(total_candidates), extra={"min_count": min_count}, elapsed_ms=int((datetime.now().astimezone() - t0).total_seconds() * 1000))
         selected, total_news = self._build_total_news(total_candidates, needs_payload)
         # total_news 입력 전에 링크 정규화: google 래퍼/추적 파라미터 정리로 공통 저장 포맷 정합성 강화
         total_news = self._normalize_urls_for_total(total_news, filter_unresolved=True)
@@ -1978,7 +2001,7 @@ class CollectionAgent:
                 self._log(f"[collect] total_news_refill added={added} target={target_total_news} now={len(total_news)}")
                 self._emit_stage(user, run_id, stage_id="refill", status="ok", in_count=len(refill_pool), out_count=len(total_news), extra={"added": added, "target": target_total_news})
 
-        self._emit_stage(user, run_id, stage_id="build", status="done", in_count=len(total_candidates), out_count=len(selected), extra={"total_news": len(total_news), "selected": len(selected)})
+        self._emit_stage(user, run_id, stage_id="build", status="done", in_count=len(total_candidates), out_count=len(selected), extra={"total_news": len(total_news), "selected": len(selected)}, elapsed_ms=int((datetime.now().astimezone() - t0).total_seconds() * 1000))
         self._emit_customer_decision(user, run_id, selected, total_news)
         self._emit_source_health(user, run_id, "summary", {
             "preselected": self.stage_counters['preselected'],
@@ -1994,6 +2017,7 @@ class CollectionAgent:
             "short_circuit": self.stage_counters['short_circuit'],
         })
         self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} normalized_total={self.stage_counters['normalized_total']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
+        self._emit_stage(user, run_id, stage_id="collect_total", status="done", in_count=len(query_pairs), out_count=len(total_candidates), extra={"candidate_count": len(total_candidates)}, elapsed_ms=int((datetime.now().astimezone()-t0).total_seconds()*1000))
         self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)
 
         final_selected = selected
@@ -2007,6 +2031,9 @@ class CollectionAgent:
 
     def _persist_total_news_and_daily(self, user: UserProfile, total_news: list[CollectedArticle], daily: list[CollectedArticle], total_candidates: list[CollectedArticle], needs_payload: list[dict], min_count: int) -> None:
         dirs = self._user_dirs(user)
+        run_id = getattr(self, "_active_run_id", None)
+        stage_t0 = datetime.now().astimezone()
+        perf = {"topic_calls": 0, "same_calls": 0}
 
         def _classify_article_country_for_daily(a: CollectedArticle, source_tag: str) -> tuple[str, str]:
             prev_country = a.country
@@ -2063,6 +2090,8 @@ class CollectionAgent:
             t = self._llm_judge_topic(a.title, a.summary, body_snip)
             if not t:
                 t = _normalize_title_signature(a.title or "")
+            else:
+                perf["topic_calls"] += 1
             cache[key] = t
             return t
 
@@ -2126,6 +2155,7 @@ class CollectionAgent:
 
                     # 2-1) 같은 버킷 내: 대표들과 LLM SAME/DIFF
                     for rep in reps[:3]:
+                        perf["same_calls"] += 1
                         if self._llm_is_same_topic(cand, rep):
                             dup = True
                             break
@@ -2137,9 +2167,11 @@ class CollectionAgent:
                             shared = ct & _token_set(prev)
                             sim = _jaccard(ct, _token_set(prev))
                             if sim >= 0.40 or len(shared) >= 3:
+                                perf["same_calls"] += 1
                                 if self._llm_is_same_topic(cand, prev):
                                     dup = True
                                     break
+
 
                     if dup:
                         continue
@@ -2260,6 +2292,9 @@ class CollectionAgent:
             "normalized_total_count": self.stage_counters.get("normalized_total", 0),
         }
         metric_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+        elapsed_ms = int((datetime.now().astimezone() - stage_t0).total_seconds() * 1000)
+        self._log(f"[collect] stage=daily_finalize elapsed_ms={elapsed_ms} topic_calls={perf.get('topic_calls',0)} same_calls={perf.get('same_calls',0)}")
+        self._emit_stage(user, run_id, stage_id="daily_finalize", status="done", in_count=len(total_candidates), out_count=len(daily), extra={"topic_calls": perf.get("topic_calls", 0), "same_calls": perf.get("same_calls", 0)}, elapsed_ms=elapsed_ms)
 
     def _persist_daily_and_history(self, user: UserProfile, articles: list[CollectedArticle]) -> None:
         dirs = self._user_dirs(user)

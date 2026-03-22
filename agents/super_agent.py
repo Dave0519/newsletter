@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import time
+import os
+from datetime import datetime
 from pathlib import Path
 
 from openclaw.agents.delivery import DeliveryManager
@@ -30,6 +32,8 @@ class SuperAgent:
         self.template_path = template_path or (self.root / "templates" / "CLUE_TEMPLATE_OFFICIAL.html")
         self.logger_root = self.root / "logs"
         self.logger_root.mkdir(parents=True, exist_ok=True)
+        self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
+        self.trace_root = Path(os.getenv("CLUE_TRACE_DIR", self.logger_root / "trace"))
 
         self.needs = NeedsAgent(self.needs_file)
 
@@ -88,6 +92,40 @@ class SuperAgent:
 
         self.writer = WritingAgent(template_path=self.template_path, log_dir=self.logger_root, fetch_body=adapter.fetch, resolve_url=getattr(adapter, "resolve_google_news_url", None))
         self.delivery = DeliveryManager()
+
+    def _trace_path(self, user: UserProfile, name: str) -> Path:
+        return self.trace_root / str((user.name or "user").replace(" ", "_")).replace("..", "_") / "super" / name
+
+    def _append_trace(self, path: Path, payload: dict) -> None:
+        try:
+            path = Path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _emit_stage(self, user: UserProfile, issue_number: int | None, stage_id: str, status: str, *, in_count: int = 0, out_count: int = 0, elapsed_ms: int | None = None, extra: dict | None = None) -> None:
+        if not self.trace_enabled:
+            return
+        rec = {
+            "ts": datetime.now().astimezone().isoformat(),
+            "component": "super",
+            "stage_id": stage_id,
+            "status": status,
+            "user_code": user.user_code,
+            "issue": int(issue_number or 0),
+            "in_count": in_count,
+            "out_count": out_count,
+            "elapsed_ms": elapsed_ms,
+            "extra": extra or {},
+        }
+        self._append_trace(self._trace_path(user, "stage_runs.jsonl"), rec)
+        print(
+            f"[super_stage] user={user.user_code} issue={int(issue_number or 0)} stage={stage_id} status={status} in={in_count} out={out_count}" +
+            (f" elapsed_ms={elapsed_ms}" if elapsed_ms is not None else ""),
+            flush=True,
+        )
 
     def _log_collect_context(self, user: UserProfile):
         if self.collection_mode and self.collection_mode_reason:
@@ -174,15 +212,32 @@ class SuperAgent:
 
         t0 = time.perf_counter()
         self._log_collect_context(user)
+        if self.trace_enabled:
+            self._emit_stage(user, None, stage_id="orchestrate", status="start", in_count=1, out_count=0)
+        if self.trace_enabled:
+            self._emit_stage(user, None, stage_id="collect", status="start", in_count=1, out_count=0)
         collected = self.collection.collect(user=user, min_count=min_count)
         t1 = time.perf_counter()
+        if self.trace_enabled:
+            self._emit_stage(user, None, stage_id="collect", status="done", in_count=1, out_count=len(collected), elapsed_ms=int((t1 - t0) * 1000))
         # writing 단계는 수집된 daily letter 파일을 user 단위로 다시 읽어 작성한다.
+        load_t0 = time.perf_counter()
         articles = self.collection.load_daily_news(user=user)
         if not articles:
             articles = collected
+        t_load = time.perf_counter()
         issue_no = self._next_issue_no(user.user_code)
+        if self.trace_enabled:
+            self._emit_stage(user, issue_no, stage_id="load_daily", status="done", in_count=len(collected), out_count=len(articles), elapsed_ms=int((t_load - load_t0) * 1000))
+        if self.trace_enabled:
+            self._emit_stage(user, issue_no, stage_id="write", status="start", in_count=len(articles), out_count=0)
         html_path = self.writer.build_and_save(user=user, collected=articles, issue_number=issue_no)
         t2 = time.perf_counter()
+        if self.trace_enabled:
+            self._emit_stage(user, issue_no, stage_id="write", status="done", in_count=len(articles), out_count=1, elapsed_ms=int((t2 - t_load) * 1000))
+
+        if self.trace_enabled:
+            self._emit_stage(user, issue_no, stage_id="orchestrate", status="done", in_count=len(articles), out_count=1, elapsed_ms=int((t2 - t0) * 1000), extra={"collect_sec": round(t1 - t0, 2), "write_sec": round(t2 - t1, 2)})
 
         if dry_run:
             return {
@@ -199,8 +254,12 @@ class SuperAgent:
                 },
             }
 
+        if self.trace_enabled:
+            self._emit_stage(user, issue_no, stage_id="delivery", status="start", in_count=1, out_count=0)
         delivery = self.delivery.deliver(html_path.read_text(encoding="utf-8"), f"{datetime_stamp()}", user.email)
         t3 = time.perf_counter()
+        if self.trace_enabled:
+            self._emit_stage(user, issue_no, stage_id="delivery", status="done", in_count=1, out_count=1, elapsed_ms=int((t3 - t2) * 1000))
         return {
             "ok": True,
             "mode": "mail",

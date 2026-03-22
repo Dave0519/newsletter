@@ -59,6 +59,55 @@ class WritingAgent:
         self.log_dir = Path(log_dir)
         self.fetch_body = fetch_body
         self.resolve_url = resolve_url
+        self.trace_enabled = os.getenv("CLUE_TRACE", "").lower() in {"1", "true", "yes", "on"}
+        self.trace_root = Path(os.getenv("CLUE_TRACE_DIR", self.log_dir / "trace"))
+
+    def _trace_path(self, user: UserProfile, name: str) -> Path:
+        return self.trace_root / str((user.name or "user").replace(" ", "_")).replace("..", "_") / "writing" / name
+
+    def _append_trace(self, path: Path, payload: dict) -> None:
+        try:
+            path = Path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+
+    def _emit_stage(
+        self,
+        user: UserProfile,
+        issue_number: int | None,
+        stage_id: str,
+        status: str,
+        *,
+        in_count: int = 0,
+        out_count: int = 0,
+        elapsed_ms: int | None = None,
+        extra: dict | None = None,
+    ) -> None:
+        if not self.trace_enabled:
+            return
+        rec = {
+            "ts": datetime.now().astimezone().isoformat(),
+            "component": "writing",
+            "stage_id": stage_id,
+            "status": status,
+            "user_code": user.user_code,
+            "issue": int(issue_number or 0),
+            "in_count": in_count,
+            "out_count": out_count,
+            "elapsed_ms": elapsed_ms,
+            "extra": extra or {},
+        }
+        self._append_trace(self._trace_path(user, "stage_runs.jsonl"), rec)
+        print(
+            f"[write_stage] user={user.user_code} issue={int(issue_number or 0)} "
+            f"stage={stage_id} status={status} in={in_count} out={out_count}"
+            + (f" elapsed_ms={elapsed_ms}" if elapsed_ms is not None else ""),
+            flush=True,
+        )
 
     def _clean_title(self, title: str) -> str:
         t = (title or "").strip()
@@ -505,7 +554,11 @@ class WritingAgent:
                 out[c] = arts
         return out
 
-    def _derive_entry_payload(self, c: CollectedArticle) -> tuple[NewsletterEntry, dict[str, str]]:
+    def _derive_entry_payload(self, c: CollectedArticle, user: UserProfile | None = None, issue_number: int | None = None) -> tuple[NewsletterEntry, dict[str, str]]:
+        if self.trace_enabled and user is not None:
+            t0 = datetime.now().astimezone()
+            self._emit_stage(user, issue_number, stage_id="derive_entry", status="start", in_count=1, out_count=0)
+        issue_snapshot = int(issue_number or 0)
         resolved_url = self._resolve_url(c.url)
         body_html = self._load_remote_body(resolved_url)
         if not body_html and resolved_url != c.url:
@@ -567,10 +620,19 @@ class WritingAgent:
             "raw_title": raw_title,
             "input_summary": c.summary or "",
         }
+        if self.trace_enabled and user is not None:
+            elapsed_ms = int((datetime.now().astimezone() - t0).total_seconds() * 1000)
+            self._emit_stage(user, issue_snapshot, stage_id="derive_entry", status="done", in_count=1, out_count=1, elapsed_ms=elapsed_ms)
         return entry, ctx
 
-    def _openclaw_style_practical(self, title: str, summary: str, body: str) -> str:
+    def _openclaw_style_practical(self, title: str, summary: str, body: str, user: UserProfile | None = None, issue_number: int | None = None) -> str:
+        if self.trace_enabled and user is not None:
+            t0 = datetime.now().astimezone()
+            self._emit_stage(user, issue_number, stage_id="practical", status="start", in_count=1, out_count=0)
+
         if not title and not summary:
+            if self.trace_enabled and user is not None:
+                self._emit_stage(user, issue_number, stage_id="practical", status="skipped", in_count=1, out_count=0)
             return ""
 
 
@@ -589,13 +651,18 @@ class WritingAgent:
         )
         out = self._llm_request(prompt, max_tokens=420, temperature=0.2)
         out = (out or "").strip()
+        if self.trace_enabled and user is not None:
+            elapsed_ms = int((datetime.now().astimezone() - t0).total_seconds() * 1000)
+            self._emit_stage(user, issue_number, stage_id="practical", status="done", in_count=1, out_count=1 if out else 0, elapsed_ms=elapsed_ms)
         if not out:
             return ""
         return self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=3), max_lines=3)
 
 
-
-    def _attach_practical_implications(self, entries: list[NewsletterEntry], contexts: list[dict[str, str]]) -> list[NewsletterEntry]:
+    def _attach_practical_implications(self, entries: list[NewsletterEntry], contexts: list[dict[str, str]], user: UserProfile | None = None, issue_number: int | None = None) -> list[NewsletterEntry]:
+        if self.trace_enabled and user is not None:
+            t0 = datetime.now().astimezone()
+            self._emit_stage(user, issue_number, stage_id="attach_practical", status="start", in_count=len(entries), out_count=0)
         out: list[NewsletterEntry] = []
         for e, ctx in zip(entries, contexts):
             practical_source = (ctx.get("summary_source") or "").strip()
@@ -605,6 +672,8 @@ class WritingAgent:
                 title=e.title,
                 summary=e.summary,
                 body=(practical_body or practical_source),
+                user=user,
+                issue_number=issue_number,
             )
             if not practical:
                 practical = practical_ko(
@@ -616,6 +685,8 @@ class WritingAgent:
                 practical = self._repair_by_source(practical or e.summary, practical_source or practical_body, "실무 시사점을 본문 근거로 3문장 이내로 정리", max_lines=3)
             e.practical_implication = practical
             out.append(e)
+        if self.trace_enabled and user is not None:
+            self._emit_stage(user, issue_number, stage_id="attach_practical", status="done", in_count=len(entries), out_count=len(out), elapsed_ms=int((datetime.now().astimezone() - t0).total_seconds() * 1000))
         return out
 
     def _derive_entry(self, c: CollectedArticle) -> NewsletterEntry:
@@ -641,12 +712,15 @@ class WritingAgent:
         return html + marker
 
     def compose_html(self, user: UserProfile, collected: list[CollectedArticle], issue_number: int | None = None) -> str:
+        if self.trace_enabled:
+            t0 = datetime.now().astimezone()
+            self._emit_stage(user, issue_number, stage_id="compose", status="start", in_count=len(collected), out_count=0)
         if not collected:
             raise ValueError("No collected article")
 
-        entries_payload = [self._derive_entry_payload(c) for c in collected]
+        entries_payload = [self._derive_entry_payload(c, user=user, issue_number=issue_number) for c in collected]
         entries = [entry for entry, _ in entries_payload]
-        entries = self._attach_practical_implications(entries, [ctx for _, ctx in entries_payload])
+        entries = self._attach_practical_implications(entries, [ctx for _, ctx in entries_payload], user=user, issue_number=issue_number)
 
         template = _load_template(self.template_path)
         template = template.replace("{{ISSUE_DATE}}", datetime.now().strftime("%Y. %m. %d"))
@@ -694,6 +768,8 @@ class WritingAgent:
 
         # placeholders that may be introduced later
         template = template.replace("{{GLOBAL_SCAN_INTRO}}", "")
+        if self.trace_enabled:
+            self._emit_stage(user, issue_number, stage_id="compose", status="done", in_count=len(collected), out_count=len(entries), elapsed_ms=int((datetime.now().astimezone() - t0).total_seconds() * 1000))
         return self._inject_trace_comment(template, user=user, issue_number=issue_number, article_count=len(entries))
 
     def build_and_save(
@@ -703,6 +779,8 @@ class WritingAgent:
         issue_number: int | None = None,
         out_root: Path | None = None,
     ) -> Path:
+        t0 = datetime.now().astimezone()
+        self._emit_stage(user, issue_number, stage_id="save", status="start", in_count=len(collected), out_count=0)
         html = self.compose_html(user=user, collected=collected, issue_number=issue_number)
 
         out_root = Path(out_root or (self.log_dir / user.name.replace(" ", "_") / "outputs"))
@@ -726,6 +804,8 @@ class WritingAgent:
             "trace_id": self._build_trace_id(user, issue_number, len(collected)),
         }
         (out_root / "meta.json").write_text(json_export(meta), encoding="utf-8")
+        if self.trace_enabled:
+            self._emit_stage(user, issue_number, stage_id="save", status="done", in_count=len(collected), out_count=1, elapsed_ms=int((datetime.now().astimezone()-t0).total_seconds()*1000), extra={"html": str(out)})
         return out
 
 
