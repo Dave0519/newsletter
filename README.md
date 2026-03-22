@@ -20,6 +20,13 @@
 
 ## 실행 방식
 
+### 실행 모드 정리
+
+- **Local mode (기본 권장)**: `openclaw` 패키지 미설치/외부 의존성 미설치 상태에서도 `service.py list/status/run --dry`가 동작합니다.
+- **Delivery fallback**: `openclaw.agents.delivery`가 없으면 **local file delivery**로 폴백되어 HTML 파일만 저장됩니다(전송 X).
+- **Pure dry-run**: `service.py run --dry` 또는 `service.py run-all --dry`는 수집/작성만 수행하고 전송 단계는 건너뜁니다.
+- **Run test**: `run_test.py`는 기본 `dry-run`이며 `--send` 시에만 실제 전송 시도를 시도합니다.
+
 ### 사용자 등록
 ```bash
 python3 service.py register --name "lcs" --interests "AI 인프라" "반도체" "데이터센터"

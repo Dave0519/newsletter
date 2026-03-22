@@ -6,12 +6,48 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from openclaw.agents.delivery import DeliveryManager
+try:
+    from openclaw.agents.delivery import DeliveryManager as _OpenclawDeliveryManager
+    _HAS_OPENCLAW_DELIVERY = True
+except Exception:
+    _OpenclawDeliveryManager = None
+    _HAS_OPENCLAW_DELIVERY = False
 
 from .collection_agent import CollectionAgent
 from .needs_agent import NeedsAgent
 from .writing_agent import WritingAgent
 from .browser_adapter import BrowserRelayAdapter, HttpNewsAdapter
+
+
+class LocalFileDelivery:
+    """Fallback delivery when openclaw.delivery is not available."""
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def deliver(self, html: str, subject: str, to: str) -> dict:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out = self.root / f"delivery_{ts}.html"
+        out.write_text(html, encoding="utf-8")
+        return {
+            "ok": True,
+            "mode": "local-fallback",
+            "subject": subject,
+            "to": to,
+            "out": str(out),
+            "warning": "openclaw delivery module is unavailable. saved html only.",
+        }
+
+
+class NullDeliveryManager:
+    """Explicit fallback that blocks outbound send but keeps API compatibility."""
+
+    def __init__(self, *_, **__):
+        pass
+
+    def deliver(self, _html: str, _subject: str, _to: str) -> dict:
+        raise RuntimeError("Delivery unavailable: openclaw delivery module is not installed/available")
 
 
 class SuperAgent:
@@ -91,7 +127,8 @@ class SuperAgent:
             self.collection_mode_reason = "브라우저 미사용(HTTP) 모드"
 
         self.writer = WritingAgent(template_path=self.template_path, log_dir=self.logger_root, fetch_body=adapter.fetch, resolve_url=getattr(adapter, "resolve_google_news_url", None))
-        self.delivery = DeliveryManager()
+        self.delivery = self._build_delivery_manager()
+        self._emit_delivery_warning_if_needed()
 
     def _trace_path(self, user: UserProfile, name: str) -> Path:
         return self.trace_root / str((user.name or "user").replace(" ", "_")).replace("..", "_") / "super" / name
@@ -163,6 +200,22 @@ class SuperAgent:
     def set_user_status(self, user_code: str, active: bool):
         self.needs.set_user_status(user_code=user_code, active=active)
 
+
+    def _build_delivery_manager(self):
+        if _HAS_OPENCLAW_DELIVERY and _OpenclawDeliveryManager is not None:
+            return _OpenclawDeliveryManager()
+        return LocalFileDelivery(self.logger_root / "delivery")
+
+    def _delivery_info(self) -> dict:
+        return {
+            "mode": "openclaw" if _HAS_OPENCLAW_DELIVERY else "local-fallback",
+            "available": bool(_HAS_OPENCLAW_DELIVERY),
+        }
+
+    def _emit_delivery_warning_if_needed(self) -> None:
+        if _HAS_OPENCLAW_DELIVERY:
+            return
+        self._trace("openclaw.agents.delivery import failed; using local-file delivery fallback")
 
     def _load_core_feed_urls(self) -> list[str]:
         candidates = []
@@ -240,7 +293,7 @@ class SuperAgent:
             self._emit_stage(user, issue_no, stage_id="orchestrate", status="done", in_count=len(articles), out_count=1, elapsed_ms=int((t2 - t0) * 1000), extra={"collect_sec": round(t1 - t0, 2), "write_sec": round(t2 - t1, 2)})
 
         if dry_run:
-            return {
+            out = {
                 "ok": True,
                 "mode": "dry-run",
                 "user_code": user.user_code,
@@ -253,16 +306,30 @@ class SuperAgent:
                     "total_sec": round(t2 - t0, 2),
                 },
             }
+            if not _HAS_OPENCLAW_DELIVERY:
+                out["delivery_fallback"] = self._delivery_info()
+            return out
 
         if self.trace_enabled:
             self._emit_stage(user, issue_no, stage_id="delivery", status="start", in_count=1, out_count=0)
-        delivery = self.delivery.deliver(html_path.read_text(encoding="utf-8"), f"{datetime_stamp()}", user.email)
+        try:
+            delivery = self.delivery.deliver(html_path.read_text(encoding="utf-8"), f"{datetime_stamp()}", user.email)
+            delivery = {**delivery, **self._delivery_info(), "ok": bool(delivery.get("ok", True))}
+            mode = "mail"
+        except Exception as e:
+            delivery = {
+                "ok": False,
+                "mode": "delivery-error",
+                "error": str(e),
+                "note": "run failed at delivery stage",
+            }
+            mode = "mail-error"
         t3 = time.perf_counter()
         if self.trace_enabled:
-            self._emit_stage(user, issue_no, stage_id="delivery", status="done", in_count=1, out_count=1, elapsed_ms=int((t3 - t2) * 1000))
+            self._emit_stage(user, issue_no, stage_id="delivery", status="done", in_count=1, out_count=1, elapsed_ms=int((t3 - t2) * 1000), extra={"delivery_mode": self._delivery_info().get("mode")})
         return {
-            "ok": True,
-            "mode": "mail",
+            "ok": bool(delivery.get("ok", False)),
+            "mode": mode,
             "user_code": user.user_code,
             "issue_no": issue_no,
             "article_count": len(articles),

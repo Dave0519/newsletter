@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import argparse
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -13,6 +14,10 @@ from agents.super_agent import SuperAgent
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--send", action="store_true", help="actually deliver (default: dry-run)")
+    args = parser.parse_args()
+
     svc = SuperAgent(root=ROOT, use_browser_relay=False)
     # default user registration (idempotent)
     user = svc.register_user(
@@ -36,8 +41,8 @@ def main():
 
     print("registered_or_existing:", user.user_code)
 
-    # production mode dry-run by default in test run
-    result = svc.run_for_user(user.user_code, dry_run=False)
+    # production mode is dry-run by default in test run
+    result = svc.run_for_user(user.user_code, dry_run=not args.send)
     print(result)
 
 
