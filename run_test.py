@@ -4,7 +4,19 @@ import sys
 import argparse
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _discover_repo_root(start: Path) -> Path:
+    cur = start
+    for _ in range(6):
+        if (cur / "README.md").exists() and (cur / "agents").exists() and (cur / "service.py").exists():
+            return cur
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return start
+
+
+REPO_ROOT = _discover_repo_root(Path(__file__).resolve().parent)
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 

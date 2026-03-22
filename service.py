@@ -6,7 +6,18 @@ import os
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _discover_repo_root(start: Path) -> Path:
+    cur = start
+    for _ in range(6):
+        if (cur / "README.md").exists() and (cur / "agents").exists() and (cur / "service.py").exists():
+            return cur
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return start
+
+REPO_ROOT = _discover_repo_root(Path(__file__).resolve().parent)
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
@@ -29,12 +40,13 @@ def _load_env_file(path: Path) -> None:
     except Exception:
         return
 
-
 def _bootstrap_env() -> None:
     # Runtime safety: ensure OpenAI keys are loaded even without shell source.
-    root = Path(__file__).resolve().parent
-    _load_env_file((root.parent) / "openclaw" / ".env")
-    _load_env_file(root / ".env")
+    # Search upward a few levels for an .env, then fallback to repo-local .env.
+    root = REPO_ROOT
+    candidates = [root / ".env", root.parent / ".env", root.parent.parent / ".env", root / "openclaw" / ".env"]
+    for path in candidates:
+        _load_env_file(path)
 
 
 _bootstrap_env()

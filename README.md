@@ -20,6 +20,21 @@
 
 ## 실행 방식
 
+### 빠른 이식(클론 후 실행) 체크리스트
+1. Python 가상환경 준비 후 종속성 설치
+   - `pip install requests beautifulsoup4`
+   - (선택) `pip install bs4 googlenewsdecoder`
+2. OpenAI 키 준비
+   - `export OPENAI_API_KEY=...` (없으면 일부 LLM 단계는 빈값 폴백)
+3. 환경 변수에서 기본 경로 보장
+   - `OPENAI_API_BASE` (기본: `https://api.openai.com/v1`)
+   - `OPENAI_MODEL` (기본: `gpt-5-mini`)
+4. 기본 실행
+   - `python3 service.py list`
+   - `python3 service.py run --user-code <USER_CODE> --dry --no-browser`
+
+---
+
 ### 실행 모드 정리
 
 - **Local mode (기본 권장)**: `openclaw` 패키지 미설치/외부 의존성 미설치 상태에서도 `service.py list/status/run --dry`가 동작합니다.

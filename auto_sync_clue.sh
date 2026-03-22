@@ -9,6 +9,7 @@ cd "$REPO_ROOT"
 
 NOW="$(date '+%Y-%m-%d %H:%M:%S')"
 MSG="${1:-chore(clue_letter_dev2): sync policy and runtime changes ${NOW}}"
+CURRENT_BRANCH="${2:-$(git rev-parse --abbrev-ref HEAD)}"
 
 # clue_letter_dev2 변경 감지 (운영 코드 기준)
 CHANGED=$(git status --short | awk '{print $2}' | grep -E '^agents/|^core_rss_|^service.py$|^launch_clue.sh$|^run_test.py$|^run_test\.py$|^templates/|^README.md$|^standard_policy.json$|^daily_news.schema.json$|^total_news.schema.json$' || true)
@@ -36,7 +37,7 @@ fi
 
 git commit -m "$MSG"
 
-git push origin main
+git push origin "$CURRENT_BRANCH"
 
 COMMIT_HASH=$(git rev-parse --short HEAD)
 echo "Synced: $COMMIT_HASH"

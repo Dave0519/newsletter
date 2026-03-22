@@ -1,0 +1,20 @@
+# Runtime artifacts
+logs/
+data/*/daily\ news/*.jsonl
+logs/trace/
+data/shared/
+
+# Caches / temp
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.tmp
+.tmp*
+
+# OS / editor
+.DS_Store
+
+# Local configs
+.env
