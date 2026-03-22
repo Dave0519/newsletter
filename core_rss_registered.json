@@ -50,53 +50,7 @@
       "name": "CNET Tech",
       "url": "https://www.cnet.com/rss/news/",
       "status": "ok"
-    },
-    {
-      "name": "전자신문",
-      "url": "https://www.etnews.com/rss/all.xml",
-      "status": "ok"
     }
   ],
-  "inactive": [
-    {
-      "name": "Electronic Design",
-      "url": "https://www.electronicdesign.com/feed/",
-      "reason": "항목 추출 실패"
-    },
-    {
-      "name": "AnandTech news",
-      "url": "https://www.anandtech.com/rss/news/",
-      "reason": "항목 추출 실패"
-    },
-    {
-      "name": "Google Cloud Blog",
-      "url": "https://cloud.google.com/blog/rss",
-      "reason": "항목 추출 실패"
-    },
-    {
-      "name": "AWS What's New",
-      "url": "https://aws.amazon.com/about-aws/whats-new/recent/feed/",
-      "reason": "항목 추출 실패"
-    },
-    {
-      "name": "Reuters Tech",
-      "url": "https://www.reuters.com/arc/outboundfeeds/sitemap/?output=atom",
-      "reason": "항목 추출 실패"
-    },
-    {
-      "name": "FT",
-      "url": "https://www.ft.com/?format=rss",
-      "reason": "항목 추출 실패"
-    },
-    {
-      "name": "ZDNet",
-      "url": "https://www.zdnet.com/topic/technology/news/rss.xml",
-      "reason": "삭제요청(2026-03-19): fetch_error/time-out 다수"
-    },
-    {
-      "name": "연합뉴스",
-      "url": "https://www.yna.co.kr/rss/all.xml",
-      "reason": "삭제요청(2026-03-19): fetch_error/time-out 다수"
-    }
-  ]
+  "inactive": []
 }
