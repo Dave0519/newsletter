@@ -1273,6 +1273,54 @@ class CollectionAgent:
             "published_at": (getattr(hit, "published_at", "") or "").strip(),
         }
 
+    @staticmethod
+    def _contains_korean(text: str) -> bool:
+        return any(0xAC00 <= ord(ch) <= 0xD7A3 for ch in (text or ""))
+
+    @staticmethod
+    def _strip_news_suffix(query: str) -> str:
+        q = (query or "").strip()
+        for suf in (" 뉴스", " 업데이트", " news", " update"):
+            if q.endswith(suf):
+                q = q[: -len(suf)]
+                return q.strip()
+        return q
+
+    @staticmethod
+    def _query_template_key(query: str) -> str:
+        return (query or "").strip().replace(" ", "")
+
+    def _split_queries_by_source(self, query_pairs: list[tuple[str, str, float, str]]) -> tuple[list[tuple[str, str, float, str]], list[tuple[str, str, float, str]]]:
+        """
+        - direct/core-rss: English-first + 1:1 dedupe per (need_id, query base) key
+        - google: English + Korean both (current)
+        """
+        selected: dict[tuple[str, str], tuple[str, str, float, str]] = {}
+        selected_non_english: dict[tuple[str, str], tuple[str, str, float, str]] = {}
+
+        google_pairs: list[tuple[str, str, float, str]] = list(query_pairs)
+        for pair in query_pairs:
+            if not isinstance(pair, tuple) or len(pair) < 2:
+                continue
+            need_id = str(pair[0])
+            query = str(pair[1])
+            base = self._query_template_key(self._strip_news_suffix(query)).lower()
+            qkey = (need_id, base)
+
+            if self._contains_korean(query):
+                if qkey not in selected_non_english:
+                    selected_non_english[qkey] = pair
+            else:
+                selected[qkey] = pair  # english preferred
+
+        core_pairs = list(selected.values())
+        # if no english variant exists for a key, keep korean fallback
+        for qkey, pair in selected_non_english.items():
+            if qkey not in selected:
+                core_pairs.append(pair)
+
+        return core_pairs, google_pairs
+
     def _build_time_prefixed_query(self, q: str, source_type: str, max_days: int) -> str:
         q = (q or "").strip()
         if not q or source_type != "google":
@@ -1739,8 +1787,9 @@ class CollectionAgent:
             templates = ["{}", "{} 뉴스"]
 
         query_pairs = self.needs_agent.build_need_queries(needs_payload, templates=templates)
+        core_query_pairs, google_query_pairs = self._split_queries_by_source(query_pairs)
         _tick("collect")
-        self._emit_stage(user, run_id, stage_id="collect", status="start", in_count=len(query_pairs), extra={"target": min_count, "templates": templates}, elapsed_ms=0)
+        self._emit_stage(user, run_id, stage_id="collect", status="start", in_count=len(query_pairs), extra={"target": min_count, "templates": templates, "core_query_count": len(core_query_pairs), "google_query_count": len(google_query_pairs)}, elapsed_ms=0)
         if not query_pairs:
             raise RuntimeError("유효한 needs가 없어 수집을 진행할 수 없습니다.")
 
@@ -1769,6 +1818,9 @@ class CollectionAgent:
             query_pairs = query_pairs[: self.global_candidates_cap]
         if len(query_pairs) > user_query_cap:
             query_pairs = query_pairs[:user_query_cap]
+
+        # source-wise split after cap
+        core_query_pairs, google_query_pairs = self._split_queries_by_source(query_pairs)
 
         candidates: list[CollectedArticle] = []
         collected_urls = set()
@@ -1929,16 +1981,17 @@ class CollectionAgent:
             self._log(f"[collect] batch start idx={batch_i}/{len(q_batches)} source=all size={len(q_batch)}")
             start_t = datetime.now().astimezone()
 
-            # core first
+            core_batch_pairs, g_batch_pairs = self._split_queries_by_source(q_batch)
+
+            # core first (영문 우선, 한영 1:1 정합)
             if callable(getattr(self, "search_core", None)):
-                pre = stage_preselect(self.search_core, q_batch, source_type="direct", max_hits=core_limit)
+                pre = stage_preselect(self.search_core, core_batch_pairs, source_type="direct", max_hits=core_limit)
                 build_from_preselect(pre, "direct", start_t, source_stats)
 
-            # google fallback: direct 검색 후 항상 보완 검색 수행
+            # google: 영문 + 한글 둘 다
             if callable(getattr(self, "search_google", None)):
                 self.stage_counters["fallback_used"] += 1
-                g_pairs = q_batch[:]
-                pre = stage_preselect(self.search_google, g_pairs, source_type="google", max_hits=max(25, limit // 2))
+                pre = stage_preselect(self.search_google, g_batch_pairs, source_type="google", max_hits=max(25, limit // 2))
                 build_from_preselect(pre, "google", start_t, source_stats)
 
             self._log(f"[collect] batch done idx={batch_i}/{len(q_batches)} total={len(candidates)}")
