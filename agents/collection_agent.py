@@ -2071,7 +2071,7 @@ class CollectionAgent:
         })
         self._log(f"[collect] stage_summary preselected={self.stage_counters['preselected']} built={self.stage_counters['built']} success_full={self.stage_counters['success_full']} short={self.stage_counters['short']} fail={self.stage_counters['fail']} stale={self.stage_counters['filtered_stale']} unreachable={self.stage_counters['filtered_unreachable']} normalized_total={self.stage_counters['normalized_total']} fallback={self.stage_counters['fallback_used']} short_circuit={self.stage_counters['short_circuit']}")
         self._emit_stage(user, run_id, stage_id="collect_total", status="done", in_count=len(query_pairs), out_count=len(total_candidates), extra={"candidate_count": len(total_candidates)}, elapsed_ms=int((datetime.now().astimezone()-t0).total_seconds()*1000))
-        self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count)
+        self._persist_total_news_and_daily(user, total_news, selected, total_candidates, needs_payload, min_count, run_id=run_id)
 
         final_selected = selected
         if len(final_selected) == 0:
@@ -2082,7 +2082,7 @@ class CollectionAgent:
         target_cap = max(min_count, self.daily_news_target, 8)
         return final_selected[: target_cap]
 
-    def _persist_total_news_and_daily(self, user: UserProfile, total_news: list[CollectedArticle], daily: list[CollectedArticle], total_candidates: list[CollectedArticle], needs_payload: list[dict], min_count: int) -> None:
+    def _persist_total_news_and_daily(self, user: UserProfile, total_news: list[CollectedArticle], daily: list[CollectedArticle], total_candidates: list[CollectedArticle], needs_payload: list[dict], min_count: int, run_id: str) -> None:
         dirs = self._user_dirs(user)
         run_id = getattr(self, "_active_run_id", None)
         stage_t0 = datetime.now().astimezone()

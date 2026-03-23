@@ -509,6 +509,45 @@ class WritingAgent:
         except Exception:
             return ""
 
+    def _extract_title_from_html(self, html: str, fallback_url: str = "") -> str:
+        if html and BeautifulSoup is not None:
+            try:
+                soup = BeautifulSoup(html, "html.parser")
+                for node in (soup.find("meta", property="og:title"), soup.find("meta", attrs={"name": "twitter:title"})):
+                    if node is not None:
+                        content = (node.get("content") or "").strip()
+                        if content:
+                            return self._normalize_title_candidate(self._clean_title(content))
+                t = (soup.title.string if soup.title else "") or ""
+                if t:
+                    return self._normalize_title_candidate(self._clean_title(t))
+                h1 = soup.find("h1")
+                if h1:
+                    return self._normalize_title_candidate(self._clean_title(h1.get_text(" ", strip=True)))
+            except Exception:
+                pass
+
+        # fallback: if stripped text was passed (adapter text mode), pull full html by URL
+        if fallback_url and BeautifulSoup is not None:
+            try:
+                r = requests.get(fallback_url, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
+                r.raise_for_status()
+                soup = BeautifulSoup(r.text, "html.parser")
+                for node in (soup.find("meta", property="og:title"), soup.find("meta", attrs={"name": "twitter:title"})):
+                    if node is not None:
+                        content = (node.get("content") or "").strip()
+                        if content:
+                            return self._normalize_title_candidate(self._clean_title(content))
+                t = (soup.title.string if soup.title else "") or ""
+                if t:
+                    return self._normalize_title_candidate(self._clean_title(t))
+                h1 = soup.find("h1")
+                if h1:
+                    return self._normalize_title_candidate(self._clean_title(h1.get_text(" ", strip=True)))
+            except Exception:
+                return ""
+        return ""
+
     def _build_summary_points(self, entries: list[NewsletterEntry]) -> str:
         """GLOBAL SCAN 렌더링 순서를 그대로 반영해 1~2줄 요약 리스트 구성."""
         lines: list[str] = []
@@ -568,18 +607,15 @@ class WritingAgent:
         raw_title = self._normalize_title_candidate(self._clean_title(c.title))
         summary_source = self._resolve_summary_source(c, readable_body)
 
-        # 제목: 본문 기반 생성 우선
-        rewritten_title = self._llm_generate_title_from_body(raw_title, summary_source)
-        if not rewritten_title:
-            rewritten_title = rewrite_title(raw_title, summary_source, max_chars=75)
-        if not rewritten_title:
-            rewritten_title = translate_ko(raw_title)
+        # 기사 HTML/헤더에서 제목 추출 시도(특히 네이버/구글 래퍼의 깨진 제목 대응)
+        resolved_title_html = self._extract_title_from_html(body_html or "", fallback_url=resolved_url)
 
-        rewritten_title = self._force_korean(rewritten_title or raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
-        title = rewritten_title if rewritten_title and self._contains_korean(rewritten_title) else self._force_korean(raw_title, fallback_on_fail="제목 변환이 아직 완료되지 않았습니다.")
+        # 제목: 기사 제목 우선 사용 (원문 제목 그대로 노출, 요약 품질과 독립)
+        title = resolved_title_html or raw_title or c.title or "제목 변환이 아직 완료되지 않았습니다."
+        # 깨진 패턴/너무 짧은 제목은 원문 필드로 보강
+        if (not title) or (title.strip() in {"네이버뉴스.", "네이버뉴스", "Google News.", "Google News", "google news.", "google news", "제목 변환이 아직 완료되지 않았습니다."}) or len(title.strip()) < 3:
+            title = raw_title or c.title or title
         title = self._to_complete_sentences(title, max_lines=1)
-        if not self._assert_source_alignment(title, summary_source):
-            title = self._repair_by_source(title, summary_source, "제목을 본문 근거 기반 한 줄 완성형으로 재작성", max_lines=1)
 
         # 요약: 본문 기반 5~7줄 + 검수 재시도 1회
         description = self._llm_summary_from_body(title, summary_source, line_count=7)
