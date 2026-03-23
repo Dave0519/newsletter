@@ -174,11 +174,103 @@ class WritingAgent:
             return t
         return fallback_on_fail
 
+    def _clean_summary_text(self, text: str) -> str:
+        if not text:
+            return ""
+        t = re.sub(r"\n", " ", str(text))
+        t = re.sub(r"\u3000", " ", t)
+        t = _normalize_whitespace(t)
+
+        noise_patterns = [
+            r"로그인",
+            r"회원가입",
+            r"공유하기",
+            r"글자크기 설정",
+            r"전체메뉴",
+            r"검색창",
+            r"이용약관",
+            r"개인정보취급방침",
+            r"구독신청",
+            r"게시판",
+            r"뉴스검색",
+            r"추천 검색어",
+            r"댓글",
+            r"서비스",
+            r"©",
+            r"저작권",
+            r"주소\s*\S+",
+            r"전화번호\s*\S+",
+            r"제보는 언제든 환영",
+            r"English Family Site",
+            r"파이낸셜뉴스>",
+            r"검색 English",
+            r"기사 검색",
+            r"기자\s*\S*\s*연락",
+            r"이전 기사",
+            r"다음 기사",
+            r"다음은",
+            r"끝까지 보기",
+        ]
+        for p in noise_patterns:
+            t = re.sub(p, " ", t, flags=re.IGNORECASE)
+
+        # remove bracketed UI labels and trailing artifacts
+        t = re.sub(r"\[.*?\]", " ", t)
+        t = re.sub(r"\(.*?\)", " ", t)
+        t = re.sub(r"\s+", " ", t).strip()
+
+        parts = [x for x in t.split(".") if x.strip()]
+        seen = set()
+        cleaned = []
+        for p in parts:
+            p = p.strip()
+            norm = re.sub(r"\s+", "", p)
+            if not norm:
+                continue
+            if norm in seen:
+                continue
+            seen.add(norm)
+            cleaned.append(p)
+            if len(cleaned) >= 40:
+                break
+
+        if not cleaned:
+            return ""
+        return ". ".join(cleaned).strip().rstrip(".")
+
+    def _trim_body_prefix(self, text: str, title: str) -> str:
+        if not text or not title:
+            return text
+
+        t = (text or "").strip()
+        cleaned_title = self._clean_title(title).strip()
+        if not cleaned_title:
+            return text
+
+        raw_pos = t.find(cleaned_title)
+        if raw_pos > 0 and raw_pos < len(t) * 0.4:
+            t = t[raw_pos:]
+
+        # remove duplicated metadata-like prefix ending with known markers
+        for marker in ["입력", "공유하기", "글자크기 설정", "제보는 언제든 환영", "주소", "전화번호"]:
+            m = t.find(marker)
+            if m >= 0 and m < 80:
+                tail = t[m + len(marker) :].strip()
+                if tail:
+                    t = tail
+        return t
+
     def _resolve_summary_source(self, c: CollectedArticle, readable_body: str) -> str:
         body = (readable_body or "").strip()
         if body:
-            return body
-        return self._strip_html(c.body or c.summary or "")
+            cleaned = self._clean_summary_text(body)
+            return self._trim_body_prefix(cleaned, c.title)
+        fallback_body = (c.body or "").strip()
+        if fallback_body:
+            cleaned = self._clean_summary_text(fallback_body)
+            return self._trim_body_prefix(cleaned, c.title)
+        return ""
+
 
     def _strip_html(self, s: str) -> str:
         if not s:
@@ -193,6 +285,7 @@ class WritingAgent:
                 pass
         t = re.sub(r"<[^>]+>", " ", s)
         return _normalize_whitespace(_html.unescape(t))
+
 
     def _llm_request(self, prompt: str, max_tokens: int = 800, temperature: float = 0.2) -> str:
         # lightweight fallback without hard dependency on OpenAI caller availability
@@ -300,6 +393,52 @@ class WritingAgent:
                 break
         return "\n".join(out)
 
+    def _extract_summary_candidates(self, source: str) -> list[str]:
+        text = self._strip_html(source or "")
+        if not text:
+            return []
+        text = self._clean_summary_text(text)
+
+        chunks: list[str] = []
+        for p in re.split(r"(?<=[\.?!])\s+", text):
+            p = re.sub(r"\s+", " ", (p or "").strip())
+            if p:
+                chunks.append(p)
+
+        if not chunks:
+            chunks = [x.strip() for x in re.split(r"[\n\r]+", text) if x.strip()]
+
+        if not chunks:
+            chunks = [x.strip() for x in text.split(". ") if x.strip()]
+
+        return [x for x in chunks if len(x) >= 12]
+
+
+    def _ensure_min_summary_lines(self, summary: str, source: str, min_lines: int = 6, max_lines: int = 7) -> str:
+        text = (summary or "").strip()
+        lines = [x.strip() for x in text.split("\n") if x.strip()]
+        if len(lines) >= min_lines:
+            return "\n".join(lines[:max_lines])
+
+        for c in self._extract_summary_candidates(source):
+            if c not in lines:
+                lines.append(c)
+            if len(lines) >= max_lines:
+                break
+
+        if len(lines) < min_lines:
+            fallback = self._strip_html(source or "")
+            fallback = re.sub(r"\s+", " ", fallback).strip()
+            if fallback:
+                chunk = 140
+                while len(lines) < min_lines and len(fallback) > 30:
+                    piece = fallback[:chunk].strip()
+                    if piece and piece not in lines:
+                        lines.append(piece)
+                    fallback = fallback[chunk:].strip()
+
+        return "\n".join(lines[:max_lines])
+
     def _normalize_practical_lines(self, text: str, max_lines: int = 5) -> str:
         if not text:
             return text
@@ -366,6 +505,29 @@ class WritingAgent:
 
         return " ".join(out[:max_lines])
 
+    def _to_complete_summary_lines(self, text: str, max_lines: int = 7) -> str:
+        t = (text or "").replace("\r", "").strip()
+        if not t:
+            return ""
+
+        replaced = re.sub(r"\s+", " ", t)
+        segs = re.split(r"(?<=[\.。!?！？])\s+", replaced)
+        if not segs:
+            segs = [replaced]
+
+        out = []
+        for s in segs:
+            s = s.strip()
+            if not s:
+                continue
+            if not re.search(r"[\.。!?！？]$", s):
+                s += "."
+            out.append(s)
+            if len(out) >= max_lines:
+                break
+
+        return "\n".join(out[:max_lines])
+
     def _compact_2sentence_summary(self, text: str, max_sentences: int = 2) -> str:
         t = (text or "").replace("\r", " ").strip()
         if not t:
@@ -420,34 +582,66 @@ class WritingAgent:
         unmatched = self._find_unmatched_numbers(text, source)
         return len(unmatched) == 0
 
+
     def _judge_country_by_title(self, title: str) -> str:
         """Use LLM to classify article title into one of KR/US/CN/TW/GLOBAL."""
-        base = (title or "").strip()
-        if not base:
-            return "GLOBAL"
+        return self._judge_country_from_context(title=title, body_text="", summary="")
 
-        prompt = (
-            "아래 기사 제목만 보고 뉴스가 다뤄지는 주요 국가 맥락을 판단해라.\\n"
-            "반드시 아래 5개 중 정확히 1개만 답해.\\n"
-            "옵션: KR, US, CN, TW, GLOBAL\\n\\n"
-            "규칙:\\n"
-            "- 한국 관련이면 KR\\n"
-            "- 미국 관련이면 US\\n"
-            "- 중국 관련이면 CN\\n"
-            "- 대만 관련이면 TW\\n"
-            "- 위 4개에 명확히 안 걸리면 GLOBAL\\n\\n"
-            f"[기사 제목]\\n{base}"
-        )
-        out = (self._llm_request(prompt, max_tokens=16, temperature=0.0) or "").strip().upper()
-        if not out:
-            return "GLOBAL"
+    def _judge_country_by_rules(self, title: str, body: str, summary: str, source_url: str) -> str:
+        text = f"{(title or '')} {(summary or '')} {(body or '')}"
+        url = (source_url or "").lower()
 
-        candidates = {"KR", "US", "CN", "TW", "GLOBAL"}
-        for token in out.replace(",", " ").replace(";", " ").replace("/", " ").replace("\n", " ").split():
-            t = token.strip().upper().strip(".\n ")
-            if t in candidates:
-                return t
+        if re.search(r"\b(SAMSUNG|SK|LG|HYUNDAI|KOREA|KOREAN)\b", text, re.IGNORECASE):
+            return "KR"
+        if re.search(r"\b(USA|US|NVIDIA|OPENAI|AMD|AMAZON|GOOGLE|APPLE|TESLA|MICROSOFT|NASA|REUTERS)\b", text, re.IGNORECASE):
+            return "US"
+        if re.search(r"\b(CHINA|CN|HUAWEI|TENCENT|ALIBABA|BAIDU|XIAOMI)\b", text, re.IGNORECASE):
+            return "CN"
+        if re.search(r"\b(TAIWAN|TSMC)\b", text, re.IGNORECASE):
+            return "TW"
+
+        if "ft.com" in url or "wsj.com" in url or "reuters.com" in url or "bloomberg.com" in url or "cnn.com" in url:
+            return "US"
+        if "ftchinese.com" in url or "xinhua" in url or "chinanews" in url:
+            return "CN"
+        if "cna.com.tw" in url or "tsmc" in url:
+            return "TW"
+
+        if re.search(r"\.kr($|/)", url):
+            return "KR"
         return "GLOBAL"
+
+    def _judge_country_from_context(
+        self,
+        title: str,
+        body_text: str,
+        summary: str = "",
+        source_url: str = "",
+    ) -> str:
+        title_text = (title or "").strip()
+        body = (body_text or "").strip()[:3200]
+        summ = (summary or "").strip()[:1600]
+        url = (source_url or "").strip()
+
+        combined = "\n".join([x for x in (title_text, summ, body) if x]).strip()
+
+        if combined:
+            out = (
+                self._llm_request(
+                    "classify article country into KR/US/CN/TW/GLOBAL\n" + combined + ("\n" + url if url else ""),
+                    max_tokens=16,
+                    temperature=0.0,
+                )
+                or ""
+            ).strip().upper()
+
+            if out:
+                for tok in re.split(r"[\s,;/|]+", out):
+                    t = tok.strip().upper().strip(".\n ")
+                    if t in {"KR", "US", "CN", "TW", "GLOBAL"}:
+                        return t
+
+        return self._judge_country_by_rules(title_text, body, summ, url)
 
     def _coerce_country_code(self, country: str) -> str:
         c = (country or "").strip().upper()
@@ -494,11 +688,12 @@ class WritingAgent:
                 for bad in soup(["script", "style", "noscript"]):
                     bad.decompose()
                 text = soup.get_text(" ")
-                return _normalize_whitespace(_html.unescape(text))
+                return self._clean_summary_text(_normalize_whitespace(_html.unescape(text)))
         except Exception:
             pass
         text = re.sub(r"<[^>]+>", " ", html)
-        return _normalize_whitespace(_html.unescape(text))
+        return self._clean_summary_text(_normalize_whitespace(_html.unescape(text)))
+
 
     def _load_remote_body(self, url: str) -> str:
         if not self.fetch_body or not url:
@@ -548,29 +743,53 @@ class WritingAgent:
                 return ""
         return ""
 
-    def _build_summary_points(self, entries: list[NewsletterEntry]) -> str:
-        """GLOBAL SCAN 렌더링 순서를 그대로 반영해 1~2줄 요약 리스트 구성."""
+    def _ordered_entry_payloads(self, payloads: list[tuple[NewsletterEntry, dict[str, str]]]) -> list[tuple[NewsletterEntry, dict[str, str]]]:
+        grouped: dict[str, list[tuple[NewsletterEntry, dict[str, str]]]] = {}
+        for entry, ctx in payloads:
+            key = entry.country or "GLOBAL"
+            grouped.setdefault(key, []).append((entry, ctx))
+
+        ordered = []
+        for c in ["KR", "US", "CN", "TW", "GLOBAL"]:
+            if c in grouped:
+                ordered.extend(grouped[c])
+        for c, items in grouped.items():
+            if c not in {"KR", "US", "CN", "TW", "GLOBAL"}:
+                ordered.extend(items)
+        return ordered
+
+    def _build_summary_points(self, entries_payload: list[tuple[NewsletterEntry, dict[str, str]]], max_lines: int = 6) -> str:
+        """GLOBAL SCAN 렌더링 순서를 그대로 반영해 CORE_DESCRIPTION 구성.
+
+        - 본문 본문만 사용해 요약(요약 원본/메타데이터는 사용하지 않음)
+        - 최대 6줄
+        """
         lines: list[str] = []
 
         # GLOBAL SCAN에서 실제 표시되는 국가 블록/기사 순서를 유지
-        grouped = self._grouped_country_blocks(entries)
-        ordered_articles: list[NewsletterEntry] = []
-        for _, arts in self._ordered_country_blocks(grouped).items():
-            ordered_articles.extend(arts)
+        ordered_payloads = self._ordered_entry_payloads(entries_payload)
 
-        for e in ordered_articles:
-            title = (e.title or "").strip()
-            summary = (e.summary or "").strip()
+        for entry, ctx in ordered_payloads:
+            title = (entry.title or "").strip()
+            body = (ctx.get("readable_body") or "").strip()
 
-            compact = self._compact_2sentence_summary(summary, max_sentences=2)
-            compact = self._compact_2sentence_summary(compact, max_sentences=2)
-            compact = _safe_esc((compact or "").replace("\n", " ")).strip()
+            if body:
+                compact = self._llm_summary_from_body(title, body, line_count=max_lines)
+                compact = self._to_complete_summary_lines(compact, max_lines=max_lines)
+            else:
+                compact = ""
+
+            if not compact:
+                compact = self._compact_2sentence_summary(_safe_esc(body), max_sentences=max_lines)
+                compact = compact.replace("\n", " ").strip()
+            compact = self._ensure_korean_summary_lines(compact, max_lines=max_lines).strip()
+            if not compact and title:
+                compact = self._to_complete_sentences(title, max_lines=min(2, max_lines))
+
+            compact = _safe_esc((compact or "").strip())
             if compact:
+                compact = self._to_complete_summary_lines(compact, max_lines=max_lines)
                 lines.append(f"• {compact}")
-                continue
-
-            if title:
-                lines.append(f"• {title}")
 
         return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
 
@@ -625,19 +844,18 @@ class WritingAgent:
                 description = self._llm_summary_from_body(title, summary_source, regenerate_hint=reason, line_count=7)
 
         if not description:
-            description = summarize_ko(summary_source, title=title, sentence_count=5)
+            description = summarize_ko(summary_source, title=title, sentence_count=7)
         if not description:
             description = self._strip_html(summary_source)
 
         description = self._force_korean(description, fallback_on_fail="")
         if not description:
-            description = self._force_korean(self._strip_html(c.summary or raw_title), fallback_on_fail="")
-        if not description:
             description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
 
         description = self._ensure_korean_summary_lines(description, max_lines=7)
+        description = self._ensure_min_summary_lines(description, source=summary_source, min_lines=6, max_lines=7)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
-        description = self._to_complete_sentences(description, max_lines=7)
+        description = self._to_complete_summary_lines(description, max_lines=7)
         if not self._assert_source_alignment(description, summary_source):
             description = self._repair_by_source(description, summary_source, "기사 요약을 본문 근거로 5~7줄 이내 완성형 문장으로 수정", max_lines=7)
 
@@ -770,16 +988,19 @@ class WritingAgent:
         template = template.replace("{{NEEDS_HASHTAGS}}", need_tags)
 
         # Country/article blocks
-        # Trust collection-side country tags first; only run LLM judge when country is missing.
-        for e in entries:
-            if e.country:
-                e.country = self._coerce_country_code(e.country)
-            else:
-                judged = self._judge_country_by_title(e.title)
-                e.country = self._coerce_country_code(judged)
+        # Global scan block mapping is LLM-driven from article title+summary+body context.
+        for e, ctx in entries_payload:
+            judged = self._judge_country_from_context(
+                title=e.title,
+                body_text=(ctx.get("readable_body") or ctx.get("summary_source") or ""),
+                summary=e.summary,
+                source_url=e.url,
+            )
+            e.country = self._coerce_country_code(judged)
 
         # summary section follows GLOBAL SCAN(국가 블록) 렌더 순서
-        summary_lines = self._build_summary_points(entries)
+        # CORE_DESCRIPTION는 본문 기반 6줄 이내로 구성
+        summary_lines = self._build_summary_points(entries_payload, max_lines=6)
         summary_block = summary_lines
         template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
