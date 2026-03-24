@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import subprocess
+import logging
+import time
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -118,6 +120,52 @@ def _signature(value: str | None) -> str:
     return sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
+def _truncate(value: str, limit: int = 1600) -> str:
+    if value is None:
+        return ""
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "...<truncated>"
+
+
+def _build_logger(log_root: Path, run_tag: str, level: str = "INFO", log_file: str | None = None) -> tuple[logging.Logger, Path]:
+    log_root.mkdir(parents=True, exist_ok=True)
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        log_path = log_root / f"sknow_{run_tag}.log"
+
+    logger = logging.getLogger(f"sknow.{run_tag}")
+    logger.handlers.clear()
+    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    logger.propagate = False
+    return logger, log_path
+
+
+def _event_log_path(log_root: Path) -> Path:
+    return log_root / "events.jsonl"
+
+
+def _write_event(log_root: Path, stage: str, **payload) -> None:
+    event = {"ts": datetime.now(timezone.utc).astimezone().isoformat(), "stage": stage, **payload}
+    event_path = _event_log_path(log_root)
+    with event_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+
 def _safe_read_jsonl(path: Path) -> list[dict]:
     rows: list[dict] = []
     if not path.exists():
@@ -165,6 +213,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--browser", action="store_true", help="use browser relay for dev2 writing stage")
     p.add_argument("--no-browser", action="store_true", help="force no browser for dev2 writing stage")
     p.add_argument("--collect-only", action="store_true", help="stop after shared pool creation")
+    p.add_argument("--log-dir", default=None, help="directory for sknow run logs (default: <dev2-root>/logs/sknow)")
+    p.add_argument("--log-file", default=None, help="override exact log file path")
+    p.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="log level")
     p.add_argument("--python", default=None, help="python interpreter for collector/dev2 subcommands")
 
     # legacy output fields kept for compatibility
@@ -175,7 +226,9 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _clean_candidate_store(collector_root: Path) -> None:
+def _clean_candidate_store(collector_root: Path) -> dict[str, int]:
+    removed: dict[str, int] = {"raw_jsonl": 0, "curated_jsonl": 0, "known_urls": 0, "run_state": 0}
+
     targets = [
         collector_root / "data" / "ingest" / "raw",
         collector_root / "data" / "ingest" / "curated",
@@ -186,6 +239,10 @@ def _clean_candidate_store(collector_root: Path) -> None:
         for p in target.glob("*.jsonl"):
             try:
                 p.unlink()
+                if "raw" in str(target):
+                    removed["raw_jsonl"] += 1
+                else:
+                    removed["curated_jsonl"] += 1
             except Exception:
                 pass
 
@@ -197,6 +254,7 @@ def _clean_candidate_store(collector_root: Path) -> None:
         if p.exists():
             try:
                 p.unlink()
+                removed["known_urls"] += 1
             except Exception:
                 pass
 
@@ -204,8 +262,11 @@ def _clean_candidate_store(collector_root: Path) -> None:
     if run_state.exists():
         try:
             run_state.unlink()
+            removed["run_state"] += 1
         except Exception:
             pass
+
+    return removed
 
 
 
@@ -365,7 +426,7 @@ def _write_shared_pool(rows: list[dict], issue: str, dev2_root: Path) -> Path:
     return out_path
 
 
-def _run_dev2(args: argparse.Namespace, env: dict[str, str], dev2_root: Path, action: str, user_code: str | None, send: bool, no_browser: bool, parallel: bool = False, workers: int = 2, python_exec: str = "python3") -> tuple[int, str, str]:
+def _run_dev2(args: argparse.Namespace, env: dict[str, str], dev2_root: Path, action: str, user_code: str | None, send: bool, no_browser: bool, parallel: bool = False, workers: int = 2, python_exec: str = "python3") -> tuple[int, str, str, bool, datetime]:
     service = args.dev2_collect_script
     if service is None:
         service = str((dev2_root / "service.py").resolve())
@@ -393,7 +454,7 @@ def _run_dev2(args: argparse.Namespace, env: dict[str, str], dev2_root: Path, ac
             cmd.extend(["--workers", str(max(1, int(workers)))])
 
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(dev2_root), env=env)
-    return proc.returncode, proc.stdout, proc.stderr
+    return proc.returncode, proc.stdout, proc.stderr, proc.returncode == 0, datetime.now(timezone.utc).astimezone()
 
 
 def main() -> int:
@@ -406,35 +467,99 @@ def main() -> int:
         args.overwrite_candidates = True
 
     issue = args.issue or datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
-    _python = _python_for_run(args.python)
-    dev2_root = Path(args.dev2_root) if args.dev2_root else Path("/Users/davechoi/.openclaw/workspace/clue_letter_dev2").resolve()
+    run_tag = f"{issue}_{datetime.now(timezone.utc).astimezone().strftime('%H%M%S')}"
+    default_log_root = Path(args.log_dir) if args.log_dir else (Path(args.dev2_root) if args.dev2_root else Path("/Users/davechoi/.openclaw/workspace/clue_letter_dev2")).resolve() / "logs" / "sknow"
+    log_root = Path(default_log_root)
 
+    # Configure logger & file logging
+    logger, log_path = _build_logger(log_root, run_tag, level=args.log_level, log_file=args.log_file)
+    logger.info("sknow started")
+    logger.info("args=%s", json.dumps(vars(args), ensure_ascii=False))
+    _write_event(log_root, "start", args=vars(args), issue=issue, run_tag=run_tag, python=env.get("PYTHON", None))
+
+    _python = _python_for_run(args.python)
+    env["PYTHON"] = _python
+    dev2_root = Path(args.dev2_root) if args.dev2_root else Path("/Users/davechoi/.openclaw/workspace/clue_letter_dev2").resolve()
+    _write_event(log_root, "resolved", dev2_root=str(dev2_root), python=_python)
+
+    pipeline_start = time.perf_counter()
     if not args.skip_collect:
         collector_root = _find_collector_script(args.collector_script).parent.parent
         if args.overwrite_candidates:
-            _clean_candidate_store(collector_root)
-            print(f"[sknow] candidate store cleaned: {collector_root / 'data/ingest'}")
+            removed = _clean_candidate_store(collector_root)
+            logger.info("candidate store cleaned: %s", removed)
+            _write_event(log_root, "candidate_cleanup", **removed)
+        else:
+            removed = {"raw_jsonl": 0, "curated_jsonl": 0, "known_urls": 0, "run_state": 0}
+
+        c0 = time.perf_counter()
         _summary_path, summary = _run_collector(args, env, _python)
+        c1 = time.perf_counter()
+        logger.info("collector complete: summary=%s, elapsed=%.2fs, path=%s", summary.get("run_prefix", "unknown"), c1 - c0, _summary_path)
+        _write_event(
+            log_root,
+            "collect_complete",
+            summary_path=str(_summary_path),
+            elapsed_ms=int((c1 - c0) * 1000),
+            results=len(summary.get("results", [])),
+            raw_records=sum(int(row.get("raw_records_written", 0) or 0) for row in summary.get("results", [])),
+            failures=len(summary.get("failures", [])),
+            unique_urls=summary.get("unique_url_count", 0),
+            run_prefix=summary.get("run_prefix"),
+            removed=removed,
+        )
         shared_rows = _to_shared_rows(summary, collector_root)
+        logger.info("shared rows transformed=%d", len(shared_rows))
+        s0 = time.perf_counter()
         shared_pool = _write_shared_pool(shared_rows, issue, dev2_root)
-        print(f"[sknow] shared total pool written: {shared_pool}")
-        print(f"[sknow] total_candidates={len(shared_rows)} run_records={len(summary.get('results', []))}")
+        s1 = time.perf_counter()
+        logger.info("shared total pool written=%s elapsed=%.2fs", shared_pool, s1 - s0)
+        _write_event(
+            log_root,
+            "shared_pool_written",
+            path=str(shared_pool),
+            rows=len(shared_rows),
+            issue=issue,
+            elapsed_ms=int((s1 - s0) * 1000),
+            run_records=len(summary.get("results", [])),
+        )
+        logger.info("total_candidates=%d run_records=%d", len(shared_rows), len(summary.get("results", [])))
     else:
         shared_pool = dev2_root / "data" / "shared" / "daily news" / f"total_news_{issue}.jsonl"
         if not shared_pool.exists():
             raise SystemExit(f"--skip-collect set but shared pool missing: {shared_pool}")
-        print(f"[sknow] skip collect -> reuse shared pool: {shared_pool}")
+        logger.info("skip collect -> reuse shared pool: %s", shared_pool)
+        _write_event(log_root, "skip_collect", shared_pool=str(shared_pool))
 
     if args.collect_only:
-        print(json.dumps({"ok": True, "mode": "collect-only", "issue": issue, "shared_pool": str(shared_pool)}, ensure_ascii=False, indent=2))
+        result = {"ok": True, "mode": "collect-only", "issue": issue, "shared_pool": str(shared_pool)}
+        logger.info("collect-only complete")
+        _write_event(log_root, "collect_only", **result)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
+    phase0 = time.perf_counter()
     if args.user_code:
         # legacy one-user path for compatibility
-        code, out, err = _run_dev2(args, env, dev2_root, action="run", user_code=args.user_code, send=bool(args.send and not args.no_send), no_browser=args.no_browser, parallel=False, workers=1, python_exec=_python)
+        stage = "run-user"
+        code, out, err, _ok, t0 = _run_dev2(
+            args,
+            env,
+            dev2_root,
+            action="run",
+            user_code=args.user_code,
+            send=bool(args.send and not args.no_send),
+            no_browser=args.no_browser,
+            parallel=False,
+            workers=1,
+            python_exec=_python,
+        )
+        logger.info("%s phase finished code=%s elapsed=%.2fs", stage, code, (time.perf_counter() - phase0))
+        _write_event(log_root, "dev2_phase", stage=stage, code=code, elapsed_ms=int((time.perf_counter() - phase0) * 1000), stdout=_truncate(out), stderr=_truncate(err))
     else:
         # shared-pool 기반 전체 사용자 rendering은 병렬 실행
-        code, out, err = _run_dev2(
+        write_phase_start = time.perf_counter()
+        code, out, err, _ok, _okt = _run_dev2(
             args,
             env,
             dev2_root,
@@ -445,11 +570,14 @@ def main() -> int:
             parallel=True,
             workers=max(1, args.parallel_workers),
         )
+        _write_event(log_root, "dev2_write_all", code=code, elapsed_ms=int((time.perf_counter() - write_phase_start) * 1000), stdout=_truncate(out), stderr=_truncate(err), user_code=None)
+        logger.info("run-all write phase finished code=%s", code)
         if code != 0:
             raise SystemExit(f"dev2 write phase failed\nstdout={out}\nstderr={err}")
 
         if args.send:
-            code, out, err = _run_dev2(
+            send_phase_start = time.perf_counter()
+            code, out, err, _ok, _okt = _run_dev2(
                 args,
                 env,
                 dev2_root,
@@ -461,11 +589,18 @@ def main() -> int:
                 workers=1,
                 python_exec=_python,
             )
+            logger.info("run-all send phase finished code=%s", code)
+            _write_event(log_root, "dev2_send_all", code=code, elapsed_ms=int((time.perf_counter() - send_phase_start) * 1000), stdout=_truncate(out), stderr=_truncate(err))
 
+    total_elapsed = int((time.perf_counter() - pipeline_start) * 1000)
     if code != 0:
         raise SystemExit(f"dev2 phase failed\nstdout={out}\nstderr={err}")
 
+    logger.info("sknow complete elapsed_ms=%d", total_elapsed)
+    _write_event(log_root, "complete", elapsed_ms=total_elapsed, out=_truncate(out), shared_pool=str(shared_pool))
     print(out.strip())
+    print(f"[sknow-log] {log_path}")
+    print(f"[sknow-event-log] {log_root / 'events.jsonl'}")
     return 0
 
 

@@ -65,3 +65,12 @@ python3 scripts/run_news_pipeline.py \
 - `--parallel-workers`: 유저별 렌더링 병렬도(예: 2~4)
 - `--user-code`: 레거시 단일 사용자 모드(run)
 - `--python`: collector/service 실행용 Python 인터프리터 지정(기본: 시스템에서 3.12+ 탐색)
+
+## 로깅/운영
+
+- `--log-dir`로 실행 로그 디렉터리를 지정할 수 있습니다.
+- 기본 로깅 경로: `<dev2-root>/logs/sknow/`
+- 실행당 하나의 로그 파일(`sknow_<issue>_<time>.log`)과 이벤트 JSONL(`events.jsonl`)이 생성됩니다.
+- `--log-file`로 로그 파일 경로를 직접 덮어쓰기/특정 위치 지정 가능합니다.
+- 수집/공유풀/실행단계별 종료 코드, 처리 건수, stdout/stderr 요약이 이벤트 로그에 남습니다.
+- `collect-only` 모드도 동일 로깅이 남습니다.
