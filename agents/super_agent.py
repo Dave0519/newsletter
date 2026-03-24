@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import threading
 import os
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +49,10 @@ class NullDeliveryManager:
 
     def deliver(self, _html: str, _subject: str, _to: str) -> dict:
         raise RuntimeError("Delivery unavailable: openclaw delivery module is not installed/available")
+
+
+
+_ISSUE_NO_LOCK = threading.Lock()
 
 
 class SuperAgent:
@@ -248,17 +253,18 @@ class SuperAgent:
 
         return sources or []
     def _next_issue_no(self, user_code: str) -> int:
-        log = self.root / "logs" / "issue_no_tracker.json"
-        if not log.exists():
-            data = {}
-        else:
-            data = json.loads(log.read_text(encoding="utf-8"))
-        current = int(data.get(user_code, 0)) + 1
-        data[user_code] = current
-        log.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        with _ISSUE_NO_LOCK:
+            log = self.root / "logs" / "issue_no_tracker.json"
+            if not log.exists():
+                data = {}
+            else:
+                data = json.loads(log.read_text(encoding="utf-8"))
+            current = int(data.get(user_code, 0)) + 1
+            data[user_code] = current
+            log.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return current
 
-    def run_for_user(self, user_code: str, dry_run: bool = False, min_count: int = 8):
+    def run_for_user(self, user_code: str, dry_run: bool = False, min_count: int = 8, send: bool = True):
         user = self.needs.get_user(user_code)
         if not user.is_active:
             raise RuntimeError(f"user not active: {user_code}")
@@ -310,6 +316,22 @@ class SuperAgent:
                 out["delivery_fallback"] = self._delivery_info()
             return out
 
+        if not send:
+            return {
+                "ok": True,
+                "mode": "generated",
+                "user_code": user.user_code,
+                "issue_no": issue_no,
+                "article_count": len(articles),
+                "html_path": str(html_path),
+                "email": {"ok": True, "mode": "skipped", "note": "delivery skipped by send=False"},
+                "timing": {
+                    "collect_sec": round(t1 - t0, 2),
+                    "write_sec": round(t2 - t1, 2),
+                    "total_sec": round(t2 - t0, 2),
+                },
+            }
+
         if self.trace_enabled:
             self._emit_stage(user, issue_no, stage_id="delivery", status="start", in_count=1, out_count=0)
         try:
@@ -343,13 +365,13 @@ class SuperAgent:
             },
         }
 
-    def run_all(self, dry_run: bool = False, min_count: int = 8):
+    def run_all(self, dry_run: bool = False, min_count: int = 8, send: bool = True):
         out = []
         for user in self.needs.list_users():
             if not user.is_active:
                 continue
             try:
-                out.append(self.run_for_user(user.user_code, dry_run=dry_run, min_count=min_count))
+                out.append(self.run_for_user(user.user_code, dry_run=dry_run, min_count=min_count, send=send))
             except Exception as e:
                 out.append({
                     "ok": False,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import sys
@@ -91,11 +92,23 @@ def main(argv=None):
     parser.add_argument("--batch-start", type=int, default=0, help="Zero-based start index for user batch")
     parser.add_argument("--browser", action="store_true", help="use browser relay explicitly (default is HTTP/requests)")
     parser.add_argument("--no-browser", action="store_true", help="explicitly force no-browser; use HTTP/requests fetch path")
+    parser.add_argument("--send", action="store_true", default=None, help="for run/run-all: send HTML immediately")
+    parser.add_argument("--no-send", action="store_true", help="for run/run-all: skip delivery")
+    parser.add_argument("--parallel", action="store_true", help="for run-all: run user jobs in parallel")
+    parser.add_argument("--workers", type=int, default=2, help="for run-all --parallel: worker count (2~4 recommended)")
 
     args = parser.parse_args(argv)
 
     if args.trace:
         os.environ["CLUE_TRACE"] = "1"
+
+    # Delivery mode compatibility: run/run-all default keeps old behavior (send), unless --no-send is set.
+    if args.no_send:
+        send_mode = False
+    elif args.send is True:
+        send_mode = True
+    else:
+        send_mode = True
     trace_dir = Path("logs") / "trace"
     os.environ.setdefault("CLUE_TRACE_DIR", str(ROOT / trace_dir))
     use_browser_relay = bool(args.browser and not args.no_browser)
@@ -131,12 +144,12 @@ def main(argv=None):
     if args.action == "run":
         if not args.user_code:
             raise SystemExit("--user-code required")
-        out = svc.run_for_user(args.user_code, dry_run=args.dry)
+        out = svc.run_for_user(args.user_code, dry_run=args.dry, send=send_mode)
         print(json.dumps(out, ensure_ascii=False))
         return
 
     if args.action == "run-all":
-        out = _run_all_batched(svc, dry_run=args.dry, batch_size=args.batch_size, batch_start=args.batch_start)
+        out = _run_all_batched(svc, dry_run=args.dry, batch_size=args.batch_size, batch_start=args.batch_start, parallel=args.parallel, workers=max(1, int(args.workers)), send=send_mode)
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return
 
@@ -150,7 +163,7 @@ def main(argv=None):
 
 
 
-def _run_all_batched(svc: SuperAgent, dry_run: bool, batch_size: int, batch_start: int, min_count: int = 8):
+def _run_all_batched(svc: SuperAgent, dry_run: bool, batch_size: int, batch_start: int, parallel: bool = False, workers: int = 2, min_count: int = 8, send: bool = True):
     users = [u for u in svc.list_users() if u.is_active]
     if not users:
         return []
@@ -158,12 +171,21 @@ def _run_all_batched(svc: SuperAgent, dry_run: bool, batch_size: int, batch_star
     end = len(users) if batch_size <= 0 else min(len(users), start + batch_size)
     codes = [u.user_code for u in users[start:end]]
 
-    out = []
-    for code in codes:
+    def _run_single(code: str) -> dict:
         try:
-            out.append(svc.run_for_user(code, dry_run=dry_run, min_count=min_count))
+            return svc.run_for_user(code, dry_run=dry_run, min_count=min_count, send=send)
         except Exception as e:
-            out.append({"ok": False, "user_code": code, "name": next((u.name for u in users if u.user_code == code), None), "error": str(e)})
+            return {"ok": False, "user_code": code, "name": next((u.name for u in users if u.user_code == code), None), "error": str(e)}
+
+    if not codes:
+        return []
+
+    if not parallel:
+        return [_run_single(code) for code in codes]
+
+    with ThreadPoolExecutor(max_workers=workers) as exe:
+        futures = [exe.submit(_run_single, code) for code in codes]
+        out = [f.result() for f in futures]
     return out
 
 if __name__ == "__main__":
