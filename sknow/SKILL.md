@@ -18,6 +18,10 @@ description: Run clue_news_collector wide-collect and bridge to clue_letter_dev2
 
 ## 핵심 정책
 
+- **원본 후보 저장소도 덮어쓰기(재수집 오버라이트) 기반**
+  - 기본적으로 `sknow`는 실행 전 `data/ingest/raw`, `data/ingest/curated`, `data/known_urls`(ledger) 를 비워서,
+    이전 누적 이력을 다음 수집에 섞이지 않게 처리합니다.
+  - `--no-overwrite-candidates` 옵션으로 비우기 동작을 끌 수 있습니다.
 - **shared-pool 중심(비하드코딩) 처리**
   - collector는 유저별 고정 출력 대신 공통 풀에 적재
   - dev2가 `CLUE_SHARED_POOL`/공유 풀 정책으로 유저 니즈(`needs`) 기반 매칭
@@ -55,6 +59,8 @@ python3 scripts/run_news_pipeline.py \
 
 - `--skip-collect`: 최신 shared pool 재사용해 유저별 렌더링만 수행
 - `--collect-only`: shared pool까지 만들고 중단
+- `--collect --overwrite-candidates`: 수집 전 원본 후보 저장소 정리 후 수집(기본)
+- `--no-overwrite-candidates`: 원본 후보 정리 안하고 기존 누적 유지(권장 없음)
 - `--no-send`: 생성만 하고 발송 생략
 - `--parallel-workers`: 유저별 렌더링 병렬도(예: 2~4)
 - `--user-code`: 레거시 단일 사용자 모드(run)

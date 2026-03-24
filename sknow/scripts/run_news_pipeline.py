@@ -151,6 +151,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-collect", action="store_true", help="skip collector; reuse existing shared total pool")
     p.add_argument("--collect", action="store_true", help="force collect (default when neither skip nor collect set)")
     p.add_argument("--collect-override", action="store_true", help="alias for force collect")
+    p.add_argument("--no-overwrite-candidates", dest="overwrite_candidates", action="store_false", help="do not clean raw candidate artifacts before collect")
 
     # Paths / env
     p.add_argument("--report-dir", default=None, help="collector validation report directory")
@@ -172,6 +173,40 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--subject", default="[CLUE] AI BRIEFING | 오늘의 글로벌 핵심 동향")
 
     return p.parse_args()
+
+
+def _clean_candidate_store(collector_root: Path) -> None:
+    targets = [
+        collector_root / "data" / "ingest" / "raw",
+        collector_root / "data" / "ingest" / "curated",
+    ]
+    for target in targets:
+        if not target.exists():
+            continue
+        for p in target.glob("*.jsonl"):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    # Known-URL ledger can cause next run to skip URLs even if raw is reset.
+    # reset it when running full daily collect to make collector output a clean overwrite set.
+    known_url_jsonl = collector_root / "data" / "known_urls" / "known_urls.jsonl"
+    known_url_index = collector_root / "data" / "known_urls" / "known_urls_index.json"
+    for p in (known_url_jsonl, known_url_index):
+        if p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    run_state = collector_root / "data" / "runs" / "current" / "run_state.json"
+    if run_state.exists():
+        try:
+            run_state.unlink()
+        except Exception:
+            pass
+
 
 
 def _find_collector_script(explicit: str | None = None) -> Path:
@@ -367,14 +402,19 @@ def main() -> int:
 
     if args.no_send and args.send:
         raise SystemExit("--send and --no-send cannot be used together")
+    if not hasattr(args, "overwrite_candidates"):
+        args.overwrite_candidates = True
 
     issue = args.issue or datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
     _python = _python_for_run(args.python)
     dev2_root = Path(args.dev2_root) if args.dev2_root else Path("/Users/davechoi/.openclaw/workspace/clue_letter_dev2").resolve()
 
     if not args.skip_collect:
-        _summary_path, summary = _run_collector(args, env, _python)
         collector_root = _find_collector_script(args.collector_script).parent.parent
+        if args.overwrite_candidates:
+            _clean_candidate_store(collector_root)
+            print(f"[sknow] candidate store cleaned: {collector_root / 'data/ingest'}")
+        _summary_path, summary = _run_collector(args, env, _python)
         shared_rows = _to_shared_rows(summary, collector_root)
         shared_pool = _write_shared_pool(shared_rows, issue, dev2_root)
         print(f"[sknow] shared total pool written: {shared_pool}")
