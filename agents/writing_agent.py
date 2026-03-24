@@ -822,27 +822,24 @@ class WritingAgent:
 
         for entry, ctx in ordered_payloads:
             title = (entry.title or "").strip()
+            # Core description은 반드시 daily_news body만 사용
             body = (ctx.get("readable_body") or "").strip()
 
             compact = ""
             if body:
                 compact = self._llm_summary_from_body(title, body, line_count=2)
                 compact = self._to_complete_summary_lines(compact, max_lines=2)
+                compact = compact.replace("\n", " ").strip()
+                compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
+                compact = self._strip_summary_noise((compact or "").strip())
+                if compact:
+                    compact = self._ensure_min_summary_lines(compact, body, min_lines=1, max_lines=2)
 
-            if not compact:
-                compact = self._compact_2sentence_summary(_safe_esc(body), max_sentences=2)
-
-            compact = compact.replace("\n", " ").strip()
-            compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
-            if not compact and title:
-                compact = self._to_complete_sentences(title, max_lines=1)
-
-            compact = self._strip_summary_noise((compact or "").strip())
             if compact:
-                compact = self._ensure_min_summary_lines(compact, body, min_lines=1, max_lines=2)
                 lines.append(f"• {compact}")
 
         return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
+
 
     def _grouped_country_blocks(self, articles: list[NewsletterEntry]):
         countries: dict[str, list[NewsletterEntry]] = {}
