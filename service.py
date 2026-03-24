@@ -93,6 +93,7 @@ def main(argv=None):
     parser.add_argument("--browser", action="store_true", help="use browser relay explicitly (default is HTTP/requests)")
     parser.add_argument("--no-browser", action="store_true", help="explicitly force no-browser; use HTTP/requests fetch path")
     parser.add_argument("--send", action="store_true", default=None, help="for run/run-all: send HTML immediately")
+    parser.add_argument("--send-only", action="store_true", help="for run: send existing rendered HTML only (no collect/write)")
     parser.add_argument("--no-send", action="store_true", help="for run/run-all: skip delivery")
     parser.add_argument("--parallel", action="store_true", help="for run-all: run user jobs in parallel")
     parser.add_argument("--workers", type=int, default=2, help="for run-all --parallel: worker count (2~4 recommended)")
@@ -144,7 +145,9 @@ def main(argv=None):
     if args.action == "run":
         if not args.user_code:
             raise SystemExit("--user-code required")
-        out = svc.run_for_user(args.user_code, dry_run=args.dry, send=send_mode)
+        if args.send_only and args.no_send:
+            raise SystemExit("--send-only cannot be used with --no-send")
+        out = svc.run_for_user(args.user_code, dry_run=args.dry, send=send_mode, send_only=args.send_only)
         print(json.dumps(out, ensure_ascii=False))
         return
 

@@ -211,6 +211,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=0, help="if >0, run only first N users from active user set")
     p.add_argument("--batch-start", type=int, default=0, help="zero-based start index for user batch")
     p.add_argument("--send", action="store_true", default=False, help="run final delivery after rendering")
+    p.add_argument("--delivery-mode", default="gog", choices=["gog", "openclaw", "openclaw-only", "fallback", "local", "strict", "strict-gog"], help="delivery mode (gog/openclaw requires gog delivery; fallback keeps local file mode)")
     p.add_argument("--no-send", action="store_true", help="skip delivery")
     p.add_argument("--browser", action="store_true", help="use browser relay for dev2 writing stage")
     p.add_argument("--no-browser", action="store_true", help="force no browser for dev2 writing stage")
@@ -345,6 +346,81 @@ def _map_query(row: dict) -> str:
     )
 
 
+def _is_paid_candidate(text: str) -> bool:
+    if not text:
+        return False
+    low = str(text).lower()
+    paid_patterns = [
+        r"\bpaywall\b",
+        r"\bsubscription\b",
+        r"\bsubscribe\b",
+        r"\bsignin\b",
+        r"\bsign\s*in\b",
+        r"\blog\s*in\b",
+        r"\b회원가입\b",
+        r"\b유료\b",
+        r"\b구독\b",
+        r"\b멤버십\b",
+        r"\b멤버\b",
+        r"\bmember\b",
+        r"\bpremium\b",
+        r"\btrial\b",
+        r"\b결제\b",
+        r"\b유료\s*콘텐츠\b",
+        r"\b구독\s*형\b",
+    ]
+    return any(re.search(pat, low, re.IGNORECASE) for pat in paid_patterns)
+
+
+def _is_paid_url(url: str) -> bool:
+    if not url:
+        return False
+    low = str(url).lower()
+    try:
+        parsed = urlparse(url)
+        host = (parsed.netloc or "").lower()
+        path = (parsed.path or "").lower()
+        query = (parsed.query or "").lower()
+    except Exception:
+        return _is_paid_candidate(low)
+
+    paid_domains = {
+        "ft.com", "techcrunch.com", "seekingalpha.com", "wsj.com", "bloomberg.com", "reuters.com",
+    }
+
+    if any(t in path for t in ("/pay", "/pricing", "/payment", "/subscription", "/subscribe", "/membership", "/member", "/signin", "/login", "/signup", "/sign-up", "/paywall", "/register")):
+        return True
+    if any(t in query for t in ("paywall", "subscribe", "subscription", "member", "membership", "trial", "premium")):
+        return True
+    if any(d in host for d in paid_domains) and any(k in path for k in ("/member", "/subscription", "/subscribe", "/premium")):
+        return True
+    if _is_paid_candidate(query):
+        return True
+    return False
+
+
+def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
+    title = str(row.get("title_raw") or "")
+    summary = str(row.get("text_summary") or row.get("summary") or "")
+    body = str(row.get("fetch_text_raw") or row.get("body") or "")
+    source = str(row.get("source") or "")
+    lane = str(row.get("lane") or "")
+    query = _map_query(row)
+    url = _canonical_url(str(row.get("resolved_url") or row.get("discovered_url") or ""))
+
+    texts = [title, summary, body, source, lane, query]
+    joined = "\n".join(texts)
+
+    if _is_paid_candidate(joined):
+        return True, "paid_keyword"
+    if _is_paid_url(url):
+        return True, "paid_url"
+    if re.search(r"\bfree\s+trial\b|유료\s*뉴스|유료\s*구독", joined, re.IGNORECASE):
+        return True, "paid_pattern"
+    return False, ""
+
+
+
 def _source_type(row: dict) -> str:
     raw_source = str(row.get("source") or "")
     if not raw_source:
@@ -361,7 +437,7 @@ def _source_type(row: dict) -> str:
     return "search"
 
 
-def _to_shared_rows(summary: dict, collector_root: Path) -> list[dict]:
+def _to_shared_rows(summary: dict, collector_root: Path) -> tuple[list[dict], dict[str, int]]:
     run_ids = []
     for item in summary.get("results", []):
         run_id = str(item.get("run_id") or "").strip()
@@ -369,10 +445,11 @@ def _to_shared_rows(summary: dict, collector_root: Path) -> list[dict]:
             run_ids.append(run_id)
 
     if not run_ids:
-        return []
+        return [], {"total": 0, "filtered": 0, "written": 0}
 
     seen_urls: set[str] = set()
     out: list[dict] = []
+    filter_stats = {"total": 0, "filtered": 0, "written": 0}
     raw_dir = collector_root / "data" / "ingest" / "raw"
 
     for run_id in run_ids:
@@ -380,10 +457,16 @@ def _to_shared_rows(summary: dict, collector_root: Path) -> list[dict]:
             url = _canonical_url(str(row.get("resolved_url") or row.get("discovered_url") or ""))
             if not url:
                 continue
+            filter_stats["total"] += 1
+            is_filtered, reason = _is_shared_row_filtered(row)
+            if is_filtered:
+                filter_stats["filtered"] += 1
+                continue
             sig = _signature(url + "|" + str(row.get("title_raw") or "") )
             if sig in seen_urls:
                 continue
             seen_urls.add(sig)
+            filter_stats["written"] += 1
             query = _map_query(row)
             ctx = row.get("query_context") if isinstance(row.get("query_context"), dict) else {}
             lane = str(row.get("lane") or ctx.get("intent_cluster") or "")
@@ -415,7 +498,7 @@ def _to_shared_rows(summary: dict, collector_root: Path) -> list[dict]:
             }
             out.append(shared)
 
-    return out
+    return out, filter_stats
 
 
 def _write_shared_pool(rows: list[dict], issue: str, dev2_root: Path) -> Path:
@@ -480,6 +563,17 @@ def main() -> int:
     _write_event(log_root, "start", args=vars(args), issue=issue, run_tag=run_tag, python=env.get("PYTHON", None))
 
     _python = _python_for_run(args.python)
+    # Enforce delivery policy for this pipeline run.
+    # If actual send is requested, default to gog/openclaw-only.
+    # For --no-send/dry runs, allow fallback to local file mode.
+    delivery_mode = args.delivery_mode.lower()
+    send_requested = bool(args.send and not args.no_send)
+    if delivery_mode in {"gog", "openclaw", "openclaw-only", "strict", "strict-gog"}:
+        env["SKNOW_DELIVERY_MODE"] = "openclaw-only" if send_requested else "fallback"
+    elif delivery_mode in {"fallback", "local"}:
+        env["SKNOW_DELIVERY_MODE"] = "fallback"
+    else:
+        env["SKNOW_DELIVERY_MODE"] = "openclaw-only" if send_requested else "fallback"
     env["PYTHON"] = _python
     dev2_root = Path(args.dev2_root) if args.dev2_root else Path("/Users/davechoi/.openclaw/workspace/clue_letter_dev2").resolve()
     _write_event(log_root, "resolved", dev2_root=str(dev2_root), python=_python)
@@ -510,8 +604,9 @@ def main() -> int:
             run_prefix=summary.get("run_prefix"),
             removed=removed,
         )
-        shared_rows = _to_shared_rows(summary, collector_root)
-        logger.info("shared rows transformed=%d", len(shared_rows))
+        shared_rows, shared_filter_stats = _to_shared_rows(summary, collector_root)
+        logger.info("shared rows transformed=%d filtered=%d", len(shared_rows), shared_filter_stats.get("filtered", 0))
+        _write_event(log_root, "shared_filter", **shared_filter_stats)
         s0 = time.perf_counter()
         shared_pool = _write_shared_pool(shared_rows, issue, dev2_root)
         s1 = time.perf_counter()
@@ -559,40 +654,33 @@ def main() -> int:
         logger.info("%s phase finished code=%s elapsed=%.2fs", stage, code, (time.perf_counter() - phase0))
         _write_event(log_root, "dev2_phase", stage=stage, code=code, elapsed_ms=int((time.perf_counter() - phase0) * 1000), stdout=_truncate(out), stderr=_truncate(err))
     else:
-        # shared-pool 기반 전체 사용자 rendering은 병렬 실행
-        write_phase_start = time.perf_counter()
+        # shared-pool 기반 전체 사용자 rendering & delivery을 한 번의 run-all으로 통합.
+        all_phase_start = time.perf_counter()
         code, out, err, _ok, _okt = _run_dev2(
             args,
             env,
             dev2_root,
             action="run-all",
             user_code=None,
-            send=False,
+            send=bool(args.send and not args.no_send),
             no_browser=args.no_browser,
             parallel=True,
             workers=max(1, args.parallel_workers),
+            python_exec=_python,
         )
-        _write_event(log_root, "dev2_write_all", code=code, elapsed_ms=int((time.perf_counter() - write_phase_start) * 1000), stdout=_truncate(out), stderr=_truncate(err), user_code=None)
-        logger.info("run-all write phase finished code=%s", code)
+        stage_name = "dev2_run_all_send" if args.send and not args.no_send else "dev2_run_all_write"
+        _write_event(
+            log_root,
+            stage_name,
+            code=code,
+            elapsed_ms=int((time.perf_counter() - all_phase_start) * 1000),
+            stdout=_truncate(out),
+            stderr=_truncate(err),
+            user_code=None,
+        )
+        logger.info("run-all finished as single pass code=%s", code)
         if code != 0:
-            raise SystemExit(f"dev2 write phase failed\nstdout={out}\nstderr={err}")
-
-        if args.send:
-            send_phase_start = time.perf_counter()
-            code, out, err, _ok, _okt = _run_dev2(
-                args,
-                env,
-                dev2_root,
-                action="run-all",
-                user_code=None,
-                send=True,
-                no_browser=args.no_browser,
-                parallel=False,
-                workers=1,
-                python_exec=_python,
-            )
-            logger.info("run-all send phase finished code=%s", code)
-            _write_event(log_root, "dev2_send_all", code=code, elapsed_ms=int((time.perf_counter() - send_phase_start) * 1000), stdout=_truncate(out), stderr=_truncate(err))
+            raise SystemExit(f"dev2 run-all failed\nstdout={out}\nstderr={err}")
 
     total_elapsed = int((time.perf_counter() - pipeline_start) * 1000)
     if code != 0:
