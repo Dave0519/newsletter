@@ -177,10 +177,12 @@ class WritingAgent:
     def _clean_summary_text(self, text: str) -> str:
         if not text:
             return ""
-        t = re.sub(r"\n", " ", str(text))
+        t = re.sub(r"\r\n|\r", " ", str(text))
+        t = re.sub(r"<[^>]+>", " ", t)
         t = re.sub(r"\u3000", " ", t)
         t = _normalize_whitespace(t)
 
+        # 1) 명백한 UI/메타데이터 패턴 제거
         noise_patterns = [
             r"로그인",
             r"회원가입",
@@ -193,13 +195,15 @@ class WritingAgent:
             r"구독신청",
             r"게시판",
             r"뉴스검색",
+            r"가상 키워드",
+            r"많이 본 뉴스 기사의",
             r"추천 검색어",
+            r"많이 본 뉴스",
+            r"발행일",
             r"댓글",
             r"서비스",
-            r"©",
-            r"저작권",
-            r"주소\s*\S+",
-            r"전화번호\s*\S+",
+            r"주소\s*\S*",
+            r"전화번호\s*\S*",
             r"제보는 언제든 환영",
             r"English Family Site",
             r"파이낸셜뉴스>",
@@ -210,33 +214,57 @@ class WritingAgent:
             r"다음 기사",
             r"다음은",
             r"끝까지 보기",
+            r"페이스북 X",
+            r"트위터",
+            r"메일 URL 복사",
+            r"작게 보통 크게",
+            r"전체\s*서비스",
+            r"이용하기",
+            r"저작권\s*©",
+            r"최초\s*작성\s*시간",
+            r"기사제목",
+            r"구독\s*\w*신청",
         ]
         for p in noise_patterns:
             t = re.sub(p, " ", t, flags=re.IGNORECASE)
 
-        # remove bracketed UI labels and trailing artifacts
+        # 2) 헤더 날짜/기자/입력 라인 제거
+        t = re.sub(r"(?:^|\s)(?:입력|작성일|작성\s*일자|입력\s*:\s*)\s*[:\d/.\-\s년월일시분초]+(?=\s|$)", " ", t)
+        t = re.sub(r"\d{4}/\d{1,2}/\d{1,2}\s*\d{1,2}:\d{2}(?:\s*\d{1,2}:\d{2})?(?:\s*\(.*?\))?", " ", t)
+        t = re.sub(r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일", " ", t)
+        t = re.sub(r"서울특별시\S*", " ", t)
+        t = re.sub(r"\b\w+(?:구|동)\b\s*\d{1,5}[^\s,]{0,20}", " ", t)
+
+        # 3) 사이트/메타 괄호/브래킷 제거
         t = re.sub(r"\[.*?\]", " ", t)
         t = re.sub(r"\(.*?\)", " ", t)
         t = re.sub(r"\s+", " ", t).strip()
 
-        parts = [x for x in t.split(".") if x.strip()]
-        seen = set()
-        cleaned = []
+        # 4) sentence-level로 노이즈 문장 삭제
+        parts = [x.strip() for x in re.split(r"(?<=[\.。!?！？])\s+", t) if x.strip()]
+        out = []
+        bad_keywords = [
+            "주소", "전화번호", "구독", "개인정보", "이용약관", "입력", "추천 검색어", "검색", "공유", "로그인",
+            "회원가입", "뉴스검색", "댓글", "서비스", "파이낸셜뉴스", "동아일보", "헤드라인"
+        ]
         for p in parts:
-            p = p.strip()
-            norm = re.sub(r"\s+", "", p)
-            if not norm:
+            if len(p) < 12:
                 continue
-            if norm in seen:
+            if any(k in p for k in bad_keywords):
                 continue
-            seen.add(norm)
-            cleaned.append(p)
-            if len(cleaned) >= 40:
+            # 주소/출처 블록류 삭제
+            if re.search(r"[\[\(]?(?:서울특별시|주소|발행일자|출처|기자|구독)[:\s].*", p):
+                continue
+            if re.match(r"^[^가-힣A-Za-z\d]{1,3}", p):
+                continue
+            out.append(p)
+
+            if len(out) >= 40:
                 break
 
-        if not cleaned:
-            return ""
-        return ". ".join(cleaned).strip().rstrip(".")
+        if not out:
+            return t
+        return ". ".join(out).strip().rstrip(".")
 
     def _trim_body_prefix(self, text: str, title: str) -> str:
         if not text or not title:
@@ -247,17 +275,21 @@ class WritingAgent:
         if not cleaned_title:
             return text
 
+        # keep only article body start if title appears at head
         raw_pos = t.find(cleaned_title)
-        if raw_pos > 0 and raw_pos < len(t) * 0.4:
+        if raw_pos > 0 and raw_pos < max(20, len(cleaned_title) * 2):
             t = t[raw_pos:]
 
-        # remove duplicated metadata-like prefix ending with known markers
+        # remove known metadata token trails
         for marker in ["입력", "공유하기", "글자크기 설정", "제보는 언제든 환영", "주소", "전화번호"]:
             m = t.find(marker)
-            if m >= 0 and m < 80:
-                tail = t[m + len(marker) :].strip()
-                if tail:
-                    t = tail
+            if 0 <= m < 120:
+                candidate = t[m + len(marker):].strip()
+                if candidate:
+                    t = candidate
+
+        # remove leading header-like fragments
+        t = re.sub(r"^\S*\s*(?:입력|작성일|작성\s*일자)\s*[:\d/.\-\s년월일시분초]+", "", t).strip()
         return t
 
     def _resolve_summary_source(self, c: CollectedArticle, readable_body: str) -> str:
@@ -286,6 +318,17 @@ class WritingAgent:
         t = re.sub(r"<[^>]+>", " ", s)
         return _normalize_whitespace(_html.unescape(t))
 
+
+    def _strip_summary_noise(self, text: str) -> str:
+        t = (text or "").replace("…", "").replace("...", "").replace(" • ", " ")
+        t = re.sub(r"\s*\([^)]*\)\s*\[[^\]]*\]\s*", " ", t)
+        # remove provider tail snippets commonly leaked from news pages
+        t = re.sub(r"[^.?!…]*많이\s*본\s*뉴스\s*기사의\s*키워드를\s*수집하여\s*선정하였습니다", "", t)
+        t = re.sub(r"\s*가\s*작게\s*가\s*보통\s*가\s*크게\s*", " ", t)
+        t = re.sub(r"\s*:\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2}.*", " ", t)
+        t = re.sub(r"[\(\[].*?(?:전자신문|IT 이슈플러스|회사소개|시사용어|이벤트|행사문의|고객센터|광고|뉴스\s*속보|뉴스검색|뉴스\s*검색)[^\)\]]*[\)\]]", " ", t)
+        t = re.sub(r"\s*[가-힣]+=뉴시스\s+.*", " ", t)
+        return _normalize_whitespace(t)
 
     def _llm_request(self, prompt: str, max_tokens: int = 800, temperature: float = 0.2) -> str:
         # lightweight fallback without hard dependency on OpenAI caller availability
@@ -394,24 +437,32 @@ class WritingAgent:
         return "\n".join(out)
 
     def _extract_summary_candidates(self, source: str) -> list[str]:
-        text = self._strip_html(source or "")
+        text = self._clean_summary_text(source or "")
         if not text:
             return []
-        text = self._clean_summary_text(text)
 
         chunks: list[str] = []
-        for p in re.split(r"(?<=[\.?!])\s+", text):
+        # sentence split
+        for p in re.split(r"(?<=[\.!?！？])\s+", text):
             p = re.sub(r"\s+", " ", (p or "").strip())
-            if p:
+            if p and len(p) >= 12:
                 chunks.append(p)
 
         if not chunks:
-            chunks = [x.strip() for x in re.split(r"[\n\r]+", text) if x.strip()]
+            chunks = [x.strip() for x in re.split(r"[\n\r]+", text) if x.strip() and len(x.strip()) >= 12]
 
-        if not chunks:
-            chunks = [x.strip() for x in text.split(". ") if x.strip()]
-
-        return [x for x in chunks if len(x) >= 12]
+        # metadata-like / publisher lines 제거
+        blocked = {
+            "입력 ", "작성일", "수정", "주소", "서울특별시", "구독", "동아일보", "기사검색", "뉴스검색", "많이 본 뉴스 기사의 키워드를 수집하여 선정하였습니다", "가 작게 가 보통 가 크게", "발행일", "키워드를 수집하여 선정하였습니다", "뉴스 검색", "전자신문", "이천=뉴시스", "뉴시스", "회사소개", "시사용어", "이벤트", "행사문의", "고객센터", "고충처리", "기자", "©",
+        }
+        out: list[str] = []
+        for c in chunks:
+            if any(b in c for b in blocked):
+                continue
+            out.append(c)
+            if len(out) >= 20:
+                break
+        return out
 
 
     def _ensure_min_summary_lines(self, summary: str, source: str, min_lines: int = 6, max_lines: int = 7) -> str:
@@ -421,7 +472,7 @@ class WritingAgent:
             return "\n".join(lines[:max_lines])
 
         for c in self._extract_summary_candidates(source):
-            if c not in lines:
+            if c and c not in lines:
                 lines.append(c)
             if len(lines) >= max_lines:
                 break
@@ -503,7 +554,7 @@ class WritingAgent:
             if len(out) >= max_lines:
                 break
 
-        return " ".join(out[:max_lines])
+        return "\n".join(out[:max_lines])
 
     def _to_complete_summary_lines(self, text: str, max_lines: int = 7) -> str:
         t = (text or "").replace("\r", "").strip()
@@ -758,11 +809,11 @@ class WritingAgent:
                 ordered.extend(items)
         return ordered
 
-    def _build_summary_points(self, entries_payload: list[tuple[NewsletterEntry, dict[str, str]]], max_lines: int = 6) -> str:
+    def _build_summary_points(self, entries_payload: list[tuple[NewsletterEntry, dict[str, str]]], max_lines: int = 2) -> str:
         """GLOBAL SCAN 렌더링 순서를 그대로 반영해 CORE_DESCRIPTION 구성.
 
         - 본문 본문만 사용해 요약(요약 원본/메타데이터는 사용하지 않음)
-        - 최대 6줄
+        - 각 기사당 1~2줄
         """
         lines: list[str] = []
 
@@ -773,22 +824,22 @@ class WritingAgent:
             title = (entry.title or "").strip()
             body = (ctx.get("readable_body") or "").strip()
 
+            compact = ""
             if body:
-                compact = self._llm_summary_from_body(title, body, line_count=max_lines)
-                compact = self._to_complete_summary_lines(compact, max_lines=max_lines)
-            else:
-                compact = ""
+                compact = self._llm_summary_from_body(title, body, line_count=2)
+                compact = self._to_complete_summary_lines(compact, max_lines=2)
 
             if not compact:
-                compact = self._compact_2sentence_summary(_safe_esc(body), max_sentences=max_lines)
-                compact = compact.replace("\n", " ").strip()
-            compact = self._ensure_korean_summary_lines(compact, max_lines=max_lines).strip()
-            if not compact and title:
-                compact = self._to_complete_sentences(title, max_lines=min(2, max_lines))
+                compact = self._compact_2sentence_summary(_safe_esc(body), max_sentences=2)
 
-            compact = _safe_esc((compact or "").strip())
+            compact = compact.replace("\n", " ").strip()
+            compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
+            if not compact and title:
+                compact = self._to_complete_sentences(title, max_lines=1)
+
+            compact = self._strip_summary_noise((compact or "").strip())
             if compact:
-                compact = self._to_complete_summary_lines(compact, max_lines=max_lines)
+                compact = self._ensure_min_summary_lines(compact, body, min_lines=1, max_lines=2)
                 lines.append(f"• {compact}")
 
         return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
@@ -818,25 +869,19 @@ class WritingAgent:
             self._emit_stage(user, issue_number, stage_id="derive_entry", status="start", in_count=1, out_count=0)
         issue_snapshot = int(issue_number or 0)
         resolved_url = self._resolve_url(c.url)
-        body_html = self._load_remote_body(resolved_url)
-        if not body_html and resolved_url != c.url:
-            body_html = self._load_remote_body(c.url)
-        readable_body = self._extract_readable_text(body_html) if body_html else ""
-
+        # Writing 단계는 URL 재요청 없이 daily news 본문 기반으로만 요약한다.
+        readable_body = str(c.body or "").strip()
         raw_title = self._normalize_title_candidate(self._clean_title(c.title))
         summary_source = self._resolve_summary_source(c, readable_body)
 
-        # 기사 HTML/헤더에서 제목 추출 시도(특히 네이버/구글 래퍼의 깨진 제목 대응)
-        resolved_title_html = self._extract_title_from_html(body_html or "", fallback_url=resolved_url)
-
-        # 제목: 기사 제목 우선 사용 (원문 제목 그대로 노출, 요약 품질과 독립)
-        title = resolved_title_html or raw_title or c.title or "제목 변환이 아직 완료되지 않았습니다."
+        # 제목: 기사 제목 우선 사용 (daily news 기반)
+        title = raw_title or c.title or "제목 변환이 아직 완료되지 않았습니다."
         # 깨진 패턴/너무 짧은 제목은 원문 필드로 보강
         if (not title) or (title.strip() in {"네이버뉴스.", "네이버뉴스", "Google News.", "Google News", "google news.", "google news", "제목 변환이 아직 완료되지 않았습니다."}) or len(title.strip()) < 3:
             title = raw_title or c.title or title
         title = self._to_complete_sentences(title, max_lines=1)
 
-        # 요약: 본문 기반 5~7줄 + 검수 재시도 1회
+        # 요약: 본문 기반 6줄 이내 + 검수 재시도 1회
         description = self._llm_summary_from_body(title, summary_source, line_count=7)
         if description:
             ok, reason = self._llm_judge_summary(title, summary_source, description)
@@ -857,7 +902,7 @@ class WritingAgent:
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
         description = self._to_complete_summary_lines(description, max_lines=7)
         if not self._assert_source_alignment(description, summary_source):
-            description = self._repair_by_source(description, summary_source, "기사 요약을 본문 근거로 5~7줄 이내 완성형 문장으로 수정", max_lines=7)
+            description = self._repair_by_source(description, summary_source, "기사 요약을 본문 근거로 6~7줄 이내로 완성형 문장으로 수정", max_lines=7)
 
         entry = NewsletterEntry(
             title=title,
@@ -1000,7 +1045,7 @@ class WritingAgent:
 
         # summary section follows GLOBAL SCAN(국가 블록) 렌더 순서
         # CORE_DESCRIPTION는 본문 기반 6줄 이내로 구성
-        summary_lines = self._build_summary_points(entries_payload, max_lines=6)
+        summary_lines = self._build_summary_points(entries_payload, max_lines=2)
         summary_block = summary_lines
         template = template.replace("{{CORE_DESCRIPTION}}", summary_block)
 
