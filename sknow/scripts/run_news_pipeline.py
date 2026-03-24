@@ -208,6 +208,8 @@ def parse_args() -> argparse.Namespace:
 
     # Execution policy
     p.add_argument("--parallel-workers", type=int, default=3, help="parallel workers for user writing")
+    p.add_argument("--batch-size", type=int, default=0, help="if >0, run only first N users from active user set")
+    p.add_argument("--batch-start", type=int, default=0, help="zero-based start index for user batch")
     p.add_argument("--send", action="store_true", default=False, help="run final delivery after rendering")
     p.add_argument("--no-send", action="store_true", help="skip delivery")
     p.add_argument("--browser", action="store_true", help="use browser relay for dev2 writing stage")
