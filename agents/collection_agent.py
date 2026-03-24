@@ -544,7 +544,7 @@ class CollectionAgent:
                     url=url,
                     country=str(row.get("country") or "GLOBAL"),
                     summary=str(row.get("summary") or ""),
-                    body="",
+                    body=str(row.get("body") or row.get("body_snippet") or ""),
                     source=str(row.get("source") or "http"),
                     source_type=str(row.get("source_type") or "direct"),
                     need_category=row.get("need_category") or row.get("need") or None,
@@ -1031,7 +1031,7 @@ class CollectionAgent:
                     url=url,
                     country=str(raw.get("country") or raw.get("country_code") or "GLOBAL"),
                     summary=str(raw.get("summary") or ""),
-                    body=str(raw.get("summary") or ""),
+                    body=str(raw.get("body") or raw.get("body_snippet") or raw.get("summary") or ""),
                     source=str(raw.get("source") or "http"),
                     source_type=str(raw.get("source_type") or "direct"),
                     need_category=(str(raw.get("need_category") or "") if raw.get("need_category") is not None else None),
@@ -1180,6 +1180,8 @@ class CollectionAgent:
             "source_score": float(a.source_score or 1.0),
             "diversity_penalty": getattr(a, "diversity_penalty", 0.0),
             "body_len": int(a.body_len or 0),
+            "body": getattr(a, "body", ""),
+            "body_snippet": (str((getattr(a, "body", "") or "").replace("\n", " "))[:1200] if getattr(a, "body", "") else ""),
             "collected_at": a.collected_at,
             "query": str(a.query or ""),
             "extraction_status": a.extraction_status,
@@ -1436,9 +1438,9 @@ class CollectionAgent:
             self._log(f"[collect] unreachable url={url[:90]} type={source_type}")
             return None
 
-        # 본문 확인은 URL 접근성 검증으로 축소
-        body_text = ""
-        body_len = 0
+        # 본문은 접근성 확인만 수행하되, 최소한 검색 스니펫을 본문 fallback으로 활용
+        body_text = str(raw.get("snippet") or raw.get("summary") or "").strip()
+        body_len = len(body_text)
 
         raw_title = (raw.get("title") or "").strip()
         raw_snippet = (raw.get("snippet") or "").strip()
@@ -2373,10 +2375,11 @@ class CollectionAgent:
                 f.write(f"{a.title}\n")
 
     def _make_daily_record(self, art: CollectedArticle) -> dict:
-        # 핵심 공개 필드만 보관해 로그 데이터 노이즈를 줄임.
-        # 원문 전체가 필요하면 처리 플로우에서 별도 로그/디버그로 처리하고,
-        # 저장물은 제목/요약/링크 기반으로 최소화한다.
+        # 핵심 공개 필드만 보관하고, writing에서 본문 유실이 안 나게 본문 요약 스니펫도 전달한다.
         summary_snip = (art.summary or "").replace("\n", " ").strip()
+        body_snip = (art.body or "").strip().replace("\n", " ")
+        if len(body_snip) > 1200:
+            body_snip = body_snip[:1197] + "..."
         if len(summary_snip) > 600:
             summary_snip = summary_snip[:597] + "..."
 
@@ -2399,6 +2402,9 @@ class CollectionAgent:
             "source": art.source,
             "title_ko": art.title,
             "summary_ko": art.summary,
+            "body": art.body,
+            "body_snippet": body_snip,
+            "body_len": int(len(art.body or "")),
             "origin_type": art.origin_type,
             "origin_detail": art.origin_detail,
             "issue_angle_id": art.issue_angle_id,
