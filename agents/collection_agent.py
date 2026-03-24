@@ -1144,6 +1144,9 @@ class CollectionAgent:
         for a in total_news + list(total_candidates):
             if not isinstance(a, CollectedArticle):
                 continue
+            # Shared pool에서 본문 없는 기사는 제외 (body 기반 summary/source 연계 품질 보전)
+            if not str(getattr(a, "body", "") or "").strip():
+                continue
             if a.url in existing_urls:
                 continue
             if not _is_candidate_news_url(a.url):
