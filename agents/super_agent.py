@@ -33,6 +33,13 @@ def _delivery_mode() -> str:
     return "openclaw"
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, "") or default))
+    except Exception:
+        return max(1, default)
+
+
 class LocalFileDelivery:
     """Fallback delivery when openclaw.delivery is not available."""
 
@@ -114,6 +121,7 @@ class SuperAgent:
                 search_core=_core_search,
                 search_google=adapter.search_google_news if hasattr(adapter, "search_google_news") else adapter.search,
                 min_count=8,
+                daily_news_target=_env_int("CLUE_DAILY_NEWS_TARGET", 15),
             )
             self.collection_mode = "browser"
             self.collection_mode_reason = "브라우저 릴레이 사용"
@@ -140,6 +148,7 @@ class SuperAgent:
                 search_core=_core_search,
                 search_google=adapter.search_google_news if hasattr(adapter, "search_google_news") else adapter.search,
                 min_count=8,
+                daily_news_target=_env_int("CLUE_DAILY_NEWS_TARGET", 15),
             )
             self.collection_mode = "http"
             self.collection_mode_reason = "브라우저 미사용(HTTP) 모드"
