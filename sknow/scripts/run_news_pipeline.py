@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
+from functools import lru_cache
 
 
 def _load_env_file(path: Path, env: dict[str, str]) -> None:
@@ -399,6 +400,80 @@ def _is_paid_url(url: str) -> bool:
     return False
 
 
+@lru_cache(maxsize=1)
+def _active_persona_terms() -> set[str]:
+    terms: set[str] = set()
+    persona_path = Path("/Users/davechoi/.openclaw/skills/clue_news_collector/data/personas/active_personas.json")
+    if not persona_path.exists():
+        return terms
+    try:
+        data = json.loads(persona_path.read_text(encoding="utf-8"))
+        personas = data.get("personas") if isinstance(data, dict) else []
+        if not isinstance(personas, list):
+            return terms
+        for p in personas:
+            if not isinstance(p, dict):
+                continue
+            buckets = []
+            for k in ("focus_tags", "search_terms", "focus_areas", "search_queries"):
+                v = p.get(k)
+                if isinstance(v, list):
+                    buckets.extend([str(x) for x in v])
+                elif isinstance(v, str):
+                    buckets.append(v)
+            for raw in buckets:
+                for t in re.findall(r"[가-힣a-z0-9\-\+]{2,}", raw.lower()):
+                    if t in {"ai", "aix", "news", "korea", "global", "strategy", "manager", "director", "executive"}:
+                        continue
+                    terms.add(t)
+    except Exception:
+        return set()
+    return terms
+
+
+def _collector_persona_match(row: dict) -> bool:
+    """active_personas 기반으로 shared row가 collector 페르소나 관심 축에 닿는지 확인"""
+    terms = _active_persona_terms()
+    if not terms:
+        return True
+
+    qc = row.get("query_context") if isinstance(row.get("query_context"), dict) else {}
+    hay = " ".join([
+        str(row.get("title_raw") or ""),
+        str(row.get("fetch_text_raw") or row.get("body") or ""),
+        str(row.get("lane") or qc.get("intent_cluster") or ""),
+        str(qc.get("naver_query") or ""),
+        str(qc.get("google_query") or ""),
+        str(qc.get("brave_query") or ""),
+    ]).lower()
+
+    return any(t in hay for t in terms)
+
+
+def _collector_query_match(row: dict) -> bool:
+    """collector 기준 relevance 확인: 수집 쿼리 핵심 토큰이 title/body에 최소 1개 이상 매칭"""
+    title = str(row.get("title_raw") or "")
+    body = str(row.get("fetch_text_raw") or row.get("body") or "")
+    hay = f"{title} {body}".lower()
+
+    qc = row.get("query_context") if isinstance(row.get("query_context"), dict) else {}
+    q_raw = " ".join([
+        str(row.get("query") or ""),
+        str(qc.get("naver_query") or ""),
+        str(qc.get("google_query") or ""),
+        str(qc.get("brave_query") or ""),
+        str(row.get("lane") or qc.get("intent_cluster") or ""),
+    ]).lower()
+
+    # 너무 일반적인 토큰 제외
+    stop = {"ai", "뉴스", "update", "updates", "the", "and", "for", "with", "when", "1d", "시장", "동향"}
+    tokens = [t for t in re.findall(r"[가-힣a-z0-9\-\+]{2,}", q_raw) if t not in stop]
+    if not tokens:
+        return True
+
+    return any(t in hay for t in tokens)
+
+
 def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
     title = str(row.get("title_raw") or "")
     summary = str(row.get("text_summary") or row.get("summary") or "")
@@ -410,6 +485,12 @@ def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
 
     texts = [title, summary, body, source, lane, query]
     joined = "\n".join(texts)
+
+    # collector 기준 매칭(활성 페르소나 + 수집 쿼리 관련성) 불충분한 row 제외
+    if not _collector_persona_match(row):
+        return True, "collector_persona_mismatch"
+    if not _collector_query_match(row):
+        return True, "collector_query_mismatch"
 
     # 운영 정책: digitimesasia 계열은 shared pool 적재 전 제외
     low_url = (url or "").lower()
@@ -581,6 +662,8 @@ def main() -> int:
     else:
         env["SKNOW_DELIVERY_MODE"] = "openclaw-only" if send_requested else "fallback"
     env["PYTHON"] = _python
+    # 기본 정책 유지: shared pool 이후 user needs 기반 rematch
+    env["CLUE_SHARED_MATCH_MODE"] = "user-needs"
     dev2_root = Path(args.dev2_root) if args.dev2_root else Path("/Users/davechoi/.openclaw/workspace/clue_letter_dev2").resolve()
     _write_event(log_root, "resolved", dev2_root=str(dev2_root), python=_python)
 

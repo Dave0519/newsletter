@@ -318,6 +318,8 @@ class CollectionAgent:
         self.phase2_shared_hot_topic_cap = max(0, int(os.getenv("CLUE_PHASE2_SHARED_HOT_TOPIC_CAP", "2")))
         self.phase2_shared_hot_keyword_floor = max(1, int(os.getenv("CLUE_PHASE2_SHARED_HOT_RELEVANCE_FLOOR", "2")))
         self.phase2_overlap_floor = float(os.getenv("CLUE_PHASE2_PERSONAL_SHARE_FLOOR", "0.75"))
+        # shared pool rematch policy: user-needs(default) | collector-only
+        self.shared_match_mode = (os.getenv("CLUE_SHARED_MATCH_MODE", "user-needs") or "user-needs").strip().lower()
 
         # dev2: 판매/프로모션/상업성 주제 차단 키워드
         self._sales_noisewords = {
@@ -1079,9 +1081,15 @@ class CollectionAgent:
                     self.stage_counters["filtered_stale"] += 1
                     continue
 
-            matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged, needs_payload)
-            if not matched_need_ids:
-                continue
+            if self.shared_match_mode == "collector-only":
+                matched_need_ids = list(base.matched_need_ids or [])
+                matched_needs = list(base.matched_needs or [])
+                matched_aliases = list(base.matched_aliases or [])
+                need_hit_score = float(base.need_match_score or 0.0)
+            else:
+                matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged, needs_payload)
+                if not matched_need_ids:
+                    continue
 
             url = self._normalize_article_url(base.url)
             if not url:
@@ -1113,10 +1121,16 @@ class CollectionAgent:
                 issue_angle_id=base.issue_angle_id,
             )
 
-            score = self._score_relevance(a, [n for n in (a.matched_needs or []) if n], exclusions)
-            a.relevance_score = float(score + need_hit_score)
-            a.need_match_score = a.relevance_score
-            a.relevance_note = f"relevance_score={score:.1f}, need_hit={need_hit_score:.1f}"
+            if self.shared_match_mode == "collector-only":
+                base_score = float(base.relevance_score or 0.0)
+                a.relevance_score = base_score
+                a.need_match_score = float(need_hit_score or base_score)
+                a.relevance_note = "collector-only shared rematch"
+            else:
+                score = self._score_relevance(a, [n for n in (a.matched_needs or []) if n], exclusions)
+                a.relevance_score = float(score + need_hit_score)
+                a.need_match_score = a.relevance_score
+                a.relevance_note = f"relevance_score={score:.1f}, need_hit={need_hit_score:.1f}"
             a.query = a.query or (user.user_code or user.name or "")
             rematched.append(a)
 
@@ -1954,12 +1968,16 @@ class CollectionAgent:
         # shared pool에서 유효 후보가 충분하면 사용자 수집 단계는 생략
         use_shared_only = False
         source_stats = {}
-        if shared_enabled and shared_candidates and len(shared_candidates) >= max(int(min_count), int(self.daily_news_target)):
+        if shared_enabled and shared_candidates and (
+            self.shared_match_mode == "collector-only" or len(shared_candidates) >= max(int(min_count), int(self.daily_news_target))
+        ):
             candidates = shared_candidates
             collected_urls.update({a.url for a in candidates if isinstance(a, CollectedArticle)})
             source_stats = {"shared": {"attempt": 0, "fail": 0}}
             use_shared_only = True
             total_candidates = candidates
+            if self.shared_match_mode == "collector-only":
+                self._log(f"[collect] shared_pool_collector_only user_code={user.user_code} size={len(shared_candidates)}")
         elif shared_enabled and shared_candidates:
             self._log(f"[collect] shared_pool_insufficient user_code={user.user_code} size={len(shared_candidates)} fallback_collect=true")
         else:
