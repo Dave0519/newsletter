@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from collections import Counter, OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Callable
@@ -20,7 +21,7 @@ except Exception:  # pragma: no cover
 
 from .models import CollectedArticle, NewsletterEntry, UserProfile
 from .utils import ensure_dir
-from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, summarize_core_ko, rewrite_title, _llm
+from .llm_text_utils import extract_hashtags, summarize_ko, summarize_core_ko, rewrite_title, _llm
 
 
 def _load_template(template_path: Path) -> str:
@@ -846,11 +847,11 @@ class WritingAgent:
 
             compact = ""
             if body:
+                # core_description은 LLM 출력만 사용(본문 조각 보강 금지)
                 compact = summarize_core_ko(body, title=title, sentence_count=2)
                 compact = self._clean_summary_text(compact)
                 compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
                 compact = self._strip_summary_noise((compact or "").strip())
-                compact = self._ensure_min_summary_lines(compact, body, min_lines=2, max_lines=2)
                 compact = self._to_complete_summary_lines(compact, max_lines=2)
 
             if compact:
@@ -923,17 +924,33 @@ class WritingAgent:
 
         title = self._to_complete_sentences(title, max_lines=1)
 
-        # 요약: 본문 기반 LLM 우선 + 검수 재시도 1회
-        description = self._llm_summary_from_body(title, summary_source, line_count=5)
-        if description:
-            ok, reason = self._llm_judge_summary(title, summary_source, description)
-            if not ok:
-                description = self._llm_summary_from_body(title, summary_source, regenerate_hint=reason, line_count=7)
+        # article_summary / practical은 모두 daily_news body 기반으로 각각 다른 프롬프트를 병렬 생성
+        def _gen_summary() -> str:
+            d = self._llm_summary_from_body(title, summary_source, line_count=5)
+            if d:
+                ok, reason = self._llm_judge_summary(title, summary_source, d)
+                if not ok:
+                    d = self._llm_summary_from_body(title, summary_source, regenerate_hint=reason, line_count=7)
+            if not d:
+                d = summarize_ko(summary_source, title=title, sentence_count=7)
+            if not d:
+                d = self._strip_html(summary_source)
+            return d
 
-        if not description:
-            description = summarize_ko(summary_source, title=title, sentence_count=7)
-        if not description:
-            description = self._strip_html(summary_source)
+        def _gen_practical() -> str:
+            return self._openclaw_style_practical(
+                title=title,
+                summary="",
+                body=summary_source,
+                user=user,
+                issue_number=issue_number,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fut_summary = ex.submit(_gen_summary)
+            fut_practical = ex.submit(_gen_practical)
+            description = fut_summary.result() or ""
+            practical_prefetch = fut_practical.result() or ""
 
         if not description:
             description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
@@ -975,6 +992,7 @@ class WritingAgent:
             "readable_body": readable_body,
             "raw_title": raw_title,
             "input_summary": c.summary or "",
+            "precomputed_practical": practical_prefetch,
         }
         if self.trace_enabled and user is not None:
             elapsed_ms = int((datetime.now().astimezone() - t0).total_seconds() * 1000)
@@ -1050,18 +1068,14 @@ class WritingAgent:
             practical_source = (ctx.get("summary_source") or "").strip()
             practical_body = (ctx.get("readable_body") or "").strip()
 
-            practical = self._openclaw_style_practical(
-                title=e.title,
-                summary=e.summary,
-                body=(practical_body or practical_source),
-                user=user,
-                issue_number=issue_number,
-            )
+            practical = (ctx.get("precomputed_practical") or "").strip()
             if not practical:
-                practical = practical_ko(
-                    e.title,
-                    f"{e.summary}\n\n{practical_source}",
-                    max_sentences=3,
+                practical = self._openclaw_style_practical(
+                    title=e.title,
+                    summary="",
+                    body=(practical_body or practical_source),
+                    user=user,
+                    issue_number=issue_number,
                 )
             if not self._assert_source_alignment(practical or e.summary, practical_source or practical_body):
                 practical = self._repair_by_source(practical or e.summary, practical_source or practical_body, "실무 시사점을 본문 근거로 3문장 이내로 정리", max_lines=3)
