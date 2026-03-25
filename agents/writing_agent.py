@@ -20,7 +20,7 @@ except Exception:  # pragma: no cover
 
 from .models import CollectedArticle, NewsletterEntry, UserProfile
 from .utils import ensure_dir
-from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, rewrite_title, translate_ko
+from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, rewrite_title, translate_ko, _llm
 
 
 def _load_template(template_path: Path) -> str:
@@ -331,8 +331,8 @@ class WritingAgent:
         return _normalize_whitespace(t)
 
     def _llm_request(self, prompt: str, max_tokens: int = 800, temperature: float = 0.2) -> str:
-        # lightweight fallback without hard dependency on OpenAI caller availability
-        return ""
+        # LLM 단일 경로: 텍스트 생성 실패시 빈 문자열 반환
+        return _llm(prompt, max_tokens=max_tokens, temp=temperature)
 
     def _llm_generate_title_from_body(self, title: str, body: str) -> str:
         base = (title or "").strip()
@@ -343,7 +343,11 @@ class WritingAgent:
         return ""
 
     def _llm_summary_from_body(self, title: str, body: str, regenerate_hint: str = "", line_count: int = 7) -> str:
-        return summarize_ko((body or "").strip(), title=title or "", sentence_count=line_count)
+        source = (body or "").strip()
+        if not source:
+            return ""
+        # 모든 article_summary/core_description은 LLM 우선, 한국어로 작성
+        return summarize_ko(source, title=title or "", sentence_count=line_count)
 
     def _llm_judge_summary(self, title: str, source: str, summary: str):
         # Conservative fallback: rely on source alignment check
@@ -822,7 +826,7 @@ class WritingAgent:
 
         for entry, ctx in ordered_payloads:
             title = (entry.title or "").strip()
-            # Core description은 반드시 daily_news body만 사용
+            # Core description도 article_summary와 동일하게 daily_news 본문 기반 LLM 요약
             body = (ctx.get("readable_body") or "").strip()
 
             compact = ""
@@ -831,9 +835,9 @@ class WritingAgent:
                 compact = self._to_complete_summary_lines(compact, max_lines=2)
                 compact = compact.replace("\n", " ").strip()
                 compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
+                compact = self._force_korean(compact, fallback_on_fail="")
                 compact = self._strip_summary_noise((compact or "").strip())
-                if compact:
-                    compact = self._ensure_min_summary_lines(compact, body, min_lines=1, max_lines=2)
+                compact = self._ensure_min_summary_lines(compact, body, min_lines=1, max_lines=2)
 
             if compact:
                 lines.append(f"• {compact}")
@@ -935,6 +939,7 @@ class WritingAgent:
         body_snippet = (body or "")[:8000]
         prompt = (
             "아래 기사 제목/요약/본문을 바탕으로 실무 시사점을 한국어로 작성해라.\n"
+            "반드시 한국어로만 작성하고, 본문/요약 근거 기반으로만 판단해.\n"
             "작성 원칙:\n"
             "1) 기사 본문 근거 중심으로만 작성, 외부 추측 최소화\n"
             "2) 해당 이슈에 대한 실무 액션/리스크/대응 방향을 3문장으로 제시\n"
@@ -952,7 +957,9 @@ class WritingAgent:
             self._emit_stage(user, issue_number, stage_id="practical", status="done", in_count=1, out_count=1 if out else 0, elapsed_ms=elapsed_ms)
         if not out:
             return ""
-        return self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=3), max_lines=3)
+        out = self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=3), max_lines=3)
+        out = self._force_korean(out, fallback_on_fail="")
+        return out
 
 
     def _attach_practical_implications(self, entries: list[NewsletterEntry], contexts: list[dict[str, str]], user: UserProfile | None = None, issue_number: int | None = None) -> list[NewsletterEntry]:
