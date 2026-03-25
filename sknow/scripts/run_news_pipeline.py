@@ -15,6 +15,11 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 from functools import lru_cache
 
+try:
+    from agents.llm_text_utils import _llm as _shared_llm
+except Exception:
+    _shared_llm = None
+
 
 def _load_env_file(path: Path, env: dict[str, str]) -> None:
     if not path.exists():
@@ -474,6 +479,45 @@ def _collector_query_match(row: dict) -> bool:
     return any(t in hay for t in tokens)
 
 
+def _needs_llm_cleanup(text: str) -> bool:
+    if not text:
+        return False
+    low = text.lower()
+    markers = [
+        "more topics",
+        "기자구독",
+        "실시간뉴스",
+        "등록 ",
+        "수정 ",
+        "taboola",
+        "dable",
+        "뉴스by",
+        "url 복사",
+        "작게 보통 크게",
+    ]
+    return any(m in low for m in markers)
+
+
+def _llm_clean_shared_text(text: str, kind: str = "body") -> str:
+    src = (text or "").strip()
+    if not src:
+        return ""
+    if _shared_llm is None:
+        return src
+    prompt = (
+        "다음 뉴스 텍스트에서 기사 본문과 무관한 메타/UI/광고/위젯 문구만 제거해라.\n"
+        "원문 사실/수치/핵심 문장은 절대 삭제하지 말고 순서도 크게 바꾸지 마라.\n"
+        "제거 대상 예시: 기자명, 기자구독, 등록/수정 시각, 실시간뉴스, More topics, Taboola, Dable, URL 복사, 저작권 문구.\n"
+        "출력은 정제된 텍스트만 반환하고, 설명/머리말/코멘트는 금지.\n"
+        f"[TEXT_KIND]\n{kind}\n\n"
+        f"[RAW_TEXT]\n{src[:9000]}"
+    )
+    out = (_shared_llm(prompt, max_tokens=1200, temp=0.0) or "").strip()
+    if not out:
+        return src
+    return out
+
+
 def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
     title = str(row.get("title_raw") or "")
     summary = str(row.get("text_summary") or row.get("summary") or "")
@@ -544,6 +588,23 @@ def _to_shared_rows(summary: dict, collector_root: Path) -> tuple[list[dict], di
             url = _canonical_url(str(row.get("resolved_url") or row.get("discovered_url") or ""))
             if not url:
                 continue
+
+            # shared 적재 전 LLM 기반 메타/UI 정제(의심 row에만 적용)
+            raw_title = str(row.get("title_raw") or "")
+            raw_summary = str(row.get("text_summary") or row.get("summary") or "")
+            raw_body = str(row.get("fetch_text_raw") or row.get("body") or "")
+            if _needs_llm_cleanup(raw_title):
+                raw_title = _llm_clean_shared_text(raw_title, kind="title")
+            if _needs_llm_cleanup(raw_summary):
+                raw_summary = _llm_clean_shared_text(raw_summary, kind="summary")
+            if _needs_llm_cleanup(raw_body):
+                raw_body = _llm_clean_shared_text(raw_body, kind="body")
+
+            row = dict(row)
+            row["title_raw"] = raw_title
+            row["text_summary"] = raw_summary
+            row["fetch_text_raw"] = raw_body
+
             filter_stats["total"] += 1
             is_filtered, reason = _is_shared_row_filtered(row)
             if is_filtered:
