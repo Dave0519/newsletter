@@ -280,7 +280,7 @@ class WritingAgent:
 
         if not out:
             return t
-        return ". ".join(out).strip().rstrip(".")
+        return self._normalize_ellipsis(". ".join(out).strip().rstrip("."))
 
     def _trim_body_prefix(self, text: str, title: str) -> str:
         if not text or not title:
@@ -344,7 +344,7 @@ class WritingAgent:
         t = re.sub(r"\s*:\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}\s*\d{1,2}:\d{2}.*", " ", t)
         t = re.sub(r"[\(\[].*?(?:전자신문|IT 이슈플러스|회사소개|시사용어|이벤트|행사문의|고객센터|광고|뉴스\s*속보|뉴스검색|뉴스\s*검색)[^\)\]]*[\)\]]", " ", t)
         t = re.sub(r"\s*[가-힣]+=뉴시스\s+.*", " ", t)
-        return _normalize_whitespace(t)
+        return self._normalize_ellipsis(_normalize_whitespace(t))
 
     def _llm_request(self, prompt: str, max_tokens: int = 800, temperature: float = 0.2) -> str:
         # LLM 단일 경로: 텍스트 생성 실패시 빈 문자열 반환
@@ -369,6 +369,25 @@ class WritingAgent:
         # Conservative fallback: rely on source alignment check
         ok = bool(summary) and self._assert_source_alignment(summary, source)
         return ok, "" if ok else "요약 근거 정합성 점검 실패"
+
+    def _llm_refine_from_source(self, kind: str, text: str, source: str, max_lines: int = 5, linebreak: bool = True) -> str:
+        src = (source or "").strip()
+        cur = (text or "").strip()
+        if not src or not cur:
+            return cur
+        fmt = "문장당 한 줄로 줄바꿈" if linebreak else "줄바꿈 없이 한 문단"
+        prompt = (
+            f"아래 {kind} 초안을 기사 원문 근거로 교정해라.\n"
+            "목표: 메타/UI/광고 문구 제거, 원문 사실만 유지, 한국어만 사용.\n"
+            "원문에 없는 추측/전망/평가 금지, 내용 왜곡 금지.\n"
+            "출력은 절대 '...' 또는 '…'를 쓰지 말고, 문장이 끊긴 채로 끝내지 말 것.\n"
+            "문장 끝은 마침표/물음표/느낌표로 마감하고, 필요하면 문장만 재작성할 것.\n"
+            f"출력 형식: 최대 {max_lines}문장, {fmt}, 설명/라벨 없이 결과문만 출력.\n\n"
+            f"[원문]\n{src[:9000]}\n\n"
+            f"[{kind} 초안]\n{cur[:3000]}"
+        )
+        out = (self._llm_request(prompt, max_tokens=700, temperature=0.1) or "").strip()
+        return out or cur
 
     def _korean_country(self, country: str) -> str:
         c = (country or "").strip().upper()
@@ -554,7 +573,7 @@ class WritingAgent:
         return out
 
     def _to_complete_sentences(self, text: str, max_lines: int = 5) -> str:
-        t = (text or "").replace("\r", "").strip()
+        t = self._normalize_ellipsis((text or "")).replace("\r", "").strip()
         if not t:
             return ""
 
@@ -565,7 +584,7 @@ class WritingAgent:
 
         out = []
         for s in segs:
-            s = s.strip()
+            s = self._normalize_ellipsis(s.strip())
             if not s:
                 continue
             if not re.search(r"[\.。!?！？]$", s):
@@ -576,8 +595,19 @@ class WritingAgent:
 
         return "\n".join(out[:max_lines])
 
+    def _normalize_ellipsis(self, text: str) -> str:
+        t = (text or "").strip()
+        if not t:
+            return t
+        # 문장 말미 생략 표현(...) 제거 후 정리
+        t = re.sub(r"\.\.\.|\.\.{2,}|…", "", t)
+        t = re.sub(r"\s{2,}", " ", t)
+        t = re.sub(r"\.\s*,", ",", t)
+        t = t.strip()
+        return t
+
     def _to_complete_summary_lines(self, text: str, max_lines: int = 7) -> str:
-        t = (text or "").replace("\r", "").strip()
+        t = self._normalize_ellipsis((text or "")).replace("\r", "").strip()
         if not t:
             return ""
 
@@ -588,7 +618,7 @@ class WritingAgent:
 
         out = []
         for s in segs:
-            s = s.strip()
+            s = self._normalize_ellipsis(s.strip())
             if not s:
                 continue
             if not re.search(r"[\.。!?！？]$", s):
@@ -600,7 +630,7 @@ class WritingAgent:
         return "\n".join(out[:max_lines])
 
     def _compact_2sentence_summary(self, text: str, max_sentences: int = 2) -> str:
-        t = (text or "").replace("\r", " ").strip()
+        t = self._normalize_ellipsis((text or "")).replace("\r", " ").strip()
         if not t:
             return ""
 
@@ -615,7 +645,7 @@ class WritingAgent:
 
         out = []
         for s in selected:
-            s = s.strip()
+            s = self._normalize_ellipsis(s.strip())
             if not s:
                 continue
             if not re.search(r"[\.。!?！？]$", s):
@@ -849,6 +879,7 @@ class WritingAgent:
             if body:
                 # core_description은 LLM 출력만 사용(본문 조각 보강 금지)
                 compact = summarize_core_ko(body, title=title, sentence_count=2)
+                compact = self._llm_refine_from_source("core_description", compact, body, max_lines=2, linebreak=True)
                 compact = self._clean_summary_text(compact)
                 compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
                 compact = self._strip_summary_noise((compact or "").strip())
@@ -957,6 +988,7 @@ class WritingAgent:
 
         description = self._ensure_korean_summary_lines(description, max_lines=5)
         description = self._ensure_min_summary_lines(description, source=summary_source, min_lines=3, max_lines=5)
+        description = self._llm_refine_from_source("article_summary", description, summary_source, max_lines=5, linebreak=True)
         description = self._clean_summary_text(description)
         if not description:
             description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
@@ -1077,6 +1109,7 @@ class WritingAgent:
                     user=user,
                     issue_number=issue_number,
                 )
+            practical = self._llm_refine_from_source("실무 시사점", practical, practical_body or practical_source, max_lines=3, linebreak=False)
             if not self._assert_source_alignment(practical or e.summary, practical_source or practical_body):
                 practical = self._repair_by_source(practical or e.summary, practical_source or practical_body, "실무 시사점을 본문 근거로 3문장 이내로 정리", max_lines=3)
             e.practical_implication = practical
