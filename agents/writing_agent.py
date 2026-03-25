@@ -20,7 +20,7 @@ except Exception:  # pragma: no cover
 
 from .models import CollectedArticle, NewsletterEntry, UserProfile
 from .utils import ensure_dir
-from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, summarize_core_ko, rewrite_title, translate_ko, _llm
+from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, summarize_core_ko, rewrite_title, _llm
 
 
 def _load_template(template_path: Path) -> str:
@@ -849,7 +849,6 @@ class WritingAgent:
                 compact = summarize_core_ko(body, title=title, sentence_count=2)
                 compact = self._clean_summary_text(compact)
                 compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
-                compact = self._force_korean(compact, fallback_on_fail="")
                 compact = self._strip_summary_noise((compact or "").strip())
                 compact = self._ensure_min_summary_lines(compact, body, min_lines=2, max_lines=2)
                 compact = self._to_complete_summary_lines(compact, max_lines=2)
@@ -920,9 +919,7 @@ class WritingAgent:
             except Exception:
                 ko_title = ""
             ko_title = self._normalize_title_candidate((ko_title or "").strip())
-            if not ko_title and summary_source:
-                ko_title = self._normalize_title_candidate((translate_ko(title) or "").strip())
-            title = self._force_korean(ko_title, fallback_on_fail=title)
+            title = self._normalize_title_candidate(ko_title or title)
 
         title = self._to_complete_sentences(title, max_lines=1)
 
@@ -938,18 +935,14 @@ class WritingAgent:
         if not description:
             description = self._strip_html(summary_source)
 
-        description = self._force_korean(description, fallback_on_fail="")
         if not description:
             description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
 
         description = self._ensure_korean_summary_lines(description, max_lines=5)
         description = self._ensure_min_summary_lines(description, source=summary_source, min_lines=3, max_lines=5)
         description = self._clean_summary_text(description)
-        description = self._force_korean(description, fallback_on_fail="")
         if not description:
-            translated = translate_ko(self._clean_summary_text(summary_source)[:900])
-            description = self._ensure_korean_summary_lines(translated, max_lines=4)
-        description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
+            description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
         description = self._to_complete_summary_lines(description, max_lines=5)
         if not self._assert_source_alignment(description, summary_source):
             description = self._repair_by_source(description, summary_source, "기사 요약을 본문 근거로 3~5줄 이내로 완성형 문장으로 수정", max_lines=5)
@@ -965,7 +958,8 @@ class WritingAgent:
         description = "\n".join(cleaned_lines)
         description = self._clean_summary_text(description)
         description = self._to_complete_summary_lines(description, max_lines=5)
-        description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
+        if not description:
+            description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
 
         entry = NewsletterEntry(
             title=title,
@@ -1043,7 +1037,6 @@ class WritingAgent:
         if not out:
             return ""
         out = self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=3), max_lines=3)
-        out = self._force_korean(out, fallback_on_fail="")
         return out
 
 
