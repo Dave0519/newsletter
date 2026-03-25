@@ -411,6 +411,12 @@ def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
     texts = [title, summary, body, source, lane, query]
     joined = "\n".join(texts)
 
+    # 운영 정책: digitimesasia 계열은 shared pool 적재 전 제외
+    low_url = (url or "").lower()
+    low_source = (source or "").lower()
+    if "digitimesasia" in low_url or "digitimesasia" in low_source:
+        return True, "blocked_source_digitimesasia"
+
     if _is_paid_candidate(joined):
         return True, "paid_keyword"
     if _is_paid_url(url):

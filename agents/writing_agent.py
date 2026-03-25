@@ -20,7 +20,7 @@ except Exception:  # pragma: no cover
 
 from .models import CollectedArticle, NewsletterEntry, UserProfile
 from .utils import ensure_dir
-from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, rewrite_title, translate_ko, _llm
+from .llm_text_utils import practical_ko, extract_hashtags, summarize_ko, summarize_core_ko, rewrite_title, translate_ko, _llm
 
 
 def _load_template(template_path: Path) -> str:
@@ -130,6 +130,17 @@ class WritingAgent:
     def _normalize_title_candidate(self, title: str) -> str:
         t = (title or "").strip()
         t = re.sub(r"\s+", " ", t)
+        t = _html.unescape(t)
+
+        # 기사 페이지 breadcrumbs/메타 꼬리 제거
+        t = re.sub(r"\s*<\s*(?:기업|정치|경제|국제|사회|생활|IT|FOCUS|오피니언|기사본문|반도체|디스플레이).*", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"\s*<\s*[^<]{0,50}$", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"\s*-\s*(?:전자신문|인공지능신문|테크수다|TechCrunch|Reuters|Bloomberg|SBS|연합뉴스)\s*$", "", t, flags=re.IGNORECASE)
+
+        # 깨진 괄호/브라켓 마무리
+        t = re.sub(r"[\]\)>]+$", "", t).strip()
+        t = t.strip("-:| ")
+
         if t.endswith("…"):
             t = t[:-1].strip()
         return t[:140]
@@ -200,6 +211,7 @@ class WritingAgent:
             r"추천 검색어",
             r"많이 본 뉴스",
             r"발행일",
+            r"송고",
             r"댓글",
             r"서비스",
             r"주소\s*\S*",
@@ -221,6 +233,9 @@ class WritingAgent:
             r"전체\s*서비스",
             r"이용하기",
             r"저작권\s*©",
+            r"무단\s*전재",
+            r"재배포\s*금지",
+            r"AI\s*학습\s*이용\s*금지",
             r"최초\s*작성\s*시간",
             r"기사제목",
             r"구독\s*\w*신청",
@@ -831,16 +846,17 @@ class WritingAgent:
 
             compact = ""
             if body:
-                compact = self._llm_summary_from_body(title, body, line_count=2)
-                compact = self._to_complete_summary_lines(compact, max_lines=2)
-                compact = compact.replace("\n", " ").strip()
+                compact = summarize_core_ko(body, title=title, sentence_count=2)
+                compact = self._clean_summary_text(compact)
                 compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
                 compact = self._force_korean(compact, fallback_on_fail="")
                 compact = self._strip_summary_noise((compact or "").strip())
-                compact = self._ensure_min_summary_lines(compact, body, min_lines=1, max_lines=2)
+                compact = self._ensure_min_summary_lines(compact, body, min_lines=2, max_lines=2)
+                compact = self._to_complete_summary_lines(compact, max_lines=2)
 
             if compact:
-                lines.append(f"• {compact}")
+                # 기사별 2줄 유지
+                lines.append(f"• {compact.replace(chr(10), '<br/>')}")
 
         return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
 
@@ -877,13 +893,41 @@ class WritingAgent:
 
         # 제목: 기사 제목 우선 사용 (daily news 기반)
         title = raw_title or c.title or "제목 변환이 아직 완료되지 않았습니다."
-        # 깨진 패턴/너무 짧은 제목은 원문 필드로 보강
-        if (not title) or (title.strip() in {"네이버뉴스.", "네이버뉴스", "Google News.", "Google News", "google news.", "google news", "제목 변환이 아직 완료되지 않았습니다."}) or len(title.strip()) < 3:
-            title = raw_title or c.title or title
+        # 깨진 패턴/너무 짧은 제목은 본문 기반 재작성으로 교정
+        bad_title = (
+            (not title)
+            or (title.strip() in {"네이버뉴스.", "네이버뉴스", "Google News.", "Google News", "google news.", "google news", "제목 변환이 아직 완료되지 않았습니다."})
+            or len(title.strip()) < 6
+            or ("기사본문" in title)
+            or title.strip().endswith("]")
+        )
+        if bad_title:
+            regenerated = self._llm_generate_title_from_body(title, summary_source)
+            title = self._normalize_title_candidate(regenerated or raw_title or c.title or title)
+
+        # 정책: article_title도 LLM 기반 한국어 작성 우선
+        if title and not self._contains_korean(title):
+            ko_title = ""
+            try:
+                ko_title = self._llm_request(
+                    "다음 기사 제목과 본문을 바탕으로 뉴스레터용 한국어 제목 1문장으로 작성해줘. "
+                    "반드시 한국어로만 작성하고, 45자 내외로 간결하게 작성해. "
+                    "[주니어전자], [속보], [단독] 같은 매체/라벨 접두어는 절대 포함하지 마.\n\n"
+                    f"[제목]\n{title}\n\n[본문]\n{(summary_source or '')[:1200]}",
+                    max_tokens=80,
+                    temperature=0.2,
+                )
+            except Exception:
+                ko_title = ""
+            ko_title = self._normalize_title_candidate((ko_title or "").strip())
+            if not ko_title and summary_source:
+                ko_title = self._normalize_title_candidate((translate_ko(title) or "").strip())
+            title = self._force_korean(ko_title, fallback_on_fail=title)
+
         title = self._to_complete_sentences(title, max_lines=1)
 
-        # 요약: 본문 기반 6줄 이내 + 검수 재시도 1회
-        description = self._llm_summary_from_body(title, summary_source, line_count=7)
+        # 요약: 본문 기반 LLM 우선 + 검수 재시도 1회
+        description = self._llm_summary_from_body(title, summary_source, line_count=5)
         if description:
             ok, reason = self._llm_judge_summary(title, summary_source, description)
             if not ok:
@@ -898,12 +942,30 @@ class WritingAgent:
         if not description:
             description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
 
-        description = self._ensure_korean_summary_lines(description, max_lines=7)
-        description = self._ensure_min_summary_lines(description, source=summary_source, min_lines=6, max_lines=7)
+        description = self._ensure_korean_summary_lines(description, max_lines=5)
+        description = self._ensure_min_summary_lines(description, source=summary_source, min_lines=3, max_lines=5)
+        description = self._clean_summary_text(description)
+        description = self._force_korean(description, fallback_on_fail="")
+        if not description:
+            translated = translate_ko(self._clean_summary_text(summary_source)[:900])
+            description = self._ensure_korean_summary_lines(translated, max_lines=4)
         description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
-        description = self._to_complete_summary_lines(description, max_lines=7)
+        description = self._to_complete_summary_lines(description, max_lines=5)
         if not self._assert_source_alignment(description, summary_source):
-            description = self._repair_by_source(description, summary_source, "기사 요약을 본문 근거로 6~7줄 이내로 완성형 문장으로 수정", max_lines=7)
+            description = self._repair_by_source(description, summary_source, "기사 요약을 본문 근거로 3~5줄 이내로 완성형 문장으로 수정", max_lines=5)
+
+        # 최종 메타 문구/저작권 라인 제거
+        cleaned_lines: list[str] = []
+        for ln in [x.strip() for x in str(description or "").splitlines() if x.strip()]:
+            if re.search(r"저작권|무단\s*전재|재배포\s*금지|AI\s*학습\s*이용\s*금지|송고\s*\d", ln, re.IGNORECASE):
+                continue
+            cleaned_lines.append(ln)
+            if len(cleaned_lines) >= 5:
+                break
+        description = "\n".join(cleaned_lines)
+        description = self._clean_summary_text(description)
+        description = self._to_complete_summary_lines(description, max_lines=5)
+        description = self._force_korean(description, fallback_on_fail="해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다.")
 
         entry = NewsletterEntry(
             title=title,
@@ -938,17 +1000,40 @@ class WritingAgent:
 
         body_snippet = (body or "")[:8000]
         prompt = (
-            "아래 기사 제목/요약/본문을 바탕으로 실무 시사점을 한국어로 작성해라.\n"
-            "반드시 한국어로만 작성하고, 본문/요약 근거 기반으로만 판단해.\n"
-            "작성 원칙:\n"
-            "1) 기사 본문 근거 중심으로만 작성, 외부 추측 최소화\n"
-            "2) 해당 이슈에 대한 실무 액션/리스크/대응 방향을 3문장으로 제시\n"
-            "3) 단정이 아닌 실행 관점 중심 문장으로 마무리\n"
-            "4) 문장당 짧고 즉시 참고 가능한 수준\n"
-            "5) 번호/리스트(1), 첫째, 둘째, • 등) 형식 사용 금지\n\n"
-            f"[제목]\n{title}\n\n"
-            f"[요약]\n{summary}\n\n"
-            f"[본문]\n{body_snippet}"
+            "당신은 뉴스/산업 기사에서 실무적 시사점을 부드럽게 도출하는 전략 보조자입니다.\n\n"
+            "아래 기사 원문을 바탕으로, SK하이닉스 실무자 관점에서 참고할 만한 가벼운 실무 시사점을 작성하세요.\n\n"
+            "[작성 목표]\n"
+            "- 단정적인 결론이나 과도한 해석이 아니라, \"이런 관점에서도 생각해볼 수 있겠다\" 수준의 가벼운 인사이트를 제시하세요.\n"
+            "- 읽는 사람이 부담 없이 받아들이되, 내부적으로 한 번 더 생각해보게 만드는 질문형 문제의식을 담으세요.\n"
+            "- 정답을 제시하는 느낌보다, 실무자가 스스로 판단할 수 있도록 사고의 방향을 열어주는 느낌으로 작성하세요.\n\n"
+            "[핵심 원칙]\n"
+            "- 반드시 기사 원문에 나온 사실만 근거로 삼으세요.\n"
+            "- 원문에 없는 정보, 외부 지식, 추측, 내부 사정 가정, 확정적 전망은 넣지 마세요.\n"
+            "- '반드시', '결국', '분명히', '즉시 대응해야 한다' 같은 단정적 표현은 피하세요.\n"
+            "- 위기감 조성, 과장된 해석, 지나친 전략적 비약은 금지합니다.\n"
+            "- 실무자 관점에서 현실적으로 생각해볼 포인트만 가볍게 정리하세요.\n"
+            "- 문체는 부드럽고 절제된 비즈니스 문체로 작성하세요.\n"
+            "- 뉴스레터 본문에서 양쪽정렬로 읽힌다는 점을 고려해 문장 길이와 호흡을 균형 있게 맞추세요.\n\n"
+            "[톤 가이드]\n"
+            "- '~로 볼 수 있다' / '~도 생각해볼 수 있다' / '~여부를 점검해볼 필요가 있다' / '~관점에서 한 번 볼 만하다' 같은 표현을 활용하세요.\n"
+            "- 훈수, 지시, 결론 선언처럼 들리지 않게 작성하세요.\n"
+            "- '이 기사가 곧바로 무엇을 의미한다'보다 '이 흐름이 실무에서 어떤 질문으로 이어질 수 있는지'를 보여주세요.\n\n"
+            "[출력 형식]\n"
+            "- 한국어로 작성하세요.\n"
+            "- 줄바꿈 없이 하나의 짧은 문단으로 작성하세요.\n"
+            "- 2~4문장으로 작성하세요.\n"
+            "- 기사 요약을 반복하지 말고, 시사점만 작성하세요.\n"
+            "- 필요하면 마지막 문장을 가벼운 질문형으로 마무리하세요.\n"
+            "- 질문은 1개 또는 2개까지만 포함하세요.\n"
+            "- 질문은 압박형이 아니라 검토형이어야 합니다.\n\n"
+            "[금지 사항]\n"
+            "- SK하이닉스의 내부 전략을 아는 것처럼 쓰지 마세요.\n"
+            "- 투자 조언처럼 쓰지 마세요.\n"
+            "- 기사 사실을 넘어선 산업 전망을 단정하지 마세요.\n"
+            "- 과장된 위기론/낙관론을 쓰지 마세요.\n"
+            "- 'SK하이닉스는 ~해야 한다' 식의 명령형 표현을 쓰지 마세요.\n\n"
+            "이제 아래 기사 원문을 바탕으로 실무 시사점을 작성하세요.\n\n"
+            f"기사 원문:\n{body_snippet}"
         )
         out = self._llm_request(prompt, max_tokens=420, temperature=0.2)
         out = (out or "").strip()
