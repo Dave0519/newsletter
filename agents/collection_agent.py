@@ -1087,6 +1087,7 @@ class CollectionAgent:
                 matched_aliases = list(base.matched_aliases or [])
                 need_hit_score = float(base.need_match_score or 0.0)
             else:
+                merged = f"{base.title} {base.summary} {base.body}"
                 matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged, needs_payload)
                 if not matched_need_ids:
                     continue
@@ -1365,56 +1366,98 @@ class CollectionAgent:
         text: str,
         needs_payload: list[dict],
     ) -> tuple[list[str], list[str], list[str], float]:
-        t = (text or "").lower()
-        tokens = set(re.findall(r"[a-z0-9가-힣]+", t))
-        # 짧은 키워드 오탐 방지를 위해 문맥 제한을 둔다.
-        short_alias_context = {
-            "dram": {"dram", "hbm", "memory", "semiconductor", "반도체", "메모리", "samsung", "삼성", "micron", "hynix", "하이닉스"},
-            "db": {"database", "databases", "데이터베이스", "db", "반도체", "semiconductor", "memory", "메모리"},
-            "hpc": {"hpc", "high", "performance", "computing", "반도체", "ai", "gpus", "gpu", "memory", "memorys"},
-        }
+        prompt_needs: list[dict[str, object]] = []
+        for item in needs_payload:
+            if not isinstance(item, dict):
+                continue
+            nid = str(item.get("need_id", "")).strip()
+            need_text = str(item.get("need_text", "")).strip()
+            aliases = [str(a).strip() for a in item.get("aliases", []) if str(a).strip()]
+            aliases_flat = [str(a).strip() for a in item.get("aliases_flat", []) if str(a).strip()]
+            if not nid and need_text:
+                nid = re.sub(r"\s+", "", need_text).lower()
+            if not nid:
+                continue
+            prompt_needs.append({
+                "need_id": nid,
+                "need_text": need_text or nid,
+                "aliases": list(dict.fromkeys(aliases + aliases_flat + [need_text or nid])),
+            })
+
+        if not prompt_needs:
+            return [], [], [], 0.0
+
+        article_text = (text or "").strip()
+        snippet = article_text[:5000]
+        prompt = (
+            "당신은 뉴스 기사와 사용자 니즈 목록을 매칭하는 분류기입니다.\n"
+            "아래 기사 텍스트에 대해, 사용자 니즈 중 실제로 관련있는 항목만 골라라.\n"
+            "규칙:\n"
+            "- 기사 문맥에 실제 관련성이 있어야 True로 판단\n"
+            "- 니즈에 직접적으로 연관되지 않으면 False\n"
+            "- 출력은 오직 JSON만 반환.\n\n"
+            "출력 JSON 스키마:\n"
+            "{\"matches\": [\n"
+            "  {\"need_id\": \"<id>\", \"need_text\": \"<text>\", \"aliases\": [\"...\"], \"confidence\": 0.0, \"why\": \"한 줄 근거\"}\n"
+            "]}\n\n"
+            "confidence는 0~1 실수. 0.4 미만은 False로 간주.\n"
+            f"니즈 목록:\n{json.dumps(prompt_needs, ensure_ascii=False)}\n"
+            f"기사 텍스트:\n{snippet}\n"
+        )
+
+        raw = self._llm_request(prompt, max_tokens=960, temperature=0.0)
+        matches: list[dict] = []
+        data = None
+        if raw:
+            try:
+                data = json.loads(raw)
+            except Exception:
+                m = re.search(r"```json\s*(.*?)```", raw, flags=re.S | re.I)
+                if m:
+                    try:
+                        data = json.loads(m.group(1).strip())
+                    except Exception:
+                        data = None
+        if isinstance(data, dict):
+            raw_matches = data.get("matches")
+            if isinstance(raw_matches, list):
+                for item in raw_matches:
+                    if not isinstance(item, dict):
+                        continue
+                    nid = str(item.get("need_id", "")).strip()
+                    need_text = str(item.get("need_text", "")).strip()
+                    conf_raw = item.get("confidence", 0.0)
+                    try:
+                        conf = float(conf_raw)
+                    except Exception:
+                        conf = 0.0
+                    if not nid or conf < 0.4 or not need_text:
+                        continue
+                    aliases = [x for x in item.get("aliases", []) if isinstance(x, str) and x.strip()]
+                    matches.append({"need_id": nid, "need_text": need_text, "confidence": conf, "aliases": aliases})
 
         matched_need_ids: list[str] = []
         matched_needs: list[str] = []
         matched_aliases: list[str] = []
         need_score = 0.0
-        for item in needs_payload:
+
+        for item in prompt_needs:
             nid = str(item.get("need_id", "")).strip()
-            aliases = [str(a).strip() for a in item.get("aliases", []) if str(a).strip()]
-            for a in aliases:
-                a_norm = str(a).strip().lower()
-                if not a_norm:
+            for m in matches:
+                if str(m.get("need_id", "")).strip() != nid:
                     continue
-
-                alias_tokens = re.findall(r"[a-z0-9가-힣]+", a_norm)
-                hit = False
-
-                # 짧은 alias는 토큰 정확일치 + 문맥 필요
-                if len(a_norm) <= 4:
-                    if a_norm in tokens:
-                        ctx = short_alias_context.get(a_norm)
-                        hit = True
-                        if ctx:
-                            hit = bool(ctx.intersection(tokens))
-                    else:
-                        hit = False
-                else:
-                    if a_norm in t:
-                        hit = True
-                    elif alias_tokens and len(alias_tokens) >= 2:
-                        # 멀티 토큰 alias는 토큰 집합이 모두 텍스트에 존재해야 함
-                        hit = all(tok in tokens for tok in alias_tokens)
-
-                if hit:
-                    if nid and nid not in matched_need_ids:
-                        matched_need_ids.append(nid)
-                    if item.get("need_text") and item.get("need_text") not in matched_needs:
-                        matched_needs.append(str(item.get("need_text")))
-                    if a not in matched_aliases:
-                        matched_aliases.append(a)
-                    need_score += 1.0
+                if nid and nid not in matched_need_ids:
+                    matched_need_ids.append(nid)
+                    matched_needs.append(str(item.get("need_text") or m.get("need_text") or nid))
+                    need_score += float(m.get("confidence", 0.0))
+                    for a in item.get("aliases", []):
+                        aa = str(a).strip()
+                        if aa and aa not in matched_aliases:
+                            matched_aliases.append(aa)
                     break
+
         return matched_need_ids, matched_needs, matched_aliases, need_score
+
 
     def _maybe_build_article(
         self,
@@ -1475,7 +1518,8 @@ class CollectionAgent:
             self.stage_counters["filtered_stale"] += 1
             return None
 
-        matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged_for_match, needs_payload)
+        article_for_match = f"{raw_title}\n{raw_snippet}"
+        matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(article_for_match, needs_payload)
         if not matched_need_ids:
             self.stage_counters["fail"] += 1
             return None
