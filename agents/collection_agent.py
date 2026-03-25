@@ -1051,9 +1051,9 @@ class CollectionAgent:
                     collected_at=str(raw.get("collected_at") or datetime.now().astimezone().isoformat()),
                     relevance_note=str(raw.get("relevance_note") or ""),
                     relevance_score=float(raw.get("relevance_score") or 0.0),
-                    origin_type=raw.get("origin_type"),
-                    origin_detail=str(raw.get("origin_detail") or ""),
                     issue_angle_id=str(raw.get("issue_angle_id") or "") if raw.get("issue_angle_id") is not None else None,
+                    origin_type=(raw.get("origin_type") or "shared_pool"),
+                    origin_detail=str(raw.get("origin_detail") or ""),
                 )
             )
         return out
@@ -1120,6 +1120,8 @@ class CollectionAgent:
                 extracted_at=base.extracted_at,
                 collected_at=base.collected_at,
                 issue_angle_id=base.issue_angle_id,
+                origin_type="shared_pool",
+                origin_detail=(base.origin_detail or "shared_pool"),
             )
 
             if self.shared_match_mode == "collector-only":
@@ -1389,69 +1391,72 @@ class CollectionAgent:
 
         article_text = (text or "").strip()
         snippet = article_text[:5000]
-        prompt = """당신은 shared_pool에 저장된 뉴스 기사 본문을 읽고, 특정 사용자의 니즈와 실제 관련성이 있는지 판단하여 daily_news에 넣을지 결정하는 정밀 분류기입니다.
-당신의 목표는 "키워드가 보였는지"를 판별하는 것이 아니라, 기사 전체의 핵심 내용이 해당 사용자의 니즈와 실질적으로 관련이 있는지를 판단하는 것입니다.
+        prompt = (
+            "당신은 뉴스 기사와 사용자 니즈 목록을 매칭하는 정밀 분류기입니다.\n"
+            "아래 기사 텍스트를 읽고, 사용자 니즈 중 기사와 실제로 관련있는 항목만 골라라.\n\n"
 
-[입력]
-- article_body: shared_pool에 저장된 기사 본문 {body}
-- user_needs: 해당 사용자의 needs_payload
-- optional metadata: article_title, source, country, category 가 있을 수 있음
+            "입력 전제:\n"
+            "- 이 텍스트는 shared_pool에 저장된 기사 본문(body)이어야 하며, 본문 기반 판단을 우선한다.\n"
+            "- 본문이 빈값이거나 핵심 본문이 아닌 경우에는 해당 니즈를 매칭하지 않는다.\n"
+            "- summary/snippet은 판단 보조가 아니라 본문이 있으면 본문 우선으로 판단한다.\n\n"
 
-[판단 원칙]
-1. 반드시 기사 본문(article_body)에 실제로 드러난 내용만 근거로 판단하세요.
-2. need_text, aliases와 표면적으로 단어가 겹치더라도 기사 핵심 주제와 무관하면 매칭하지 마세요.
-3. 기사에서 한 번 스쳐 지나가는 언급, 배경 설명, 주변 사례, 비교 대상은 원칙적으로 매칭하지 마세요.
-4. 기사 핵심 주제, 주요 기업, 핵심 기술, 핵심 산업 변화, 직접적인 제품/시장/전략/행위가 해당 니즈와 연결될 때만 매칭하세요.
-5. 원문에 없는 추론, 외부 지식, 업계 상식, 확대 해석은 금지합니다.
-6. 너무 넓은 일반화는 금지합니다.
- - 예: AI가 언급되었다고 모두 AI Agent로 매칭하면 안 됩니다.
- - 예: 반도체가 잠깐 언급되었다고 HBM으로 바로 매칭하면 안 됩니다.
- - 예: 미국 빅테크 기사가 모두 데이터센터/클라우드/AI 인프라로 자동 매칭되면 안 됩니다.
-7. need 간 위계를 주의하세요.
- - 예: 메모리 기사라고 모두 HBM, DRAM, NAND, TSV를 동시에 매칭하지 마세요.
-8. 기사의 핵심이 특정 회사/기술/이벤트/지정학 이슈와 직접 연결될 때만 해당 need를 True로 판단하세요.
-9. exclusions가 있다면, exclusion에 해당하는 내용이 기사 핵심이면 해당 need는 제외하세요.
-10. countries가 주어진 경우, 해당 기사와 국가 맥락이 명확히 맞을 때 confidence를 높일 수 있지만, 국가만으로 매칭을 결정하지는 마세요.
+            "목표:\n"
+            "- 단순 키워드 포함 여부가 아니라, 기사 핵심 내용과 니즈의 실질적 관련성을 판단하라.\n"
+            "- 기사에 단어가 잠깐 등장하거나 배경 설명으로 언급된 정도라면 매칭하지 마라.\n"
+            "- 애매하면 제외하라. 잘못 매칭하는 것보다 놓치는 것이 낫다.\n\n"
 
-[confidence 기준]
-- 0.90~1.00: 기사 핵심 주제가 해당 need와 직접적으로 일치
-- 0.75~0.89: 기사 핵심 내용 중 중요한 축이 해당 need와 밀접하게 연결
-- 0.60~0.74: 관련성은 있으나 기사 전체 핵심이라고 보기엔 다소 약함
-- 0.40~0.59: 일부 관련 단서가 있으나 daily_news에 넣기엔 애매함
-- 0.00~0.39: 표면적 언급 또는 사실상 무관
+            "판단 규칙:\n"
+            "- 기사 문맥에 실제 관련성이 있어야 True로 판단\n"
+            "- 니즈에 직접적으로 연관되지 않으면 False\n"
+            "- 기사 핵심 주제, 주요 기업, 핵심 기술, 직접적인 산업 변화, 주요 발표/행위와 연결될 때만 매칭\n"
+            "- 기사에서 한 번 스쳐 지나가는 언급, 배경 설명, 주변 사례, 비교 대상은 원칙적으로 False\n"
+            "- aliases에 포함된 단어가 보이더라도 기사 핵심과 무관하면 False\n"
+            "- 원문에 없는 추론, 외부 지식, 업계 상식, 확대 해석은 금지\n"
+            "- 상위 개념이 나왔다고 하위 니즈까지 자동으로 매칭하지 마라\n"
+            "- 반대로 특정 니즈가 기사 핵심에 명확히 해당하면 관련 항목만 선별적으로 매칭하라\n"
+            "- 매칭 결과는 shared_pool 본문 기준으로만 판단하고, 요약/스니펫이 본문과 충돌할 경우 본문 판단을 따른다.\n\n"
 
-[포함 규칙]
-- confidence가 0.60 이상인 need만 matches에 포함하세요.
-- confidence가 0.60 이상인 need가 1개 이상이면 should_include_daily_news = true
-- 모두 0.60 미만이면 should_include_daily_news = false
-- 억지 매칭보다 누락이 낫습니다. 애매하면 제외하세요.
+            "confidence 기준:\n"
+            "- 0.90~1.00: 기사 핵심 주제가 해당 니즈와 직접적으로 일치\n"
+            "- 0.75~0.89: 기사 핵심 내용의 중요한 축이 해당 니즈와 밀접하게 연결\n"
+            "- 0.60~0.74: 관련성은 분명하지만 기사 전체 핵심이라고 보기에는 다소 약함\n"
+            "- 0.40~0.59: 일부 관련 단서가 있으나 약하거나 간접적임\n"
+            "- 0.00~0.39: 표면적 언급 또는 사실상 무관\n"
+            "- confidence가 0.4 미만이면 matches에 넣지 마라\n\n"
+            "why 작성 규칙:\n"
+            "- why는 반드시 기사 텍스트에 근거한 한 줄 설명으로 작성\n"
+            "- 해당 니즈와 연결되는 기사 속 핵심 내용이 무엇인지 구체적으로 적어라\n"
+            "- '관련 있어 보임', '연관 가능성 있음' 같은 모호한 표현은 피하라\n"
+            "- 원문에 없는 해석은 쓰지 마라\n\n"
 
-[근거 작성 규칙]
-- why는 반드시 기사 본문에 나온 내용만 바탕으로 1문장으로 작성하세요.
-- "관련 있어 보임", "연관 가능성 있음" 같은 모호한 표현은 피하세요.
-- 기사 핵심의 어떤 부분이 해당 need와 연결되는지 구체적으로 적으세요.
-- 원문에 없는 해석은 넣지 마세요.
+            "출력 규칙:\n"
+            "- 출력은 오직 JSON만 반환\n"
+            "- 아래 스키마를 반드시 지켜라\n"
+            "- 실제로 관련 있는 항목만 matches에 넣어라\n"
+            "- 중복 항목은 넣지 마라\n"
+            "- need_text와 aliases는 입력 니즈 목록의 값을 그대로 사용하라\n\n"
 
-[출력 규칙]
-- 출력은 반드시 JSON만 반환하세요.
-- JSON 바깥에 어떤 설명도 쓰지 마세요.
-- 매칭된 need만 matches 배열에 넣으세요.
-- 동일한 need를 중복으로 넣지 마세요.
-- need_text와 aliases는 입력값을 그대로 사용하세요.
+            "출력 JSON 스키마:\n"
+            "{\"matches\": [\n"
+            " {\"need_id\": \"<id>\", \"need_text\": \"<text>\", \"aliases\": [\"...\"], \"confidence\": 0.0, \"why\": \"한 줄 근거\"}\n"
+            "]}\n\n"
 
-[출력 JSON 스키마]
-{"should_include_daily_news": true, "match_count": 2, "matches": [
-  {"need_id": "<id>", "need_text": "<text>", "aliases": ["..."], "confidence": 0.0, "why": "기사 본문 기준 한 줄 근거"}
-]}
+            "니즈 해석 보조 규칙:\n"
+            "- 회사명 니즈는 해당 회사가 기사 핵심 주체일 때만 매칭하라\n"
+            "- 기술 니즈는 해당 기술이 기사 핵심 주제이거나 주요 변화/발표/도입 대상으로 다뤄질 때만 매칭하라\n"
+            "- 산업/시장 니즈는 기사 중심 내용이 그 산업 변화와 직접 연결될 때만 매칭하라\n"
+            "- 행사명 니즈는 단순 언급이 아니라 해당 행사 발표/현장/결과가 기사 핵심일 때만 매칭하라\n\n"
 
-"""
-        prompt += "user_needs:\n" + json.dumps(prompt_needs, ensure_ascii=False) + "\n"
-        prompt += "article_body:\n" + snippet + "\n"
+            "confidence는 0~1 실수. 0.4 미만은 False로 간주.\n"
+            f"니즈 목록:\n{json.dumps(prompt_needs, ensure_ascii=False)}\n"
+            f"기사 텍스트:\n{snippet}\n"
+        )
 
         raw = self._llm_request(prompt, max_tokens=1200, temperature=0.0)
         matches: list[dict] = []
         data = None
-        include_daily = False
+        # 새 스키마(should_include_daily_news)와 구 스키마(matches-only) 호환
+        include_daily = True
         if raw:
             try:
                 data = json.loads(raw)
@@ -1464,7 +1469,8 @@ class CollectionAgent:
                         data = None
 
         if isinstance(data, dict):
-            include_daily = bool(data.get("should_include_daily_news", False))
+            if "should_include_daily_news" in data:
+                include_daily = bool(data.get("should_include_daily_news", False))
             raw_matches = data.get("matches")
             if isinstance(raw_matches, list):
                 for item in raw_matches:
@@ -1493,7 +1499,7 @@ class CollectionAgent:
                 if str(m.get("need_id", "")).strip() != nid:
                     continue
                 conf_val = float(m.get("confidence", 0.0) or 0.0)
-                if conf_val < 0.6:
+                if conf_val < 0.4:
                     continue
                 if nid and nid not in matched_need_ids:
                     matched_need_ids.append(nid)
@@ -2399,9 +2405,15 @@ class CollectionAgent:
             seen_pool.add(key)
             pool.append(x)
 
+        # daily_news는 오직 shared_pool에서 온 후보만 허용
+        # - 하드코딩 없이 origin_type 메타로만 판별
+        pool = [a for a in pool if (a.origin_type or "").strip().lower() == "shared_pool"]
+
         target_n = max(int(min_count), int(self.daily_news_target or 8))
         daily = _build_daily_from_pool(pool, target_n)
 
+        # 최종 daily 후보가 shared_pool 밖이 섞이지 않도록 2차 보강 필터
+        daily = [a for a in daily if (a.origin_type or "").strip().lower() == "shared_pool"]
         # 권재순 사용자 중복 과다 이슈 완화: 같은 사건군 후보를 한 번 더 보수적으로 정리
         if (user.name or "").strip() == "권재순" or (user.user_code or "").strip() == "서하OXJI5394":
             def _tok(a: CollectedArticle) -> set[str]:
@@ -2500,11 +2512,15 @@ class CollectionAgent:
     def _make_daily_record(self, art: CollectedArticle) -> dict:
         # 핵심 공개 필드만 보관하고, writing에서 본문 유실이 안 나게 본문 요약 스니펫도 전달한다.
         summary_snip = (art.summary or "").replace("\n", " ").strip()
-        body_snip = (art.body or "").strip().replace("\n", " ")
+        is_shared = (art.origin_type or "").strip().lower() == "shared_pool"
+        body_snip = (art.body or "").strip().replace("\n", " ") if is_shared else ""
         if len(body_snip) > 1200:
             body_snip = body_snip[:1197] + "..."
         if len(summary_snip) > 600:
             summary_snip = summary_snip[:597] + "..."
+
+        body_text = art.body if is_shared else ""
+        body_len = len(body_text or "")
 
         return {
             "record_link": f"{art.url}|{art.title}",
@@ -2525,9 +2541,9 @@ class CollectionAgent:
             "source": art.source,
             "title_ko": art.title,
             "summary_ko": art.summary,
-            "body": art.body,
+            "body": body_text,
             "body_snippet": body_snip,
-            "body_len": int(len(art.body or "")),
+            "body_len": body_len,
             "origin_type": art.origin_type,
             "origin_detail": art.origin_detail,
             "issue_angle_id": art.issue_angle_id,
