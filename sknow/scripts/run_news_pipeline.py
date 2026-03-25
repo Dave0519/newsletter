@@ -536,6 +536,10 @@ def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
     if not _collector_query_match(row):
         return True, "collector_query_mismatch"
 
+    # 본문 필수 가드: body가 비었으면 shared pool에 적재하지 않음
+    if not (body or "").strip():
+        return True, "body_missing"
+
     # 최소 본문 길이 가드: fetch_text_raw/body가 1000자 미만이면 제외
     if len((body or "").strip()) < 1000:
         return True, "body_too_short"
