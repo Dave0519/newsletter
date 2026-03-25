@@ -536,6 +536,10 @@ def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
     if not _collector_query_match(row):
         return True, "collector_query_mismatch"
 
+    # 최소 본문 길이 가드: fetch_text_raw/body가 1000자 미만이면 제외
+    if len((body or "").strip()) < 1000:
+        return True, "body_too_short"
+
     # 운영 정책: digitimesasia 계열은 shared pool 적재 전 제외
     low_url = (url or "").lower()
     low_source = (source or "").lower()
@@ -802,7 +806,7 @@ def main() -> int:
             python_exec=_python,
         )
         logger.info("%s phase finished code=%s elapsed=%.2fs", stage, code, (time.perf_counter() - phase0))
-        _write_event(log_root, "dev2_phase", stage=stage, code=code, elapsed_ms=int((time.perf_counter() - phase0) * 1000), stdout=_truncate(out), stderr=_truncate(err))
+        _write_event(log_root, "dev2_phase", phase=stage, code=code, elapsed_ms=int((time.perf_counter() - phase0) * 1000), stdout=_truncate(out), stderr=_truncate(err))
     else:
         # shared-pool 기반 전체 사용자 rendering & delivery을 한 번의 run-all으로 통합.
         all_phase_start = time.perf_counter()
