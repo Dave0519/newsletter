@@ -152,7 +152,8 @@ def summarize_core_ko(body: str, title: str = "", sentence_count: int = 2) -> st
     cnt = max(1, min(sentence_count, 2))
     prompt = (
         "당신은 뉴스 원문을 정밀하게 압축 요약하는 편집자입니다.\n\n"
-        "아래 기사 원문만 바탕으로, core_description용 요약을 작성하세요.\n\n"
+        "아래 기사 원문만 바탕으로, core_description용 요약을 작성하세요.\n"
+        "원문이 영어(또는 다국어)여도 출력은 반드시 한국어로만 작성하세요.\n\n"
         "[핵심 원칙]\n"
         "- 반드시 기사 원문에 실제로 있는 내용만 사용하세요.\n"
         "- 외부 지식, 해석, 추측, 평가, 전망을 추가하지 마세요.\n"
