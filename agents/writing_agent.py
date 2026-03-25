@@ -375,13 +375,19 @@ class WritingAgent:
         cur = (text or "").strip()
         if not src or not cur:
             return cur
-        fmt = "문장당 한 줄로 줄바꿈" if linebreak else "줄바꿈 없이 한 문단"
+        if kind == "core_description":
+            fmt = "줄바꿈 없이 한 문단"
+            kind_rule = "Core description은 한 기사당 한 단락으로 작성하고 줄바꿈을 넣지 마."
+        else:
+            fmt = "문장당 한 줄로 줄바꿈" if linebreak else "줄바꿈 없이 한 문단"
+            kind_rule = ""
         prompt = (
             f"아래 {kind} 초안을 기사 원문 근거로 교정해라.\n"
             "목표: 메타/UI/광고 문구 제거, 원문 사실만 유지, 한국어만 사용.\n"
             "원문에 없는 추측/전망/평가 금지, 내용 왜곡 금지.\n"
             "출력은 절대 '...' 또는 '…'를 쓰지 말고, 문장이 끊긴 채로 끝내지 말 것.\n"
             "문장 끝은 마침표/물음표/느낌표로 마감하고, 필요하면 문장만 재작성할 것.\n"
+            f"{kind_rule}\n"
             f"출력 형식: 최대 {max_lines}문장, {fmt}, 설명/라벨 없이 결과문만 출력.\n\n"
             f"[원문]\n{src[:9000]}\n\n"
             f"[{kind} 초안]\n{cur[:3000]}"
@@ -879,15 +885,16 @@ class WritingAgent:
             if body:
                 # core_description은 LLM 출력만 사용(본문 조각 보강 금지)
                 compact = summarize_core_ko(body, title=title, sentence_count=2)
-                compact = self._llm_refine_from_source("core_description", compact, body, max_lines=2, linebreak=True)
+                compact = self._llm_refine_from_source("core_description", compact, body, max_lines=2, linebreak=False)
                 compact = self._clean_summary_text(compact)
                 compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
                 compact = self._strip_summary_noise((compact or "").strip())
                 compact = self._to_complete_summary_lines(compact, max_lines=2)
+                compact = compact.replace(chr(10), " ").strip()
 
             if compact:
                 # 기사별 2줄 유지
-                lines.append(f"• {compact.replace(chr(10), '<br/>')}")
+                lines.append(f"• {compact}")
 
         return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
 
