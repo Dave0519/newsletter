@@ -540,9 +540,9 @@ def _is_shared_row_filtered(row: dict) -> tuple[bool, str]:
     if not (body or "").strip():
         return True, "body_missing"
 
-    # 최소 본문 길이 가드: fetch_text_raw/body가 1000자 미만이면 제외
-    if len((body or "").strip()) < 1000:
-        return True, "body_too_short"
+    # 최소 본문 길이 가드: fetch_text_raw/body가 700자 미만이면 제외
+    if len((body or "").strip()) < 700:
+        return True, "body_too_short_700"
 
     # 운영 정책: digitimesasia 계열은 shared pool 적재 전 제외
     low_url = (url or "").lower()
