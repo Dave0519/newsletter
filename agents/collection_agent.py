@@ -1389,25 +1389,69 @@ class CollectionAgent:
 
         article_text = (text or "").strip()
         snippet = article_text[:5000]
-        prompt = (
-            "당신은 뉴스 기사와 사용자 니즈 목록을 매칭하는 분류기입니다.\n"
-            "아래 기사 텍스트에 대해, 사용자 니즈 중 실제로 관련있는 항목만 골라라.\n"
-            "규칙:\n"
-            "- 기사 문맥에 실제 관련성이 있어야 True로 판단\n"
-            "- 니즈에 직접적으로 연관되지 않으면 False\n"
-            "- 출력은 오직 JSON만 반환.\n\n"
-            "출력 JSON 스키마:\n"
-            "{\"matches\": [\n"
-            "  {\"need_id\": \"<id>\", \"need_text\": \"<text>\", \"aliases\": [\"...\"], \"confidence\": 0.0, \"why\": \"한 줄 근거\"}\n"
-            "]}\n\n"
-            "confidence는 0~1 실수. 0.4 미만은 False로 간주.\n"
-            f"니즈 목록:\n{json.dumps(prompt_needs, ensure_ascii=False)}\n"
-            f"기사 텍스트:\n{snippet}\n"
-        )
+        prompt = """당신은 shared_pool에 저장된 뉴스 기사 본문을 읽고, 특정 사용자의 니즈와 실제 관련성이 있는지 판단하여 daily_news에 넣을지 결정하는 정밀 분류기입니다.
+당신의 목표는 "키워드가 보였는지"를 판별하는 것이 아니라, 기사 전체의 핵심 내용이 해당 사용자의 니즈와 실질적으로 관련이 있는지를 판단하는 것입니다.
 
-        raw = self._llm_request(prompt, max_tokens=960, temperature=0.0)
+[입력]
+- article_body: shared_pool에 저장된 기사 본문 {body}
+- user_needs: 해당 사용자의 needs_payload
+- optional metadata: article_title, source, country, category 가 있을 수 있음
+
+[판단 원칙]
+1. 반드시 기사 본문(article_body)에 실제로 드러난 내용만 근거로 판단하세요.
+2. need_text, aliases와 표면적으로 단어가 겹치더라도 기사 핵심 주제와 무관하면 매칭하지 마세요.
+3. 기사에서 한 번 스쳐 지나가는 언급, 배경 설명, 주변 사례, 비교 대상은 원칙적으로 매칭하지 마세요.
+4. 기사 핵심 주제, 주요 기업, 핵심 기술, 핵심 산업 변화, 직접적인 제품/시장/전략/행위가 해당 니즈와 연결될 때만 매칭하세요.
+5. 원문에 없는 추론, 외부 지식, 업계 상식, 확대 해석은 금지합니다.
+6. 너무 넓은 일반화는 금지합니다.
+ - 예: AI가 언급되었다고 모두 AI Agent로 매칭하면 안 됩니다.
+ - 예: 반도체가 잠깐 언급되었다고 HBM으로 바로 매칭하면 안 됩니다.
+ - 예: 미국 빅테크 기사가 모두 데이터센터/클라우드/AI 인프라로 자동 매칭되면 안 됩니다.
+7. need 간 위계를 주의하세요.
+ - 예: 메모리 기사라고 모두 HBM, DRAM, NAND, TSV를 동시에 매칭하지 마세요.
+8. 기사의 핵심이 특정 회사/기술/이벤트/지정학 이슈와 직접 연결될 때만 해당 need를 True로 판단하세요.
+9. exclusions가 있다면, exclusion에 해당하는 내용이 기사 핵심이면 해당 need는 제외하세요.
+10. countries가 주어진 경우, 해당 기사와 국가 맥락이 명확히 맞을 때 confidence를 높일 수 있지만, 국가만으로 매칭을 결정하지는 마세요.
+
+[confidence 기준]
+- 0.90~1.00: 기사 핵심 주제가 해당 need와 직접적으로 일치
+- 0.75~0.89: 기사 핵심 내용 중 중요한 축이 해당 need와 밀접하게 연결
+- 0.60~0.74: 관련성은 있으나 기사 전체 핵심이라고 보기엔 다소 약함
+- 0.40~0.59: 일부 관련 단서가 있으나 daily_news에 넣기엔 애매함
+- 0.00~0.39: 표면적 언급 또는 사실상 무관
+
+[포함 규칙]
+- confidence가 0.60 이상인 need만 matches에 포함하세요.
+- confidence가 0.60 이상인 need가 1개 이상이면 should_include_daily_news = true
+- 모두 0.60 미만이면 should_include_daily_news = false
+- 억지 매칭보다 누락이 낫습니다. 애매하면 제외하세요.
+
+[근거 작성 규칙]
+- why는 반드시 기사 본문에 나온 내용만 바탕으로 1문장으로 작성하세요.
+- "관련 있어 보임", "연관 가능성 있음" 같은 모호한 표현은 피하세요.
+- 기사 핵심의 어떤 부분이 해당 need와 연결되는지 구체적으로 적으세요.
+- 원문에 없는 해석은 넣지 마세요.
+
+[출력 규칙]
+- 출력은 반드시 JSON만 반환하세요.
+- JSON 바깥에 어떤 설명도 쓰지 마세요.
+- 매칭된 need만 matches 배열에 넣으세요.
+- 동일한 need를 중복으로 넣지 마세요.
+- need_text와 aliases는 입력값을 그대로 사용하세요.
+
+[출력 JSON 스키마]
+{"should_include_daily_news": true, "match_count": 2, "matches": [
+  {"need_id": "<id>", "need_text": "<text>", "aliases": ["..."], "confidence": 0.0, "why": "기사 본문 기준 한 줄 근거"}
+]}
+
+"""
+        prompt += "user_needs:\n" + json.dumps(prompt_needs, ensure_ascii=False) + "\n"
+        prompt += "article_body:\n" + snippet + "\n"
+
+        raw = self._llm_request(prompt, max_tokens=1200, temperature=0.0)
         matches: list[dict] = []
         data = None
+        include_daily = False
         if raw:
             try:
                 data = json.loads(raw)
@@ -1418,7 +1462,9 @@ class CollectionAgent:
                         data = json.loads(m.group(1).strip())
                     except Exception:
                         data = None
+
         if isinstance(data, dict):
+            include_daily = bool(data.get("should_include_daily_news", False))
             raw_matches = data.get("matches")
             if isinstance(raw_matches, list):
                 for item in raw_matches:
@@ -1431,7 +1477,7 @@ class CollectionAgent:
                         conf = float(conf_raw)
                     except Exception:
                         conf = 0.0
-                    if not nid or conf < 0.4 or not need_text:
+                    if not nid or not need_text or conf < 0.4:
                         continue
                     aliases = [x for x in item.get("aliases", []) if isinstance(x, str) and x.strip()]
                     matches.append({"need_id": nid, "need_text": need_text, "confidence": conf, "aliases": aliases})
@@ -1446,18 +1492,30 @@ class CollectionAgent:
             for m in matches:
                 if str(m.get("need_id", "")).strip() != nid:
                     continue
+                conf_val = float(m.get("confidence", 0.0) or 0.0)
+                if conf_val < 0.6:
+                    continue
                 if nid and nid not in matched_need_ids:
                     matched_need_ids.append(nid)
                     matched_needs.append(str(item.get("need_text") or m.get("need_text") or nid))
-                    need_score += float(m.get("confidence", 0.0))
+                    need_score += conf_val
                     for a in item.get("aliases", []):
                         aa = str(a).strip()
                         if aa and aa not in matched_aliases:
                             matched_aliases.append(aa)
                     break
 
-        return matched_need_ids, matched_needs, matched_aliases, need_score
+        if not include_daily:
+            # should_include가 false면 보수적으로 제외
+            matched_need_ids = []
+            matched_needs = []
+            matched_aliases = []
+            need_score = 0.0
 
+        if include_daily and not matched_need_ids:
+            include_daily = False
+
+        return matched_need_ids, matched_needs, matched_aliases, need_score
 
     def _maybe_build_article(
         self,
