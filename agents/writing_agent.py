@@ -363,12 +363,150 @@ class WritingAgent:
         if not source:
             return ""
         # 모든 article_summary/core_description은 LLM 우선, 한국어로 작성
-        return summarize_ko(source, title=title or "", sentence_count=line_count)
+        prompt_hint = f"\n{regenerate_hint}" if regenerate_hint else ""
+        out = summarize_ko(source, title=title or "", sentence_count=line_count)
+        return out
+
+    def _quality_gate(self, kind: str, text: str, source: str, title: str = "", summary: str = "") -> tuple[bool, str]:
+        t = (text or "").strip()
+        if not t:
+            return False, "빈 텍스트"
+
+        s = (source or "").strip()
+        if not s and kind in {"core_description", "article_summary", "article_title"}:
+            return False, "근거 본문 없음"
+
+        if kind == "article_title":
+            rule = (
+                "- 제목은 한국어로 작성되어야 하고, 단문 1문장 수준이어야 한다.\n"
+                "- 기사 제목만이 아니라 뉴스레터에 쓰기 좋은 헤드라인이어야 한다.\n"
+                "- 출처명/매체명/기자명/사이트명/메타 텍스트(예: 네이버뉴스, Reuters, - CNN, | Reuters)는 포함되면 안 된다.\n"
+                "- 고유명사/브랜드/제품명은 영문 유지 가능.\n"
+                "- 부적절한 길이(2자 이하) 또는 과도한 접두/접미 텍스트는 실패."
+            )
+            input_blob = f"[제목]\n{t}\n\n[본문요약]\n{s[:9000]}"
+            if len(re.findall(r"[가-힣]", t)) < 1:
+                return False, "한국어 부재"
+
+        elif kind == "core_description":
+            rule = (
+                "- 반드시 기사 핵심 사실만 담은 2문장 이내 본문형 요약이어야 한다.\n"
+                "- 메타성 날짜/기자명/출처명/저작권 문구/사이트 안내문을 넣으면 실패.\n"
+                "- 문장이 3개 이상이면 실패.\n"
+                "- 기사 본문 근거를 벗어난 추측/예측/확대 해석이면 실패."
+            )
+            input_blob = f"[제목]\n{title}\n\n[본문]\n{s[:9000]}\n\n[작성문]\n{t}"
+
+        elif kind == "article_summary":
+            rule = (
+                "- 기사 본문 근거 기반으로 3~5문장(기준: 최소 2줄, 최대 5줄) 요약이어야 한다.\n"
+                "- 반드시 한국어.\n"
+                "- 메타 텍스트, 광고/기자/출처 문구는 제외.\n"
+                "- 과도한 추측, 전망, 투자 조언, 정책 해석 추가는 실패."
+            )
+            input_blob = f"[제목]\n{title}\n\n[본문]\n{s[:9000]}\n\n[작성문]\n{t}"
+            if not self._contains_korean(t):
+                return False, "한국어 부재"
+
+        elif kind == "실무 시사점":
+            rule = (
+                "- 기사 사실 기반의 실무적 관점 제안이어야 하고, 투자 조언/단정적 결론/정치적 전망은 실패.\n"
+                "- 한국어로 2~4문장, 질문형은 최대 2개 이내.\n"
+                "- 기사 요약 재진술 금지."
+            )
+            input_blob = f"[원문]\n{s[:9000]}\n\n[시사점]\n{t}"
+            if not self._contains_korean(t):
+                return False, "한국어 부재"
+
+        else:
+            return bool(t), ""
+
+        prompt = (
+            "당신은 품질 게이트입니다. 아래 항목이 규칙에 부합하는지 엄밀하게 판정해.\n\n"
+            f"[판정 규칙]\n{rule}\n\n"
+            f"[입력]\n{input_blob}\n\n"
+            "출력은 반드시 JSON만 출력: {\"pass\": true/false, \"reason\": \"한글\"}\n"
+            "정확히 true/false만 판단하고, 규칙 위반이 하나라도 있으면 false."
+        )
+        out = self._llm_request(prompt, max_tokens=180, temperature=0.0)
+        if not out:
+            # 네트워크/토큰 예외면 휴리스틱으로 2차 안전판
+            if kind == "article_summary" and self._contains_korean(t) and 2 <= len(t.splitlines()) <= 7:
+                return True, ""
+            if kind == "article_title" and self._contains_korean(t) and len(t) <= 90:
+                return True, ""
+            if kind == "core_description" and self._contains_korean(t) and len(t) <= 450:
+                return True, ""
+            if kind == "실무 시사점" and self._contains_korean(t) and 2 <= len(t) <= 450:
+                return True, ""
+            return False, "LLM 게이트 응답 없음"
+
+        txt = (out or "").strip()
+        marker = re.search(r'\"pass\"\s*[:=]\s*(true|false)', txt, flags=re.IGNORECASE)
+        if marker:
+            ok = marker.group(1).lower() == "true"
+        elif re.search(r"\b(?:PASS|pass)\b|\"pass\"", txt):
+            # fallback parse: JSON 형식 이탈 시 텍스트 기반 추론
+            ok = bool(re.search(r"\btrue\b", txt, flags=re.IGNORECASE))
+        else:
+            ok = txt.strip().upper().startswith("PASS")
+
+        reason = ""
+        m = re.search(r'\"reason\"\s*[:=]\s*\"([^\"]*)\"', txt)
+        if m:
+            reason = m.group(1).strip()
+        if not reason:
+            m = re.search(r"reason\s*[:\-]\s*(.+)", txt, flags=re.IGNORECASE)
+            if m:
+                reason = m.group(1).strip().strip("\n ")
+        return bool(ok), reason
+
+    def _rewrite_with_quality(self, kind: str, source: str, title: str, previous: str = "", hint: str = "") -> str:
+        src = (source or "").strip()
+        if kind == "article_title":
+            prompt = (
+                "아래 규칙에 맞게 기사 제목을 한국어 헤드라인으로 단 1문장 재작성해.\n"
+                "메타데이터(출처명/사이트명/기자명/파이프/대시/가운데 점)는 절대 포함하지 말고,\n"
+                "기업명/제품명/브랜드명은 원문 표기 그대로 유지.\n"
+                f"[원본 제목]\n{previous}\n\n[본문]\n{src[:1200]}"
+            )
+            out = rewrite_title(previous or title, src, max_chars=70)
+            return self._normalize_title_candidate(self._clean_title(out))
+
+        if kind == "core_description":
+            regen = summarize_core_ko(src, title=title, sentence_count=2)
+            if regen and self._contains_korean(regen):
+                return self._ensure_korean_summary_lines(regen, max_lines=2)
+            prompt = (
+                "원문만 사용해 2문장 이하 한국어 핵심 요약을 재작성해.\n"
+                "메타정보/예측/해석/투자언급 금지.\n"
+                f"[원문]\n{src[:9000]}"
+            )
+            return (self._llm_request(prompt, max_tokens=360, temperature=0.2) or "").strip()
+
+        if kind == "article_summary":
+            regen = summarize_ko(src, title=title, sentence_count=6)
+            if regen:
+                return self._to_complete_summary_lines(self._clean_summary_text(self._normalize_practical_lines(regen, max_lines=5)), max_lines=5)
+            prompt = (
+                "[규칙]\n"
+                "기사 본문 근거로만 3~5문장, 한국어, 메타/예측/광고성 문구 제외.\n"
+                "다시 작성해.\n\n"
+                f"[원문]\n{src[:9000]}"
+            )
+            return (self._llm_request(prompt, max_tokens=600, temperature=0.2) or "").strip()
+
+        # 실무 시사점
+        prompt = (
+            "아래 원문을 바탕으로 실무 시사점 2~4문장으로 다시 작성해.\n"
+            "한국어, 기사 요약 재진술 금지, 투자/단정/과장 전망 금지, 질문형은 최대 2개.\n"
+            f"[원문]\n{src[:9000]}"
+        )
+        return (self._llm_request(prompt, max_tokens=500, temperature=0.2) or "").strip()
 
     def _llm_judge_summary(self, title: str, source: str, summary: str):
-        # Conservative fallback: rely on source alignment check
-        ok = bool(summary) and self._assert_source_alignment(summary, source)
-        return ok, "" if ok else "요약 근거 정합성 점검 실패"
+        # keep compatibility: 기존 호출 경로에서 바로 사용
+        return self._quality_gate("article_summary", summary, source, title=title)
 
     def _llm_refine_from_source(self, kind: str, text: str, source: str, max_lines: int = 5, linebreak: bool = True) -> str:
         src = (source or "").strip()
@@ -876,27 +1014,37 @@ class WritingAgent:
         # GLOBAL SCAN에서 실제 표시되는 국가 블록/기사 순서를 유지
         ordered_payloads = self._ordered_entry_payloads(entries_payload)
 
-        for entry, ctx in ordered_payloads:
+        def _build_one(entry_ctx: tuple[NewsletterEntry, dict[str, str]]) -> str:
+            entry, ctx = entry_ctx
             title = (entry.title or "").strip()
-            # Core description도 article_summary와 동일하게 daily_news 본문 기반 LLM 요약
             body = (ctx.get("readable_body") or "").strip()
+            source = (ctx.get("summary_source") or body or title).strip()
 
             compact = ""
-            if body:
-                # core_description은 LLM 출력만 사용(본문 조각 보강 금지)
-                compact = summarize_core_ko(body, title=title, sentence_count=2)
-                compact = self._llm_refine_from_source("core_description", compact, body, max_lines=2, linebreak=False)
-                compact = self._clean_summary_text(compact)
+            if source:
+                # core_description도 LLM + 품질게이트 2차 검수 후 실패 시 재작성
+                compact = summarize_core_ko(source, title=title, sentence_count=2)
                 compact = self._ensure_korean_summary_lines(compact, max_lines=2).strip()
                 compact = self._strip_summary_noise((compact or "").strip())
-                compact = self._to_complete_summary_lines(compact, max_lines=2)
-                compact = compact.replace(chr(10), " ").strip()
+                compact = self._to_complete_summary_lines(compact, max_lines=2).replace(chr(10), " ").strip()
 
-            if compact:
-                # 기사별 2줄 유지
-                lines.append(f"• {compact}")
+                for _ in range(3):
+                    ok, reason = self._quality_gate("core_description", compact, source, title=title)
+                    if ok:
+                        break
+                    compact = self._rewrite_with_quality("core_description", source, title=title, previous=compact, hint=reason)
+                    compact = self._to_complete_summary_lines(self._clean_summary_text(compact), max_lines=2).replace(chr(10), " ").strip()
 
-        return "<br/><br/>".join(lines) if lines else "오늘은 본문 추출 가능한 주요 기사가 부족했습니다."
+            return f"• {compact}" if compact else ""
+
+        with ThreadPoolExecutor(max_workers=min(8, max(1, len(ordered_payloads)))) as ex:
+            futs = [ex.submit(_build_one, payload) for payload in ordered_payloads]
+            for fut in futs:
+                txt = (fut.result() or "").strip()
+                if txt:
+                    lines.append(txt)
+
+        return "<br/><br/>".join(lines) if lines else ""
 
 
     def _grouped_country_blocks(self, articles: list[NewsletterEntry]):
@@ -924,13 +1072,13 @@ class WritingAgent:
             self._emit_stage(user, issue_number, stage_id="derive_entry", status="start", in_count=1, out_count=0)
         issue_snapshot = int(issue_number or 0)
         resolved_url = self._resolve_url(c.url)
-        # Writing 단계는 URL 재요청 없이 daily news 본문 기반으로만 요약한다.
+        # Writing 단계는 URL 재요청 없이 daily news 기반으로만 요약한다.
         readable_body = str(c.body or "").strip()
         raw_title = self._normalize_title_candidate(self._clean_title(c.title))
         summary_source = self._resolve_summary_source(c, readable_body)
 
         # 제목: 기사 제목 우선 사용 (daily news 기반)
-        title = raw_title or c.title or "제목 변환이 아직 완료되지 않았습니다."
+        title = raw_title or c.title or ""
         # 깨진 패턴/너무 짧은 제목은 본문 기반 재작성으로 교정
         bad_title = (
             (not title)
@@ -939,41 +1087,37 @@ class WritingAgent:
             or ("기사본문" in title)
             or title.strip().endswith("]")
         )
-        if bad_title:
-            regenerated = self._llm_generate_title_from_body(title, summary_source)
-            title = self._normalize_title_candidate(regenerated or raw_title or c.title or title)
+        for _ in range(2):
+            if bad_title or not title:
+                regenerated = self._llm_generate_title_from_body(summary_source or raw_title or c.title or title, summary_source)
+                title = self._normalize_title_candidate(regenerated or raw_title or c.title or title)
 
-        # 정책: article_title도 LLM 기반 한국어 작성 우선
-        if title and not self._contains_korean(title):
-            ko_title = ""
-            try:
-                ko_title = self._llm_request(
-                    "다음 기사 제목과 본문을 바탕으로 뉴스레터용 한국어 제목 1문장으로 작성해줘. "
-                    "반드시 한국어로만 작성하고, 45자 내외로 간결하게 작성해. "
-                    "[주니어전자], [속보], [단독] 같은 매체/라벨 접두어는 절대 포함하지 마.\n\n"
-                    f"[제목]\n{title}\n\n[본문]\n{(summary_source or '')[:1200]}",
-                    max_tokens=80,
-                    temperature=0.2,
-                )
-            except Exception:
-                ko_title = ""
-            ko_title = self._normalize_title_candidate((ko_title or "").strip())
-            title = self._normalize_title_candidate(ko_title or title)
+            ok, reason = self._quality_gate("article_title", title, summary_source or (raw_title or c.title or ""), title=title)
+            if ok:
+                break
+            # 2차 품질게이트 실패 시 LLM 재작성
+            title = self._rewrite_with_quality("article_title", summary_source or (readable_body or raw_title or c.title or ""), title=title, previous=title, hint=reason)
+            bad_title = True
 
-        title = self._to_complete_sentences(title, max_lines=1)
+        # 제목 최종 정리
+        title = self._to_complete_sentences((title or raw_title or c.title or "").strip(), max_lines=1)
 
         # article_summary / practical은 모두 daily_news body 기반으로 각각 다른 프롬프트를 병렬 생성
         def _gen_summary() -> str:
             d = self._llm_summary_from_body(title, summary_source, line_count=5)
-            if d:
-                ok, reason = self._llm_judge_summary(title, summary_source, d)
-                if not ok:
-                    d = self._llm_summary_from_body(title, summary_source, regenerate_hint=reason, line_count=7)
             if not d:
                 d = summarize_ko(summary_source, title=title, sentence_count=7)
-            if not d:
-                d = self._strip_html(summary_source)
-            return d
+            d = self._to_complete_summary_lines(self._clean_summary_text(self._ensure_korean_summary_lines(d, max_lines=6)), max_lines=5)
+            # quality gate 2차 (목적/규칙)
+            for _ in range(3):
+                ok, reason = self._quality_gate("article_summary", d, summary_source, title=title)
+                if ok:
+                    return d
+                d2 = self._rewrite_with_quality("article_summary", summary_source, title=title, previous=d, hint=reason)
+                d = self._to_complete_summary_lines(self._clean_summary_text(self._ensure_korean_summary_lines(d2, max_lines=5)), max_lines=5)
+                if not d:
+                    continue
+            return self._ensure_korean_summary_lines(d, max_lines=5)
 
         def _gen_practical() -> str:
             return self._openclaw_style_practical(
@@ -990,16 +1134,15 @@ class WritingAgent:
             description = fut_summary.result() or ""
             practical_prefetch = fut_practical.result() or ""
 
-        if not description:
-            description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
-
-        description = self._ensure_korean_summary_lines(description, max_lines=5)
+        description = self._to_complete_summary_lines(
+            self._clean_summary_text(self._ensure_korean_summary_lines(description, max_lines=5)),
+            max_lines=5,
+        )
         description = self._ensure_min_summary_lines(description, source=summary_source, min_lines=3, max_lines=5)
         description = self._llm_refine_from_source("article_summary", description, summary_source, max_lines=5, linebreak=True)
         description = self._clean_summary_text(description)
-        if not description:
-            description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
         description = self._to_complete_summary_lines(description, max_lines=5)
+
         if not self._assert_source_alignment(description, summary_source):
             description = self._repair_by_source(description, summary_source, "기사 요약을 본문 근거로 3~5줄 이내로 완성형 문장으로 수정", max_lines=5)
 
@@ -1014,8 +1157,12 @@ class WritingAgent:
         description = "\n".join(cleaned_lines)
         description = self._clean_summary_text(description)
         description = self._to_complete_summary_lines(description, max_lines=5)
-        if not description:
-            description = "해당 기사를 본문에서 핵심 내용을 추출하지 못해 요약 텍스트가 비어 있습니다."
+
+        # 품질게이트: article_summary 최종 pass 검증
+        ok, reason = self._quality_gate("article_summary", description, summary_source, title=title)
+        if not ok:
+            description = self._rewrite_with_quality("article_summary", summary_source, title=title, previous=description, hint=reason)
+            description = self._to_complete_summary_lines(self._clean_summary_text(description), max_lines=5)
 
         entry = NewsletterEntry(
             title=title,
@@ -1043,31 +1190,22 @@ class WritingAgent:
             t0 = datetime.now().astimezone()
             self._emit_stage(user, issue_number, stage_id="practical", status="start", in_count=1, out_count=0)
 
-        if not title and not summary:
-            if self.trace_enabled and user is not None:
-                self._emit_stage(user, issue_number, stage_id="practical", status="skipped", in_count=1, out_count=0)
-            return ""
-
-
-        body_snippet = (body or "")[:8000]
+        source = (summary or body or "").strip()
+        body_snippet = (body or "")[ :8000]
         prompt = (
             "당신은 뉴스/산업 기사에서 실무적 시사점을 부드럽게 도출하는 전략 보조자입니다.\n\n"
             "아래 기사 원문을 바탕으로, SK하이닉스 실무자 관점에서 참고할 만한 가벼운 실무 시사점을 작성하세요.\n"
             "원문이 영어(또는 다국어)여도 출력은 반드시 한국어로만 작성하세요.\n\n"
             "[작성 목표]\n"
             "- 단정적인 결론이나 과도한 해석이 아니라, \"이런 관점에서도 생각해볼 수 있겠다\" 수준의 가벼운 인사이트를 제시하세요.\n"
-            "- 읽는 사람이 부담 없이 받아들이되, 내부적으로 한 번 더 생각해보게 만드는 질문형 문제의식을 담으세요.\n"
-            "- 정답을 제시하는 느낌보다, 실무자가 스스로 판단할 수 있도록 사고의 방향을 열어주는 느낌으로 작성하세요.\n"
-            "- 요약( summary )은 만들지 말고, 기사 본문의 핵심 사실을 바탕으로 한 독립적인 실무 시각으로 작성하세요.\n"
-            "- 반드시 '요약 재진술'이 되지 않도록, 본문 사실을 다른 관점의 판단 포인트로 재구성하세요.\n\n"
+            "- 읽는 사람이 부담 없이 받아들이되, 내부적으로 한 번 더 생각해보게 만드는 질문형 문제의식을 담으세요.\n\n"
             "[핵심 원칙]\n"
             "- 반드시 기사 원문에 나온 사실만 근거로 삼으세요.\n"
             "- 원문에 없는 정보, 외부 지식, 추측, 내부 사정 가정, 확정적 전망은 넣지 마세요.\n"
             "- '반드시', '결국', '분명히', '즉시 대응해야 한다' 같은 단정적 표현은 피하세요.\n"
             "- 위기감 조성, 과장된 해석, 지나친 전략적 비약은 금지합니다.\n"
             "- 실무자 관점에서 현실적으로 생각해볼 포인트만 가볍게 정리하세요.\n"
-            "- 문체는 부드럽고 절제된 비즈니스 문체로 작성하세요.\n"
-            "- 뉴스레터 본문에서 양쪽정렬로 읽린다는 점을 고려해 문장 길이와 호흡을 균형 있게 맞추세요.\n\n"
+            "- 문체는 부드럽고 절제된 비즈니스 문체로 작성하세요.\n\n"
             "[톤 가이드]\n"
             "- '~로 볼 수 있다' / '~도 생각해볼 수 있다' / '~여부를 점검해볼 필요가 있다' / '~관점에서 한 번 볼 만하다' 같은 표현을 활용하세요.\n"
             "- 훈수, 지시, 결론 선언처럼 들리지 않게 작성하세요.\n"
@@ -1092,12 +1230,21 @@ class WritingAgent:
             f"기사 원문:\n{body_snippet}"
         )
         out = self._llm_request(prompt, max_tokens=420, temperature=0.2)
+        for _ in range(3):
+            if out:
+                ok, reason = self._quality_gate("실무 시사점", out, body_snippet or source, title=title, summary=summary)
+                if ok:
+                    break
+                out = self._rewrite_with_quality("실무 시사점", body_snippet or source, title=title, previous=out, hint=reason)
+            else:
+                out = self._rewrite_with_quality("실무 시사점", body_snippet or source, title=title, previous=prompt, hint="")
+
         out = (out or "").strip()
         if self.trace_enabled and user is not None:
             elapsed_ms = int((datetime.now().astimezone() - t0).total_seconds() * 1000)
             self._emit_stage(user, issue_number, stage_id="practical", status="done", in_count=1, out_count=1 if out else 0, elapsed_ms=elapsed_ms)
         if not out:
-            return ""
+            return self._rewrite_with_quality("실무 시사점", body_snippet or source, title=title, previous="", hint="")
         out = self._normalize_practical_lines(self._ensure_korean_summary_lines(out, max_lines=3), max_lines=3)
         return out
 
@@ -1120,7 +1267,11 @@ class WritingAgent:
                     user=user,
                     issue_number=issue_number,
                 )
+
             practical = self._llm_refine_from_source("실무 시사점", practical, practical_body or practical_source, max_lines=3, linebreak=False)
+            ok, reason = self._quality_gate("실무 시사점", practical, practical_body or practical_source, title=e.title, summary=e.summary)
+            if not ok:
+                practical = self._rewrite_with_quality("실무 시사점", practical_body or practical_source, title=e.title, previous=practical, hint=reason)
             if not self._assert_source_alignment(practical or e.summary, practical_source or practical_body):
                 practical = self._repair_by_source(practical or e.summary, practical_source or practical_body, "실무 시사점을 본문 근거로 3문장 이내로 정리", max_lines=3)
             e.practical_implication = practical

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import List
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
@@ -34,18 +37,37 @@ def _base_payload(prompt: str, max_tokens: int = 500, temp: float = 0.2) -> dict
 def _llm(prompt: str, max_tokens: int = 600, temp: float = 0.2) -> str:
     key = _api_key()
     if not key:
+        logger.warning("llm request skipped: OPENAI_API_KEY missing")
         return ""
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
+    payload = _base_payload(prompt, max_tokens=max_tokens, temp=temp)
     try:
-        r = requests.post(OPENAI_API_URL, headers=headers, json=_base_payload(prompt, max_tokens=max_tokens, temp=temp), timeout=60)
+        r = requests.post(OPENAI_API_URL, headers=headers, json=payload, timeout=60)
         if r.status_code != 200:
+            snippet = (r.text or "").strip()[:500]
+            logger.warning(
+                "llm request failed: status=%s snippet=%s",
+                r.status_code,
+                snippet,
+            )
             return ""
         data = r.json()
-        return ((data.get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip())
-    except Exception:
+        content = (data.get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip()
+        if not content:
+            logger.warning("llm request returned empty content: model=%s", payload.get("model"))
+        return content
+    except requests.RequestException as e:
+        logger.warning("llm request failed: network error: %s", e)
+        return ""
+    except ValueError as e:
+        # json decoding 실패
+        logger.warning("llm request failed: json decode error: %s", e)
+        return ""
+    except Exception as e:
+        logger.exception("llm request failed: unexpected exception")
         return ""
 
 
@@ -241,26 +263,83 @@ def practical_ko(title: str, summary: str, max_sentences: int = 5) -> str:
 
 
 
+def _has_korean(text: str) -> bool:
+    return bool(re.search(r"[\uac00-\ud7a3]", text or ""))
+
+
+def _strip_source_noise_from_title(text: str) -> str:
+    t = (text or "").strip()
+    if not t:
+        return ""
+
+    # remove trailing/leading metadata wrappers like " | Reuters" , " - CNN" , " · Yonhap"
+    for sep in [" | ", " - ", " – ", " — ", " : ", " · "]:
+        if sep in t:
+            left, right = t.rsplit(sep, 1)
+            if right and 2 <= len(right) <= 45:
+                t = left.strip()
+                break
+
+    # remove common metadata suffix patterns
+    t = re.sub(r"\s*\|\s*[^|]{1,60}$", "", t)
+    t = re.sub(r"\s*-\s*[^-]{1,60}$", "", t)
+    t = re.sub(r"\s*·\s*[^·]{1,60}$", "", t)
+    t = re.sub(r"\s*\[[^\]]{1,60}\]$", "", t)
+
+    # remove news site/domain fragments
+    site_fragments = [
+        "Reuters", "AP", "Bloomberg", "Nikkei", "CNBC", "BBC", "KBS", "MBC", "YTN", "SBS",
+        "연합뉴스", "조선일보", "중앙일보", "매일경제", "한국경제", "헤럴드", "동아일보", "뉴시스", "연합", "파이낸셜뉴스",
+        "the guardian", "the verge", "techcrunch", "ft.com", "reuters.com", "bloomberg.com", "wsj.com", "cnn.com", "yahoo.com", "google", "google news",
+    ]
+    for s in site_fragments:
+        if t.endswith(s):
+            t = t[: -len(s)].strip().rstrip("-|:·|·")
+
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    t = re.sub(r"^[-\s·:]+|[-\s·:]+$", "", t).strip()
+    return t
+
+
 def rewrite_title(raw_title: str, body: str, max_chars: int = 70) -> str:
     """원문 제목을 그대로 쓰지 않고 70자 이내 브리핑형 제목으로 다시 작성."""
     if not raw_title:
         return ""
 
     prompt = (
-        '너는 뉴스 헤드라인 편집자다. 아래 기사 내용을 바탕으로, 출처/매체명 없이 공백과 기호 정리를 해서 '
-        '"행동/사실" 중심의 짧은 제목 하나만 한국어로 작성해줘.\n'
-        '원문 제목은 그대로 반복하지 말고, 핵심 결론을 압축해 다시 쓰기.\n\n'
+        '너는 뉴스 헤드라인 편집자다. 아래 기사 내용을 바탕으로 출처/매체명/메타데이터를 제거해서 '
+        '"행동/사실" 중심의 짧은 제목 하나만 작성해.\n\n'
+        '필수 조건:\n'
+        '- 제목 전체는 한국어로 작성할 것.\n'
+        '- 다만 기업명, 제품명, 프로젝트명, 표준명칭, 고유명사, 약어, 영문 브랜드명/서비스명/모델명은 영문 원문 표기를 유지해도 됨.\n'
+        '- 원문 제목에 붙은 메타데이터를 반드시 제거할 것: 기자명, 출처명, 매체명, 뉴스사이트명, 파이프(|), 대시(-), 닷(·), 콜론(:)으로 이어진 접미/접두부.\n'
+        '- 특히 "제목 | 출처", "제목 - 뉴스사", "제목 · 매체" 형태는 원천적으로 제거.\n'
+        '- 원문 제목을 단순 복붙하지 말고 핵심 결론이 드러나는 문장형 헤드라인으로 재작성.\n'
+        '- 한국어 구문이 아니면 번역/의역해 한국어 제목으로 한문장으로 작성.\n'
+        '- 70자 이내로 간결하게.\n'
+        '- 예시는 금지: 네이버뉴스, 기사요약, 오늘의... 등 메타성 텍스트\n\n'
         f"[원문 제목]\n{raw_title}\n\n"
         f"[본문 일부]\n{body[:1200]}"
     )
-    out = _llm(prompt, max_tokens=80, temp=0.2)
+    out = _llm(prompt, max_tokens=140, temp=0.15)
     if not out:
-        return raw_title[:max_chars]
+        # LLM 실패 시에도 최소한 제목을 한글로 정리해 출력
+        fallback = translate_ko(f"{raw_title}\n{body[:400]}")
+        s = _strip_source_noise_from_title(fallback or raw_title)
+        return s[:max_chars]
 
     s = (out or "").strip().replace("\n", " ")
+    s = _strip_source_noise_from_title(s)
+
     # 한두 줄 정도 길이로 정리
     while "  " in s:
         s = s.replace("  ", " ")
+
+    # 모델 응답이 한국어가 아닐 경우 보수적으로 번역 보정
+    if not _has_korean(s):
+        s = translate_ko(s)
+        s = _strip_source_noise_from_title(s)
+
     return s[:max_chars]
 
 
