@@ -321,6 +321,9 @@ class CollectionAgent:
         # shared pool rematch policy: user-needs(default) | collector-only
         self.shared_match_mode = (os.getenv("CLUE_SHARED_MATCH_MODE", "user-needs") or "user-needs").strip().lower()
 
+        # LLM need-match 임계값 (0~1). 기본값은 0.25로 완화
+        self.need_match_threshold = min(1.0, max(0.0, float(os.getenv("CLUE_NEED_MATCH_THRESHOLD", "0.25") or "0.25")))
+
         # dev2: 판매/프로모션/상업성 주제 차단 키워드
         self._sales_noisewords = {
             "할인", "판매", "세일", "특가", "이벤트", "혜택", "프로모션", "쿠폰", "할부", "예약판매", "한정수량", "특별가", "사전예약", "딜", "deal", "discount", "promotion", "sale", "pre-order", "preorder", "price", "buy", "구매"
@@ -1402,6 +1405,8 @@ class CollectionAgent:
 
             "목표:\n"
             "- 단순 키워드 포함 여부가 아니라, 기사 핵심 내용과 니즈의 실질적 관련성을 판단하라.\n"
+            "- partial matching(문맥 기반)은 허용하되, 단순 한두 단어 언급이 아닌 기사 본문 전체 맥락에서\n"
+            "  해당 니즈가 핵심 주제/주요 이슈/실질적 영향으로 쓰였을 때만 True로 판단한다.\n"
             "- 기사에 단어가 잠깐 등장하거나 배경 설명으로 언급된 정도라면 매칭하지 마라.\n"
             "- 애매하면 제외하라. 잘못 매칭하는 것보다 놓치는 것이 낫다.\n\n"
 
@@ -1420,9 +1425,10 @@ class CollectionAgent:
             "- 0.90~1.00: 기사 핵심 주제가 해당 니즈와 직접적으로 일치\n"
             "- 0.75~0.89: 기사 핵심 내용의 중요한 축이 해당 니즈와 밀접하게 연결\n"
             "- 0.60~0.74: 관련성은 분명하지만 기사 전체 핵심이라고 보기에는 다소 약함\n"
-            "- 0.40~0.59: 일부 관련 단서가 있으나 약하거나 간접적임\n"
-            "- 0.00~0.39: 표면적 언급 또는 사실상 무관\n"
-            "- confidence가 0.4 미만이면 matches에 넣지 마라\n\n"
+            "- 0.40~0.59: 부분 문맥 단서가 있으나 핵심성은 중간\n"
+            f"- {self.need_match_threshold:.2f}~0.39: 일부 문맥 근거가 있으나 핵심성은 낮음\n"
+            "- 0.00~(threshold 미만): 표면적 언급 또는 사실상 무관\n"
+            f"- confidence가 {self.need_match_threshold} 미만이면 matches에 넣지 마라\n\n"
             "why 작성 규칙:\n"
             "- why는 반드시 기사 텍스트에 근거한 한 줄 설명으로 작성\n"
             "- 해당 니즈와 연결되는 기사 속 핵심 내용이 무엇인지 구체적으로 적어라\n"
@@ -1447,7 +1453,7 @@ class CollectionAgent:
             "- 산업/시장 니즈는 기사 중심 내용이 그 산업 변화와 직접 연결될 때만 매칭하라\n"
             "- 행사명 니즈는 단순 언급이 아니라 해당 행사 발표/현장/결과가 기사 핵심일 때만 매칭하라\n\n"
 
-            "confidence는 0~1 실수. 0.4 미만은 False로 간주.\n"
+            f"confidence는 0~1 실수. {self.need_match_threshold} 미만은 False로 간주.\n"
             f"니즈 목록:\n{json.dumps(prompt_needs, ensure_ascii=False)}\n"
             f"기사 텍스트:\n{snippet}\n"
         )
@@ -1483,7 +1489,7 @@ class CollectionAgent:
                         conf = float(conf_raw)
                     except Exception:
                         conf = 0.0
-                    if not nid or not need_text or conf < 0.4:
+                    if not nid or not need_text or conf < self.need_match_threshold:
                         continue
                     aliases = [x for x in item.get("aliases", []) if isinstance(x, str) and x.strip()]
                     matches.append({"need_id": nid, "need_text": need_text, "confidence": conf, "aliases": aliases})
@@ -1499,7 +1505,7 @@ class CollectionAgent:
                 if str(m.get("need_id", "")).strip() != nid:
                     continue
                 conf_val = float(m.get("confidence", 0.0) or 0.0)
-                if conf_val < 0.4:
+                if conf_val < self.need_match_threshold:
                     continue
                 if nid and nid not in matched_need_ids:
                     matched_need_ids.append(nid)
