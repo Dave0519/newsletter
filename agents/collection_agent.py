@@ -1072,7 +1072,7 @@ class CollectionAgent:
 
         rematched: list[CollectedArticle] = []
         for base in shared_articles:
-            merged = f"{base.title} {base.summary}"
+            merged = str(base.body or "").strip() or f"{base.title} {base.summary}"
             if not merged.strip():
                 continue
 
@@ -1087,7 +1087,7 @@ class CollectionAgent:
                 matched_aliases = list(base.matched_aliases or [])
                 need_hit_score = float(base.need_match_score or 0.0)
             else:
-                merged = f"{base.title} {base.summary} {base.body}"
+                # shared rematch는 전체 본문(body) 기반으로 LLM 재매칭
                 matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(merged, needs_payload)
                 if not matched_need_ids:
                     continue
@@ -1573,7 +1573,7 @@ class CollectionAgent:
             return None
 
         # 닫기: 제목+description로 광고/이벤트성 콘텐츠 배제
-        merged_for_match = f"{raw_title} {raw_snippet}"
+        merged_for_match = str(body_text or "").strip() or f"{raw_title} {raw_snippet}"
         if _is_marketing_content(merged_for_match, url):
             self.stage_counters["fail"] += 1
             return None
@@ -1582,7 +1582,8 @@ class CollectionAgent:
             self.stage_counters["filtered_stale"] += 1
             return None
 
-        article_for_match = f"{raw_title}\n{raw_snippet}"
+        # LLM 매칭은 원문 본문(body)을 1순위로 사용, 본문이 비었으면 제목+요약으로 폴백
+        article_for_match = str(body_text or "").strip() or f"{raw_title}\n{raw_snippet}"
         matched_need_ids, matched_needs, matched_aliases, need_hit_score = self._collect_need_hits(article_for_match, needs_payload)
         if not matched_need_ids:
             self.stage_counters["fail"] += 1
