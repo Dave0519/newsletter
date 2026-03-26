@@ -724,12 +724,16 @@ def main() -> int:
     # For --no-send/dry runs, allow fallback to local file mode.
     delivery_mode = args.delivery_mode.lower()
     send_requested = bool(args.send and not args.no_send)
-    if delivery_mode in {"gog", "openclaw", "openclaw-only", "strict", "strict-gog"}:
-        env["SKNOW_DELIVERY_MODE"] = "openclaw-only" if send_requested else "fallback"
+    if delivery_mode in {"openclaw-only", "strict", "strict-gog", "openclaw-strict", "openclaw-only-strict"}:
+        # Strict modes preserve old failure semantics when gog/openclaw delivery is truly required.
+        env["SKNOW_DELIVERY_MODE"] = "openclaw-strict" if send_requested else "fallback"
+    elif delivery_mode in {"gog", "openclaw", "openclaw-compatible"}:
+        # Compatibility mode: prefer gog if available, fallback to local-file if not.
+        env["SKNOW_DELIVERY_MODE"] = "openclaw" if send_requested else "fallback"
     elif delivery_mode in {"fallback", "local"}:
         env["SKNOW_DELIVERY_MODE"] = "fallback"
     else:
-        env["SKNOW_DELIVERY_MODE"] = "openclaw-only" if send_requested else "fallback"
+        env["SKNOW_DELIVERY_MODE"] = "openclaw" if send_requested else "fallback"
     env["PYTHON"] = _python
     # 기본 정책 유지: shared pool 이후 user needs 기반 rematch
     env["CLUE_SHARED_MATCH_MODE"] = "user-needs"

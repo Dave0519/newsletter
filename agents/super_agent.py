@@ -23,13 +23,20 @@ from .browser_adapter import BrowserRelayAdapter, HttpNewsAdapter
 
 
 def _delivery_mode() -> str:
-    mode = (os.getenv("SKNOW_DELIVERY_MODE", "openclaw").strip().lower()
-            .replace("_", "-")
+    mode = (
+        os.getenv("SKNOW_DELIVERY_MODE", "openclaw")
+        .strip()
+        .lower()
+        .replace("_", "-")
     )
-    if mode in {"openclaw-only", "openclaw_only", "gog", "strict-gog", "strict"}:
-        return "openclaw-only"
     if mode in {"fallback", "local", "local-fallback", "local_fallback"}:
         return "fallback"
+    if mode in {"openclaw-only", "openclaw-only-strict", "strict", "strict-gog", "openclaw-strict"}:
+        return "openclaw-strict"
+    # gog/openclaw should be compatible mode: try openclaw delivery when available,
+    # otherwise degrade to local file fallback instead of hard-failing.
+    if mode in {"gog", "openclaw", "openclaw-compatible"}:
+        return "openclaw"
     return "openclaw"
 
 
@@ -232,8 +239,10 @@ class SuperAgent:
         mode = _delivery_mode()
         if _HAS_OPENCLAW_DELIVERY and _OpenclawDeliveryManager is not None:
             return _OpenclawDeliveryManager()
-        if mode == "openclaw-only":
-            raise RuntimeError("Openclaw delivery is required for this run, but openclaw.agents.delivery is unavailable.")
+        if mode == "openclaw-strict":
+            raise RuntimeError(
+                "Openclaw delivery is required for this run, but openclaw.agents.delivery is unavailable."
+            )
         return LocalFileDelivery(self.logger_root / "delivery")
 
     def _latest_output_html(self, user: UserProfile, user_dir: Path, issue: str | None = None) -> Path:
@@ -304,7 +313,15 @@ class SuperAgent:
     def _delivery_info(self) -> dict:
         available = bool(_HAS_OPENCLAW_DELIVERY)
         mode = _delivery_mode()
-        effective = "openclaw" if available else ("fallback" if mode == "fallback" else "openclaw-required")
+        if available:
+            effective = "openclaw"
+        elif mode == "fallback":
+            effective = "local-fallback"
+        elif mode == "openclaw-strict":
+            effective = "openclaw-required"
+        else:
+            # Compatibility mode (gog/openclaw) with fallback delivery.
+            effective = "openclaw-compatible"
         return {
             "mode": effective,
             "available": available,
@@ -314,7 +331,7 @@ class SuperAgent:
     def _emit_delivery_warning_if_needed(self) -> None:
         if _HAS_OPENCLAW_DELIVERY:
             return
-        if _delivery_mode() == "fallback":
+        if _delivery_mode() != "openclaw-strict":
             self._trace("openclaw.agents.delivery import failed; using local-file delivery fallback")
 
     def _load_core_feed_urls(self) -> list[str]:
